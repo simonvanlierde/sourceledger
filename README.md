@@ -94,6 +94,7 @@ Each `[[source]]` table takes these keys:
 | `format` | no | `"csv"`, `"json"` (an array of objects) or `"xlsx"`. Otherwise from the URL's extension: `.json`, `.xlsx`, and CSV for anything else. A gzipped CSV or JSON file is decompressed, within `max_bytes`. |
 | `sheet` | no | The Excel sheet to read. The first unless set. |
 | `headers` | no | Extra request headers, such as an API key, each value naming an environment variable: `{ Authorization = "env:EIA_TOKEN" }`. A literal value is refused, so a secret never lands in the manifest. The record keeps the header names, not the values, and a redirect to another host drops them. |
+| `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for http and https URLs. |
 | `reason` | no | A note for people, such as why a source is unimplemented. sourceledger doesn't read it. |
 
 `validate` reports a missing `terms`, `terms_url`, `license` or `redistribute`. The other
@@ -127,6 +128,9 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 - A second fetch in the same project, while one runs, exits at once (a lock on
   `data/raw/.lock`, Linux and macOS only).
 - Each line it prints says `new` or `unchanged`, against the last version in the log.
+- For a source with `archive = true`, it asks the Internet Archive for a snapshot after
+  new bytes arrive. Each connect and read of that request times out after 15 s. When it fails, it prints a warning, leaves
+  `archive_url` empty, and the fetch still succeeds.
 
 ## Other commands
 
