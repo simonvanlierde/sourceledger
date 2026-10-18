@@ -40,6 +40,9 @@ a breaking change comes only in a minor version (see Stability in the README).
 ### Security
 
 - CI gives the read-only GitHub token to the zizmor hook only, not to every hook.
+- Each release file on PyPI has a signed GitHub build-provenance attestation:
+  `gh attestation verify <file> --repo simonvanlierde/sourceledger` shows where it was built.
+- CI installs a set prek version, 0.5.5, instead of the newest one on each run.
 
 ## [0.1.0] - 2026-10-18
 
