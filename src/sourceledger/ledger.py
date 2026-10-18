@@ -1117,7 +1117,8 @@ def _file_problems(folder: Path, resource: dict[str, Any]) -> list[str]:
     problems = []
     size = file.stat().st_size
     if (listed := resource.get("bytes")) is not None and listed != size:
-        problems.append(f"{file} is {size:,} bytes, not the {listed} the package lists")
+        shown = f"{listed:,}" if type(listed) is int else repr(listed)  # from someone else's file
+        problems.append(f"{file} is {size:,} bytes, not the {shown} the package lists")
     expected = resource.get("hash")
     if not (isinstance(expected, str) and expected.startswith("sha256:")):
         problems.append(f"{file}: the package lists no sha256 hash to check it against")
