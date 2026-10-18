@@ -12,6 +12,8 @@ authors:
     orcid: "https://orcid.org/0009-0006-6953-909X"
 repository-code: "https://github.com/simonvanlierde/sourceledger"
 license: MIT
+version: "0.1.0"
+date-released: "2026-10-18"
 keywords:
   - "provenance"
   - "data pipeline"
