@@ -1292,13 +1292,15 @@ def test_verify_checks_a_published_dataset_against_its_package(capsys: pytest.Ca
     capsys.readouterr()
     assert main(["verify", "data/processed"]) == 0
     assert capsys.readouterr().out == "0 problems\n"
+    built = OUT.stat().st_size
     OUT.write_text(OUT.read_text(encoding="utf-8") + "extra,row\n", encoding="utf-8")
     assert main(["verify", "data/processed"]) == 1
     out, err = capsys.readouterr()
     assert out == "2 problems\n"
     size_line, hash_line = err.splitlines()
-    assert size_line.startswith("data/processed/example.csv is ")
-    assert size_line.endswith(" the package lists")
+    assert (
+        size_line == f"data/processed/example.csv is {OUT.stat().st_size:,} bytes, not the {built:,} the package lists"
+    )
     assert hash_line.startswith("data/processed/example.csv hashes to sha256:")
 
 
@@ -1312,6 +1314,10 @@ def test_verify_checks_a_published_dataset_against_its_package(capsys: pytest.Ca
         ([{"path": "https://example.org/a.csv"}], ["d/datapackage.json: resource path 'https://example.org/a.csv'"]),
         (["a.csv"], ["d/datapackage.json: resource path None is not a file in d"]),
         ({"a": 1}, ["d/datapackage.json has no list of resources"]),
+        (
+            [{"path": "a.csv", "bytes": "many", "hash": "sha256:00"}],
+            ["d/a.csv is 2 bytes, not the 'many' the package lists", "d/a.csv hashes to sha256:"],
+        ),
     ],
 )
 def test_verify_reports_a_package_it_cannot_check(
