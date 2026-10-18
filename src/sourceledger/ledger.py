@@ -139,9 +139,10 @@ class FetchRecord:
     final_url: str = ""
     # The request headers taken from environment variables (names only, never values).
     env_headers: list[str] = dataclasses.field(default_factory=list)
-    # The Internet Archive's snapshot of the URL, for a source with `archive = true`. Set only
-    # by the fetch that first brought these bytes, whose line in the log keeps it. Empty when
-    # the source does not ask for one, or the archive did not answer with one.
+    # The Internet Archive's snapshot of the URL, for a source with `archive = true`. Set by
+    # the fetch that first brought these bytes; a later download of the same bytes takes it
+    # from their line in the log. Empty when the source does not ask for one, or the archive
+    # did not answer with one.
     archive_url: str = ""
 
 
@@ -208,6 +209,9 @@ def _select(sources: list[Source], only: Collection[str] | None) -> list[Source]
     """
     if only is None:
         return sources
+    if isinstance(only, str):  # a str is a Collection of its characters
+        msg = f"only takes a list of ids, not the string {only!r}"
+        raise TypeError(msg)
     if unknown := sorted(set(only) - {s["id"] for s in sources}):
         msg = f"ids {unknown} are not in sources.toml"
         raise ValueError(msg)
@@ -534,6 +538,13 @@ def _last_records(log: Path) -> dict[str, dict[str, Any]]:
                 continue
             msg = f"{log}:{number} is not a fetch record ({error})"
             raise ValueError(msg) from error
+        if not (
+            isinstance(record, dict)
+            and isinstance(record.get("source_id"), str)
+            and isinstance(record.get("sha256"), str)
+        ):
+            msg = f"{log}:{number} is not a fetch record"
+            raise ValueError(msg)  # noqa: TRY004  # a damaged log: the CLI reports ValueError as one line
         records[record["source_id"]] = record
     return records
 
@@ -660,7 +671,11 @@ def _keep(
     if source.get("sha256", digest) != digest:
         msg = f"{source['id']}: downloaded bytes hash to {digest}, not the sha256 in sources.toml"
         raise ValueError(msg)
-    archived = _archive(source, user_agent) if source.get("archive") and logged.get(source["id"]) != digest else ""
+    archived = ""
+    if source.get("archive"):
+        # The same bytes again, with no 304 to say so, keep the snapshot their log line names.
+        same = logged.get(source["id"]) == digest
+        archived = _last_records(log)[source["id"]].get("archive_url", "") if same else _archive(source, user_agent)
     record = FetchRecord(
         source_id=source["id"],
         url=source["url"],
@@ -904,8 +919,13 @@ def _listed(path: Path) -> dict[str, Any]:
         package = json.loads(path.read_text(encoding="utf-8"))
     except _UNUSABLE:
         return {}
-    resources = package.get("resources", []) if isinstance(package, dict) else []
-    return {r.get("name"): r for r in resources if isinstance(r, dict)}
+    return _by_name(package)
+
+
+def _by_name(package: object) -> dict[str, Any]:
+    """A parsed data package's resources, by name: none when it is not an object with a list of them."""
+    resources = package.get("resources") if isinstance(package, dict) else None
+    return {r.get("name"): r for r in resources if isinstance(r, dict)} if isinstance(resources, list) else {}
 
 
 def _package_name() -> str:
@@ -1018,7 +1038,7 @@ def _package_problems(sources: list[Source], processed: Path, only: Collection[s
         return [f"{path} is missing; re-run build"] if checked else []
     except ValueError as error:
         return [f"{path} is not JSON ({error}); re-run build"]
-    listed = {r.get("name"): r for r in package.get("resources", []) if isinstance(r, dict)}
+    listed = _by_name(package)
     if only is None and set(listed) != expected:
         return [
             f"{path} lists {sorted(map(str, listed))}, not the implemented sources {sorted(expected)}; re-run build"
@@ -1114,13 +1134,17 @@ def _file_problems(folder: Path, resource: dict[str, Any]) -> list[str]:
     file = folder / name
     if not file.is_file():
         return [f"{file} is missing"]
+    # A symlink inside the folder can still lead out of it.
+    if not file.resolve().is_relative_to(folder.resolve()):
+        return [f"{folder / DATAPACKAGE}: resource path {name!r} is not a file in {folder}"]
     problems = []
     size = file.stat().st_size
-    if (listed := resource.get("bytes")) is not None and listed != size:
+    # Not isinstance: bool is an int subclass, so `"bytes": true` would pass for a 1-byte file.
+    if (listed := resource.get("bytes")) is not None and (type(listed) is not int or listed != size):
         shown = f"{listed:,}" if type(listed) is int else repr(listed)  # from someone else's file
         problems.append(f"{file} is {size:,} bytes, not the {shown} the package lists")
     expected = resource.get("hash")
-    if not (isinstance(expected, str) and expected.startswith("sha256:")):
+    if not (isinstance(expected, str) and expected.lower().startswith("sha256:")):
         problems.append(f"{file}: the package lists no sha256 hash to check it against")
         return problems
     with file.open("rb") as fh:

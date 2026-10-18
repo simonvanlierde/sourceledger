@@ -17,7 +17,6 @@ from sourceledger.ledger import (
     FetchError,
     FetchRecord,
     Parser,
-    Source,
     attribution,
     build,
     fetch,
@@ -33,6 +32,7 @@ from sourceledger.ledger import (
     verify,
 )
 
+_STAGES = ("init", "fetch", "build", "validate", "status", "attribution", "revisions", "verify")
 # Stages that take --only.
 _SELECTABLE = ("fetch", "build", "validate")
 # Stages that take a path, and what it is.
@@ -63,9 +63,7 @@ def main(
     as `user_agent`. Returns the exit code: 0, or 1 for any failure or validation problem.
     """
     parser = argparse.ArgumentParser(prog=prog, description="Fetch, build and validate the sources in sources.toml.")
-    parser.add_argument(
-        "stage", choices=["init", "fetch", "build", "validate", "status", "attribution", "revisions", "verify"]
-    )
+    parser.add_argument("stage", choices=_STAGES)
     parser.add_argument(
         "path",
         nargs="?",
@@ -82,10 +80,9 @@ def main(
         parser.error(f"{args.stage} needs {_NEEDS_PATH[args.stage]}")
     # Retries and recovered fetch logs are reported as warnings, on stderr.
     logging.basicConfig(format=f"{prog}: %(message)s", level=logging.WARNING)
+    # Filled by fetch, for the lines of a run that fails.
     before: dict[str, str] = {}
     try:
-        # What the log held before this run, so each fetch line can say new or unchanged.
-        before = logged_versions(FETCH_LOG)
         problems = _run(args.stage, args.path, args.only, parse, user_agent, before)
     except FetchError as error:
         for record in error.records:
@@ -103,7 +100,7 @@ def main(
     return 1 if problems else 0
 
 
-def _run(
+def _run(  # noqa: C901, PLR0912  # one case per stage
     stage: str,
     path: Path | None,
     only: list[str] | None,
@@ -111,7 +108,11 @@ def _run(
     user_agent: str,
     logged: dict[str, str],
 ) -> list[str]:
-    """Run `stage`, print its report, and return its problems: only validate and verify have any."""
+    """Run `stage`, print its report, and return its problems: only validate and verify have any.
+
+    fetch first fills `logged` with what the log held before this run, so each fetch line can
+    say new or unchanged. No other stage reads the log, so a damaged one breaks only fetch.
+    """
     match stage, path:
         case "init", _:
             init()
@@ -124,31 +125,22 @@ def _run(
             problems = verify(path)
             print(f"{len(problems)} problems")
             return problems
-        case _:
-            return _run_on_manifest(stage, load_manifest(), only, parse, user_agent, logged)
-    return []
-
-
-def _run_on_manifest(
-    stage: str, sources: list[Source], only: list[str] | None, parse: Parser, user_agent: str, logged: dict[str, str]
-) -> list[str]:
-    """Run a stage that reads sources.toml, print its report, and return its problems: only validate has any."""
-    match stage:
-        case "fetch":
-            for record in fetch(sources, user_agent=user_agent, only=only):
+        case "fetch", _:
+            logged.update(logged_versions(FETCH_LOG))
+            for record in fetch(load_manifest(), user_agent=user_agent, only=only):
                 print(_fetch_line(record, logged))
-        case "build":
-            for out in build(sources, parse=parse, only=only):
+        case "build", _:
+            for out in build(load_manifest(), parse=parse, only=only):
                 print(f"{len(read_output(out))} rows -> {out}")
             print(f"package -> {PROCESSED / DATAPACKAGE}")
-        case "status":
-            for line in status(sources):
+        case "status", _:
+            for line in status(load_manifest()):
                 print(line)
-        case "attribution":
-            for line in attribution(sources):
+        case "attribution", _:
+            for line in attribution(load_manifest()):
                 print(line)
         case _:
-            problems = validate(sources, only=only)
+            problems = validate(load_manifest(), only=only)
             print(f"{len(problems)} problems")
             return problems
     return []

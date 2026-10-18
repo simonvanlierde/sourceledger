@@ -23,10 +23,7 @@ terms, and whether the raw file may be republished. sourceledger runs four stage
 - `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
   log. A weekly CI run can use it to report a publisher's revision.
 
-Four smaller commands help around them: `init` writes a starter `sources.toml`, `status`
-lists every source and its last fetch, `attribution` prints the reuse terms as a table, and
-`verify DIR` checks a downloaded dataset against its `datapackage.json`. See
-[Other commands](#other-commands).
+`init`, `status`, `attribution` and `verify` help around them: see [Other commands](#other-commands).
 
 There are no dependencies. Excel files need the optional `xlsx` extra. The
 [docs page](https://simonvanlierde.github.io/sourceledger/) walks through a fetch and a
@@ -94,7 +91,7 @@ Each `[[source]]` table takes these keys:
 | `format` | no | `"csv"`, `"json"` (an array of objects) or `"xlsx"`. Otherwise from the URL's extension: `.json`, `.xlsx`, and CSV for anything else. A gzipped CSV or JSON file is decompressed, within `max_bytes`. |
 | `sheet` | no | The Excel sheet to read. The first unless set. |
 | `headers` | no | Extra request headers, such as an API key, each value naming an environment variable: `{ Authorization = "env:EIA_TOKEN" }`. A literal value is refused, so a secret never lands in the manifest. The record keeps the header names, not the values, and a redirect to another host drops them. |
-| `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for http and https URLs. |
+| `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for http and https URLs. The archive's request does not send `headers`, so don't use it on a source that needs a login. |
 | `reason` | no | A note for people, such as why a source is unimplemented. sourceledger doesn't read it. |
 
 `validate` reports a missing `terms`, `terms_url`, `license` or `redistribute`. The other
@@ -128,9 +125,9 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 - A second fetch in the same project, while one runs, exits at once (a lock on
   `data/raw/.lock`, Linux and macOS only).
 - Each line it prints says `new` or `unchanged`, against the last version in the log.
-- For a source with `archive = true`, it asks the Internet Archive for a snapshot after
-  new bytes arrive. Each connect and read of that request times out after 15 s. When it fails, it prints a warning, leaves
-  `archive_url` empty, and the fetch still succeeds.
+- For a source with `archive = true`, each connect and read of the Internet Archive
+  request times out after 15 s. When it fails, fetch prints a warning, leaves
+  `archive_url` empty, and still succeeds.
 
 ## Other commands
 
@@ -149,7 +146,7 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 
 `fetch`, `build` and `validate` take `--only ID`, as often as needed, to work on just those
 sources. An id that is not in `sources.toml` is an error. `build --only` keeps the other
-sources' entries in `datapackage.json` as the last full build wrote them, and
+sources' entries in `datapackage.json` as the last build wrote them, and
 `validate --only` skips the checks that cover the whole output.
 
 ## Your own readers
