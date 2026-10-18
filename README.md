@@ -5,43 +5,33 @@
 
 Build a dataset from public sources where every row says which download it came from.
 
-A worked example, from a first fetch through a publisher's silent revision, is on the
-[docs page](https://simonvanlierde.github.io/sourceledger/).
-
 A project lists its inputs in `sources.toml`: each source's URL, the publisher's reuse
-terms, and whether the raw file may be republished. sourceledger runs four stages over
-that manifest:
+terms, and whether the raw file may be republished. sourceledger runs four stages over it:
 
-- `fetch` downloads each source into `data/raw/`, with a record beside it: the URL, when
-  it was fetched, the SHA-256 and size of the bytes, the vintage the manifest declares,
-  and the server's ETag and Last-Modified. The next fetch sends the ETag back, so an
-  unchanged source is not downloaded again. Each new version of a source is also
-  appended to `data/fetches.jsonl`.
-- `build` re-hashes each download against its record, reads it, and writes
-  `data/processed/<id>.csv` with five provenance columns in front of the source's own:
-  `source_id`, `source_url`, `retrieved_at`, `vintage` and `raw_sha256`. Beside the outputs
-  it writes `datapackage.json`, a [Frictionless Data Package](https://datapackage.org)
-  that describes each output's columns, size, SHA-256, source and licence, so the outputs
-  open in Frictionless tools. The same records always give the same file.
-- `validate` re-reads the output and reports every problem it finds: output built from
-  an older fetch, a raw file changed since its fetch, a record made for another URL,
-  vintage or pin, a source with no reuse terms, an output with no rows, output left by a
-  source that is gone or marked unimplemented, and a `datapackage.json` that no longer
-  matches the outputs.
+- `fetch` downloads each source into `data/raw/` and writes a record beside it: the URL,
+  the time, the SHA-256 and size, the vintage, and the server's ETag. The next fetch
+  sends the ETag back, so an unchanged source isn't downloaded again. Each new version is
+  also added to `data/fetches.jsonl`.
+- `build` re-hashes each download, reads it, and writes `data/processed/<id>.csv` with five
+  provenance columns in front: `source_id`, `source_url`, `retrieved_at`, `vintage` and
+  `raw_sha256`. It also writes `datapackage.json`, a
+  [Frictionless Data Package](https://datapackage.org) that describes every output. The
+  same records always give the same files.
+- `validate` re-reads the outputs and lists every problem it finds, such as an output from
+  an older fetch, an edited raw file, a record made for another URL, vintage or pin, a
+  source without reuse terms, or a `datapackage.json` that no longer matches.
 - `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
-  fetch log. A weekly CI run can use it to say when a publisher revised its data.
+  log. A weekly CI run can use it to report a publisher's revision.
 
-sourceledger has no dependencies: the standard library does all of it. Reading Excel files
-needs the optional `xlsx` extra (`uv add 'sourceledger[xlsx]'`).
+There are no dependencies. Excel files need the optional `xlsx` extra. The
+[docs page](https://simonvanlierde.github.io/sourceledger/) walks through a fetch and a
+publisher's silent revision.
 
 ## Install
 
 ```sh
-uv add sourceledger
+uv add sourceledger            # or 'sourceledger[xlsx]' to read Excel files
 ```
-
-Until the first release is on PyPI, install it from GitHub:
-`uv add git+https://github.com/simonvanlierde/sourceledger`.
 
 ## Quick start
 
@@ -67,17 +57,17 @@ sourceledger build
 sourceledger validate
 ```
 
-`sourceledger` reads CSV (gzipped or not), JSON and Excel, by each source's `format` or else
-its URL's extension. For anything else, see [Your own readers](#your-own-readers).
+`sourceledger` reads CSV (gzipped or not), JSON and Excel, by each source's `format` or its
+URL's extension. For other formats, see [Your own readers](#your-own-readers).
 
 ## What to commit
 
 Commit `sources.toml` and `data/fetches.jsonl`. The log holds checksums and URLs, not
-data, and it is the history of every version of every source you have fetched.
+data: it's the history of every version you have fetched.
 
-Keep `data/raw/` and `data/processed/` out of git, so the repository never
-redistributes a publisher's data. The per-file `.fetch.json` records live in
-`data/raw/` too. A fresh clone runs `fetch` before `build` and `validate`.
+Keep `data/raw/` and `data/processed/` out of git, so the repository never redistributes
+a publisher's data. The `.fetch.json` records live in `data/raw/` too, so a fresh clone
+runs `fetch` before `build` and `validate`.
 
 ## sources.toml
 
@@ -85,7 +75,7 @@ Each `[[source]]` table takes these keys:
 
 | Key | Required | Meaning |
 | --- | --- | --- |
-| `id` | yes | Letters, digits, `_` and `-`. Names the raw file (`id` plus the URL's extension) and the output. |
+| `id` | yes | ASCII letters, digits, `_` and `-`. Names the raw file (`id` plus the URL's extension) and the output. |
 | `status` | yes | `"implemented"`, read by every stage, or `"unimplemented"`: a source you know about but don't read yet. `validate` fails if one of those has output. |
 | `url` | for implemented sources | What `fetch` downloads. Change it and `build` refuses the old download until you fetch again. |
 | `terms`, `terms_url` | for implemented sources | The publisher's reuse terms in their words, and where they are stated. |
@@ -100,16 +90,17 @@ Each `[[source]]` table takes these keys:
 | `reason` | no | A note for people, such as why a source is unimplemented. sourceledger doesn't read it. |
 
 `validate` reports a missing `terms`, `terms_url`, `license` or `redistribute`. The other
-keys are checked when the manifest loads. Other keys are kept, for a project's own reader.
+keys are checked when the manifest loads. Keys not listed here are kept, for a project's
+own reader.
 
-Editors can check a manifest as you type it. Put this line at the top of `sources.toml`
-for a TOML language server such as Tombi or Taplo:
+To have an editor with a TOML language server (Tombi, Taplo) check the manifest as you
+type, put this line at the top of `sources.toml`:
 
 ```toml
 #:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/main/src/sourceledger/sources.schema.json
 ```
 
-The schema accepts exactly the manifests sourceledger accepts; a test keeps the two in step.
+The schema accepts exactly what sourceledger accepts. A test keeps the two in step.
 
 ## How fetch behaves
 
@@ -123,19 +114,19 @@ The schema accepts exactly the manifests sourceledger accepts; a test keeps the 
   address. When a redirect is followed, the record keeps the final URL too.
 - Every source is tried. When some fail, the others are still written, and the run
   exits 1 with one line per failed source.
-- Each download streams to a new temporary file beside its destination, hashed on the
-  way, and is renamed into place, so memory stays small and a crash never leaves half a
-  file. A fetch log line cut off by a crash is dropped on the next run.
-- Two fetches at once in the same project are refused: the second exits at once. This
-  uses a lock on `data/raw/.lock`, on Linux and macOS only.
-- Each line it prints says `new` when a source's bytes differ from the last ones in the
-  log, and `unchanged` when they don't.
+- Each download streams to a temporary file, hashed on the way, and is renamed into
+  place. Memory stays small, and a crash never leaves half a file. A log line cut off by
+  a crash is dropped on the next run.
+- A second fetch in the same project, while one runs, exits at once (a lock on
+  `data/raw/.lock`, Linux and macOS only).
+- Each line it prints says `new` or `unchanged`, against the last version in the log.
 
 ## Your own readers
 
-`sourceledger` reads every source with `parse_source`, which dispatches on the format to
-`parse_csv`, `parse_json` or `parse_xlsx`. A project with another format gives it its own reader, a function from a source's manifest table and raw bytes to columns
-and rows, and its own command:
+`sourceledger` reads every source with `parse_source`, which hands it to `parse_csv`,
+`parse_json` or `parse_xlsx`. For another format, a project writes its own reader, a
+function from a source's manifest table and raw bytes to columns and rows, and its own
+command:
 
 ```python
 # src/my_dataset/pipeline.py
@@ -144,8 +135,8 @@ from sourceledger import Source
 
 
 def parse(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
-    """Every source is CSV here. Branch on source["id"] for one that is not."""
-    return sourceledger.parse_csv(source, payload)
+    """Branch on source["id"] for a source in a format sourceledger doesn't read."""
+    return sourceledger.parse_source(source, payload)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -158,17 +149,15 @@ def main(argv: list[str] | None = None) -> int:
 my-dataset = "my_dataset.pipeline:main"
 ```
 
-`my-dataset fetch`, `my-dataset build` and `my-dataset validate` then run with that
-reader, and publishers see `my-dataset` as the User-Agent. The
+`my-dataset fetch`, `build` and `validate` then use that reader, and publishers see
+`my-dataset` as the User-Agent. The
 [project-templates](https://github.com/simonvanlierde/project-templates) `data-pipeline`
-kind sets all of this up, with CI and a weekly run that reports revised sources.
-
-The same stages are functions too: `load_manifest`, `fetch`, `build`, `validate` and
-`revisions`.
+kind sets this up for you, with CI and a weekly revision report. The stages are also
+functions: `load_manifest`, `fetch`, `build`, `validate` and `revisions`.
 
 ## Compared with
 
-Other tools cover parts of this. Pick one of them when that part is all you need.
+Other tools cover parts of this. Use one of them when that part is all you need.
 
 | Tool | What it does well | What sourceledger adds |
 | --- | --- | --- |
@@ -181,11 +170,10 @@ Checked against each project's code and docs on 2026-10-18.
 
 ## Stability
 
-Until 1.0, the public API is what `sourceledger` exports in `__all__`, the keys of
-`sources.toml`, and the format of fetch records and the fetch log. A breaking change to
-any of them comes only in a minor version, listed in [CHANGELOG.md](CHANGELOG.md), with
-a warning first where that is cheap. Fetch logs written by an earlier version stay
-readable.
+Until 1.0, the public API is `sourceledger`'s `__all__`, the keys of `sources.toml`, and
+the format of fetch records and the log. A breaking change to any of them comes only in a
+minor version, listed in [CHANGELOG.md](CHANGELOG.md), with a warning first where that's
+cheap. Older fetch logs stay readable.
 
 ## Development
 

@@ -26,9 +26,8 @@ turn other people's published data into a dataset of their own. It keeps four pr
 ### A worked example
 
 This example follows one source through a publisher's revision. A local file stands in for
-the publisher, so the revision can be made on purpose; with a real source the steps and
-output are the same. The output below is from an actual run, with the long file path
-shortened.
+the publisher, so the revision can be made on purpose. With a real source, the steps and
+output are the same. The output is from an actual run, with the file path shortened.
 
 #### 1. Declare the source
 
@@ -105,13 +104,14 @@ co2,file:///…/publisher/annual.csv,2026-10-18T03:38:33Z,2025 release,16f81da8a
 
 Commit `sources.toml` and `data/fetches.jsonl`: the log holds checksums and URLs, never
 data. Keep `data/raw/` and `data/processed/` out of git, so the repository never
-redistributes a publisher's data. Anyone can rebuild them with `fetch` and `build`, and
-`validate` tells them whether they got the same bytes.
+redistributes a publisher's data. Anyone can rebuild them with `fetch` and `build`. To see
+whether a source changed since your last commit, copy the log before fetching and run
+`sourceledger revisions` against the copy.
 
 ### Check a manifest as you type
 
-Put this line at the top of `sources.toml` for an editor with a TOML language server, such
-as Tombi or Taplo:
+To have an editor with a TOML language server (Tombi, Taplo) check the manifest, put this
+line at the top of `sources.toml`:
 
 ```toml
 #:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/main/src/sourceledger/sources.schema.json
