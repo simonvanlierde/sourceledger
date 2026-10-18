@@ -16,22 +16,33 @@ from __future__ import annotations
 
 import csv
 import dataclasses
+import errno
 import hashlib
 import http.client
 import io
+import ipaddress
 import json
+import logging
+import os
 import re
+import socket
+import tempfile
 import time
 import tomllib
 import urllib.error
 import urllib.request
+import urllib.response
 from collections.abc import Callable
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from http import HTTPStatus
 from importlib.metadata import version
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import IO, TYPE_CHECKING, Any
 from urllib.parse import urlsplit
+
+if TYPE_CHECKING:
+    from email.message import Message
 
 MANIFEST = Path("sources.toml")
 RAW = Path("data/raw")
@@ -40,13 +51,19 @@ FETCH_LOG = Path("data/fetches.jsonl")
 
 IMPLEMENTED = "implemented"
 UNIMPLEMENTED = "unimplemented"
-_TIMEOUT_S = 120
+# Bounds each connect and each read. A server that trickles bytes is stopped by _BUDGET_S.
+_SOCKET_TIMEOUT_S = 30
+# One source's whole fetch, every attempt and wait included, so a stalled publisher costs
+# at most 5 minutes of a CI job.
+_BUDGET_S = 300
 # Waits of 5, 10 and 20 s between four attempts ride out a brief publisher outage.
 _ATTEMPTS = 4
 _BACKOFF_S = 5
-# A server asking for hours would otherwise stall the run. Three capped waits (6 min) stay
-# inside a 10-minute CI job, so the run ends on the fetch's own error, not a timeout.
+# A server asking for hours would otherwise stall the run.
 _MAX_RETRY_AFTER_S = 120
+# Statuses a publisher recovers from. 501 and 505 never will.
+_RETRIED = frozenset({429, 500, 502, 503, 504})
+_CHUNK_BYTES = 1024 * 1024
 # A network error or timeout, or a connection dropped or garbled mid-response.
 _TRANSIENT = (OSError, http.client.HTTPException)
 # A raw file or fetch record that is missing, edited or unreadable.
@@ -54,11 +71,16 @@ _UNUSABLE = (OSError, ValueError)
 # A runaway or wrong URL fails the fetch instead of filling the disk. A big source sets
 # its own `max_bytes` in sources.toml.
 _MAX_BYTES = 200 * 1024 * 1024
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 
 # Sent with every request, so a publisher can tell who is fetching. `main` takes the project's own.
 USER_AGENT = f"sourceledger/{version('sourceledger')}"
 
+_logger = logging.getLogger("sourceledger")
+
 type Source = dict[str, Any]
+# What the opener returns: an HTTP response, or a file:// one.
+type _Response = http.client.HTTPResponse | urllib.response.addinfourl
 # Reads one raw file as its columns and rows. `parse_csv` is the default.
 type Parser = Callable[[Source, bytes], tuple[list[str], list[dict[str, str]]]]
 
@@ -76,10 +98,21 @@ class FetchRecord:
     # Empty when the server sends none. Defaults keep records written before these fields readable.
     last_modified: str = ""
     etag: str = ""
+    # Where the bytes came from after redirects. Empty when there were none.
+    final_url: str = ""
+
+
+class FetchError(OSError):
+    """One or more sources failed to fetch. The others were fetched and recorded as usual."""
+
+    def __init__(self, records: list[FetchRecord], failures: list[str]) -> None:
+        super().__init__("\n".join(failures))
+        self.records = records  # the sources that succeeded
+        self.failures = failures  # one line per source that did not
 
 
 def load_manifest(path: Path = MANIFEST) -> list[Source]:
-    """The `[[source]]` tables of sources.toml, after checking that each id is a safe, unique file name."""
+    """The `[[source]]` tables of sources.toml, after checking ids, URLs, caps and pins."""
     with path.open("rb") as fh:
         sources = tomllib.load(fh).get("source", [])
     if not isinstance(sources, list) or not all(isinstance(s, dict) and isinstance(s.get("id"), str) for s in sources):
@@ -100,7 +133,36 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
     if bad_cap := [i for i, cap in caps.items() if type(cap) is not int or cap < 1]:
         msg = f"sources {bad_cap} in sources.toml need max_bytes to be a positive whole number"
         raise ValueError(msg)
+    for source in sources:
+        _check_pin(source)
+        _check_vintage(source)
     return sources
+
+
+def _check_pin(source: Source) -> None:
+    """Normalize a `sha256` pin to lower case, as `sha256sum` prints it, and reject one that is not a SHA-256."""
+    if (pin := source.get("sha256")) is None:
+        return
+    if not (isinstance(pin, str) and _SHA256.fullmatch(pin.lower())):
+        msg = f"{source['id']}: sha256 in sources.toml must be 64 hexadecimal characters"
+        raise ValueError(msg)
+    source["sha256"] = pin.lower()
+
+
+def _check_vintage(source: Source) -> None:
+    """Accept the old key `release` for `vintage`, with a warning."""
+    if (release := source.pop("release", None)) is None:
+        return
+    if source.get("vintage") is not None:
+        msg = f"{source['id']}: give vintage or release in sources.toml, not both"
+        raise ValueError(msg)
+    _logger.warning("%s: `release` in sources.toml is now `vintage`; rename it", source["id"])
+    source["vintage"] = release
+
+
+def _vintage(source: Source) -> str:
+    # str(): a TOML date (`vintage = 2024-06-01`) loads as a datetime.date.
+    return str(source.get("vintage", source.get("release", "not stated")))
 
 
 def implemented(sources: list[Source]) -> list[Source]:
@@ -114,68 +176,161 @@ def raw_name(source: Source) -> str:
 
 
 def _write_atomic(path: Path, data: bytes) -> None:
-    """Write a sibling temp file, then rename it: a reader never sees half a file."""
-    part = path.with_name(path.name + ".part")
-    part.write_bytes(data)
-    part.replace(path)
+    """Write a new temp file beside `path`, flush it to disk, then rename it over `path`.
+
+    A reader never sees half a file. The temp file gets a fresh name, so two runs at once
+    don't share it, and it is created rather than opened, so a symlink in its place is
+    never followed.
+    """
+    fd, temp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".part")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        Path(temp).replace(path)
+    except BaseException:
+        Path(temp).unlink(missing_ok=True)
+        raise
 
 
-def _get(
-    source: Source, previous: FetchRecord | None, user_agent: str
-) -> tuple[bytes, http.client.HTTPMessage] | FetchRecord:
-    """GET one source's URL and its headers, retrying failures a publisher recovers from.
+def _is_public(host: str) -> bool:
+    """Whether every address `host` resolves to is on the public internet."""
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return True  # unresolvable: the request itself will fail
+    return all(ipaddress.ip_address(info[4][0]).is_global for info in infos)
+
+
+class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
+    """Refuses a redirect from a public host to a loopback, private or link-local one.
+
+    Otherwise a third-party server could have the fetch save an internal service's response
+    under the manifest's URL. A source that lives on an internal host can still redirect
+    within it.
+    """
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: http.client.HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        """Raise HTTPError for an inward redirect; follow any other as urllib does."""
+        if _is_public(urlsplit(req.full_url).hostname or "") and not _is_public(urlsplit(newurl).hostname or ""):
+            reason = f"refused a redirect from a public host to {newurl}"
+            raise urllib.error.HTTPError(newurl, code, reason, headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_NoRedirectInward())
+
+
+def _open(request: urllib.request.Request, timeout: float) -> _Response:
+    # NOTE: the opener follows file:// too, which the tests use for fixtures. The URLs come
+    # from sources.toml, which is as trusted as the code.
+    return _OPENER.open(request, timeout=timeout)
+
+
+def _retry_after(headers: Message | None) -> float:
+    """Seconds a 429 or 503 asks to wait, from Retry-After as seconds or an HTTP date, capped."""
+    value = (headers.get("Retry-After", "") if headers else "").strip()
+    if value.isascii() and value.isdigit():
+        seconds = float(value)
+    else:
+        try:
+            seconds = (parsedate_to_datetime(value) - datetime.now(UTC)).total_seconds()
+        except (TypeError, ValueError):  # absent, malformed, or a date with no time zone
+            return 0.0
+    return min(max(seconds, 0.0), _MAX_RETRY_AFTER_S)
+
+
+def _content_length(headers: Message) -> int | None:
+    """The Content-Length header as a byte count, or None when it is absent or not a plain number."""
+    value = headers.get("Content-Length", "").strip()
+    return int(value) if value.isascii() and value.isdigit() else None
+
+
+def _read(response: _Response, source: Source, deadline: float) -> bytes:
+    """The whole body, refused past the source's `max_bytes` or past the fetch's time budget."""
+    cap = source.get("max_bytes", _MAX_BYTES)
+    encoding = response.headers.get("Content-Encoding", "identity").strip().lower()
+    if encoding not in {"", "identity"}:
+        msg = f"{source['id']}: served with Content-Encoding {encoding}, so its bytes are not the file itself"
+        raise ValueError(msg)
+    chunks: list[bytes] = []
+    size = 0
+    while chunk := response.read(_CHUNK_BYTES):
+        size += len(chunk)
+        if size > cap:
+            msg = f"{source['id']}: download exceeds {cap} bytes; raise max_bytes in sources.toml if expected"
+            raise ValueError(msg)
+        if time.monotonic() > deadline:
+            msg = f"download still unfinished after {_BUDGET_S} s"
+            raise TimeoutError(msg)
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _get(source: Source, previous: FetchRecord | None, user_agent: str) -> tuple[bytes, Message, str] | FetchRecord:
+    """GET one source's URL: its body, headers and final URL, retrying failures a publisher recovers from.
 
     The request is conditional on the ETag and Last-Modified of a `previous` record, which
     is returned as it is when the server answers 304 Not Modified.
 
-    Server errors, rate limits, network errors and a body shorter than its Content-Length
-    are retried with exponential backoff. A 429 waits at least the server's Retry-After, in
-    seconds, up to 120 s. Any other 4xx is raised at once: it will not fix itself.
+    429, 500, 502, 503 and 504, network errors and a body shorter than its Content-Length
+    are retried with exponential backoff, waiting at least the server's Retry-After (up to
+    120 s). The whole fetch stops after 300 s. Any other error status is raised at once.
 
-    Raises ValueError for a body over the source's `max_bytes` (default 200 MiB).
+    Raises ValueError for a body over the source's `max_bytes` (default 200 MiB), or one
+    served compressed.
     """
-    cap = source.get("max_bytes", _MAX_BYTES)
     conditional = _conditional(previous)
-    # NOTE: urlopen follows any scheme, file:// included, which the tests use for fixtures.
-    # The URLs come from sources.toml, which is as trusted as the code.
-    request = urllib.request.Request(source["url"], headers={"User-Agent": user_agent, **conditional})  # noqa: S310
-    for attempt in range(_ATTEMPTS):
-        last = attempt == _ATTEMPTS - 1
-        wait = _BACKOFF_S * 2**attempt
+    headers = {"User-Agent": user_agent, "Accept-Encoding": "identity", **conditional}
+    request = urllib.request.Request(source["url"], headers=headers)  # noqa: S310  # see _open
+    deadline = time.monotonic() + _BUDGET_S
+    for attempt in range(1, _ATTEMPTS + 1):
+        wait = _BACKOFF_S * 2 ** (attempt - 1)
         try:
-            with urllib.request.urlopen(request, timeout=_TIMEOUT_S) as response:  # noqa: S310
-                payload = response.read(cap + 1)
-                if len(payload) > cap:
-                    msg = f"{source['id']}: download exceeds {cap} bytes; raise max_bytes in sources.toml if expected"
-                    raise ValueError(msg)
+            with _open(request, timeout=_SOCKET_TIMEOUT_S) as response:
+                payload = _read(response, source, deadline)
                 # A connection dropped mid-body can end the read early without an error.
-                expected = response.headers.get("Content-Length")
-                if expected is not None and int(expected) != len(payload):
-                    raise http.client.IncompleteRead(payload, int(expected) - len(payload))
-                return payload, response.headers
+                expected = _content_length(response.headers)
+                if expected is not None and expected != len(payload):
+                    raise http.client.IncompleteRead(payload, expected - len(payload))
+                return payload, response.headers, response.url
         except urllib.error.HTTPError as error:
             # urllib raises a 304 like an error. Only a conditional request can get one.
             if error.code == HTTPStatus.NOT_MODIFIED and previous and conditional:
                 return previous
-            if last or (error.code < HTTPStatus.INTERNAL_SERVER_ERROR and error.code != HTTPStatus.TOO_MANY_REQUESTS):
+            if attempt == _ATTEMPTS or error.code not in _RETRIED:
                 raise
-            retry_after = error.headers.get("Retry-After", "") if error.headers else ""
-            if retry_after.isdigit():
-                wait = max(wait, min(int(retry_after), _MAX_RETRY_AFTER_S))
-        except _TRANSIENT:
-            if last:
+            failure: Exception = error
+            wait = max(wait, _retry_after(error.headers))
+        except _TRANSIENT as error:
+            if attempt == _ATTEMPTS:
                 raise
+            failure = error
+        if time.monotonic() + wait > deadline:
+            raise failure
+        _logger.warning(
+            "%s: attempt %d of %d failed (%s); retrying in %.0f s", source["id"], attempt, _ATTEMPTS, failure, wait
+        )
         time.sleep(wait)
     raise AssertionError  # unreachable: the last attempt returns or raises
 
 
 def _previous(source: Source, raw: Path) -> FetchRecord | None:
-    """The last fetch record of `source`, if its raw file is intact and still passes the manifest's `sha256`."""
+    """The last fetch record of `source`, if it and its raw file still match the manifest."""
     try:
-        record, _ = verified(source, raw)
+        record, _ = verified(source, raw=raw)
     except _UNUSABLE:
         return None
-    return record if source.get("sha256", record.sha256) == record.sha256 else None
+    return record
 
 
 def _conditional(previous: FetchRecord | None) -> dict[str, str]:
@@ -187,23 +342,55 @@ def _conditional(previous: FetchRecord | None) -> dict[str, str]:
 
 
 def _last_records(log: Path) -> dict[str, dict[str, Any]]:
-    """The record most recently logged for each source id, from the fetch log."""
+    """The record most recently logged for each source id, from the fetch log.
+
+    A last line cut off by an interrupted fetch is skipped with a warning. Any other line
+    that is not a record is an error that names the line.
+    """
     if not log.exists():
         return {}
-    records = (json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line.strip())
-    return {r["source_id"]: r for r in records}
+    text = log.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    records: dict[str, dict[str, Any]] = {}
+    for number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as error:
+            if number == len(lines) and not text.endswith("\n"):
+                _logger.warning("%s: skipping a last line cut off by an interrupted fetch", log)
+                continue
+            msg = f"{log}:{number} is not a fetch record ({error})"
+            raise ValueError(msg) from error
+        records[record["source_id"]] = record
+    return records
 
 
-def _last_logged(log: Path) -> dict[str, str]:
-    """The SHA-256 most recently logged for each source id, from the fetch log."""
-    return {sid: r["sha256"] for sid, r in _last_records(log).items()}
+def _append(log: Path, record: FetchRecord) -> None:
+    """Add `record` as one line at the end of the log, in one write, flushed to disk.
+
+    A last line cut off by an interrupted fetch is dropped first, so the new line starts
+    on a line of its own.
+    """
+    if log.exists() and (text := log.read_bytes()) and not text.endswith(b"\n"):
+        _logger.warning("%s: dropping a last line cut off by an interrupted fetch", log)
+        os.truncate(log, text.rfind(b"\n") + 1)
+    with log.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(dataclasses.asdict(record)) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
 
 
-def revisions(before: Path, log: Path = FETCH_LOG) -> list[str]:
+def revisions(before: Path, *, log: Path = FETCH_LOG) -> list[str]:
     """One Markdown line per source whose bytes changed between `before`, an earlier copy of the log, and `log`.
 
-    A source that `before` never logged is new, not revised, and is left out.
+    A source that `before` never logged is new, not revised, and is left out. Raises
+    FileNotFoundError when `before` does not exist: an empty report must mean no
+    revisions, not a missing copy.
     """
+    if not before.exists():
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(before))
     old, new = _last_records(before), _last_records(log)
     return [
         f"- `{sid}`: {old[sid]['sha256'][:12]} -> {r['sha256'][:12]}, {r['bytes']:,} bytes, "
@@ -214,7 +401,7 @@ def revisions(before: Path, log: Path = FETCH_LOG) -> list[str]:
 
 
 def fetch(
-    sources: list[Source], raw: Path = RAW, log: Path = FETCH_LOG, user_agent: str = USER_AGENT
+    sources: list[Source], *, raw: Path = RAW, log: Path = FETCH_LOG, user_agent: str = USER_AGENT
 ) -> list[FetchRecord]:
     """Download each implemented source into `raw`, with a fetch record beside it.
 
@@ -222,57 +409,74 @@ def fetch(
     and record, and its old record is returned. A record whose bytes differ from the last
     ones logged for its source is appended to `log`.
 
-    Raises ValueError for a download over the source's `max_bytes` (default 200 MiB), or
-    one whose SHA-256 differs from the `sha256` the manifest pins, and OSError naming the
-    source for one that still fails after its retries. Nothing is written for that source.
+    Every source is tried. Raises FetchError after the loop when any failed, listing each
+    with its reason; nothing is written for those. A source fails for a download over its
+    `max_bytes` (default 200 MiB), bytes that miss the `sha256` the manifest pins, or an
+    error that outlasts its retries.
     """
     raw.mkdir(parents=True, exist_ok=True)
     log.parent.mkdir(parents=True, exist_ok=True)
-    logged = _last_logged(log)
-    records = []
+    logged = {sid: r["sha256"] for sid, r in _last_records(log).items()}
+    records: list[FetchRecord] = []
+    failures: list[str] = []
     for source in implemented(sources):
         try:
-            response = _get(source, _previous(source, raw), user_agent)
+            records.append(_fetch_one(source, raw, log, logged, user_agent))
+        except ValueError as error:  # messages already name the source
+            failures.append(str(error))
         except _TRANSIENT as error:
-            msg = f"{source['id']}: fetching {source['url']} failed: {error}"
-            raise OSError(msg) from error
-        if isinstance(response, FetchRecord):
-            records.append(response)
-            continue
-        payload, headers = response
-        digest = hashlib.sha256(payload).hexdigest()
-        if source.get("sha256", digest) != digest:
-            msg = f"{source['id']}: downloaded bytes hash to {digest}, not the sha256 in sources.toml"
-            raise ValueError(msg)
-        record = FetchRecord(
-            source_id=source["id"],
-            url=source["url"],
-            retrieved_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            sha256=digest,
-            bytes=len(payload),
-            # str(): a TOML date (`release = 2024-06-01`) loads as a datetime.date.
-            vintage=str(source.get("release", "not stated")),
-            # Kept for a conditional request (If-Modified-Since, If-None-Match) on a later run.
-            last_modified=headers.get("Last-Modified", ""),
-            etag=headers.get("ETag", ""),
-        )
-        name = raw_name(source)
-        _write_atomic(raw / name, payload)
-        _write_atomic(raw / f"{name}.fetch.json", (json.dumps(dataclasses.asdict(record), indent=2) + "\n").encode())
-        # Appended, not rewritten: the log is history. A re-download of the same bytes adds nothing.
-        if logged.get(record.source_id) != record.sha256:
-            with log.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(dataclasses.asdict(record)) + "\n")
-            logged[record.source_id] = record.sha256
-        records.append(record)
+            failures.append(f"{source['id']}: fetching {source['url']} failed: {error}")
+    if failures:
+        raise FetchError(records, failures)
     return records
 
 
-def verified(source: Source, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
+def _fetch_one(source: Source, raw: Path, log: Path, logged: dict[str, str], user_agent: str) -> FetchRecord:
+    """Fetch one source, write its raw file, log and record, and return the record."""
+    response = _get(source, _previous(source, raw), user_agent)
+    if isinstance(response, FetchRecord):
+        # A version written to disk by a fetch that died before logging it gets logged now.
+        _log_new_version(log, logged, response)
+        return response
+    payload, headers, final_url = response
+    digest = hashlib.sha256(payload).hexdigest()
+    if source.get("sha256", digest) != digest:
+        msg = f"{source['id']}: downloaded bytes hash to {digest}, not the sha256 in sources.toml"
+        raise ValueError(msg)
+    record = FetchRecord(
+        source_id=source["id"],
+        url=source["url"],
+        retrieved_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        sha256=digest,
+        bytes=len(payload),
+        vintage=_vintage(source),
+        # Kept for a conditional request (If-Modified-Since, If-None-Match) on a later run.
+        last_modified=headers.get("Last-Modified", ""),
+        etag=headers.get("ETag", ""),
+        final_url="" if final_url == source["url"] else final_url,
+    )
+    name = raw_name(source)
+    _write_atomic(raw / name, payload)
+    # Logged before the record is written: until the record matches the raw file, the next
+    # run fetches in full, so a crash in between loses nothing.
+    _log_new_version(log, logged, record)
+    _write_atomic(raw / f"{name}.fetch.json", (json.dumps(dataclasses.asdict(record), indent=2) + "\n").encode())
+    return record
+
+
+def _log_new_version(log: Path, logged: dict[str, str], record: FetchRecord) -> None:
+    # Appended, not rewritten: the log is history. A re-download of the same bytes adds nothing.
+    if logged.get(record.source_id) != record.sha256:
+        _append(log, record)
+        logged[record.source_id] = record.sha256
+
+
+def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
     """The fetch record and raw bytes for `source`, after checking that both are current.
 
-    Raises ValueError when the record was made for a different request than the
-    manifest now makes, or when the raw file no longer hashes to the record.
+    Raises ValueError when the record was made for a different request than the manifest
+    now makes (another URL, vintage or `sha256` pin), or when the raw file no longer hashes
+    to the record.
     """
     name = raw_name(source)
     try:
@@ -282,6 +486,12 @@ def verified(source: Source, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
         raise ValueError(msg) from error
     if (record.source_id, record.url) != (source["id"], source["url"]):
         msg = f"{name} was fetched from {record.url}, but sources.toml now requests {source['url']}; re-run fetch"
+        raise ValueError(msg)
+    if record.vintage != _vintage(source):
+        msg = f"{name} was fetched as vintage {record.vintage!r}, not {_vintage(source)!r}; re-run fetch"
+        raise ValueError(msg)
+    if source.get("sha256", record.sha256).lower() != record.sha256:
+        msg = f"{name} hashes to {record.sha256}, not the sha256 sources.toml now pins; re-run fetch"
         raise ValueError(msg)
     payload = (raw / name).read_bytes()
     if hashlib.sha256(payload).hexdigest() != record.sha256:
@@ -317,7 +527,20 @@ def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str,
     return columns, rows
 
 
-def build(sources: list[Source], raw: Path = RAW, processed: Path = PROCESSED, parse: Parser = parse_csv) -> list[Path]:
+def _stamp(record: FetchRecord) -> dict[str, str]:
+    """The provenance columns `build` adds to every output row."""
+    return {
+        "source_id": record.source_id,
+        "source_url": record.url,
+        "retrieved_at": record.retrieved_at,
+        "vintage": record.vintage,
+        "raw_sha256": record.sha256,
+    }
+
+
+def build(
+    sources: list[Source], *, raw: Path = RAW, processed: Path = PROCESSED, parse: Parser = parse_csv
+) -> list[Path]:
     """Write each implemented source to `processed/<id>.csv`, each row stamped with its fetch record.
 
     `parse` reads each raw file. Give it a function that branches on `source["id"]` for sources that are not CSV.
@@ -325,14 +548,8 @@ def build(sources: list[Source], raw: Path = RAW, processed: Path = PROCESSED, p
     processed.mkdir(parents=True, exist_ok=True)
     written = []
     for source in implemented(sources):
-        record, payload = verified(source, raw)
-        stamp = {
-            "source_id": record.source_id,
-            "source_url": record.url,
-            "retrieved_at": record.retrieved_at,
-            "vintage": record.vintage,
-            "raw_sha256": record.sha256,
-        }
+        record, payload = verified(source, raw=raw)
+        stamp = _stamp(record)
         columns, rows = parse(source, payload)
         if clash := stamp.keys() & set(columns):
             msg = f"{source['id']}: source columns {sorted(clash)} collide with the provenance columns"
@@ -340,7 +557,8 @@ def build(sources: list[Source], raw: Path = RAW, processed: Path = PROCESSED, p
         buffer = io.StringIO(newline="")
         writer = csv.DictWriter(buffer, fieldnames=[*stamp, *columns])
         writer.writeheader()
-        writer.writerows({**stamp, **row} for row in rows)
+        # The stamp last: a parser's row cannot overwrite a provenance column.
+        writer.writerows({**row, **stamp} for row in rows)
         out = processed / f"{source['id']}.csv"
         _write_atomic(out, buffer.getvalue().encode())
         written.append(out)
@@ -366,7 +584,7 @@ def _terms_problems(source: Source) -> list[str]:
     return problems
 
 
-def validate(sources: list[Source], raw: Path = RAW, processed: Path = PROCESSED) -> list[str]:
+def validate(sources: list[Source], *, raw: Path = RAW, processed: Path = PROCESSED) -> list[str]:
     """Check the published output against the manifest and the fetch records, and return one string per problem."""
     problems = []
     ids = {source["id"] for source in sources}
@@ -388,14 +606,15 @@ def validate(sources: list[Source], raw: Path = RAW, processed: Path = PROCESSED
             continue
         problems += _terms_problems(source)
         try:
-            record, _ = verified(source, raw)
+            record, _ = verified(source, raw=raw)
             rows = read_output(out)
         except (OSError, ValueError, csv.Error) as error:
             problems.append(one_line(error))
             continue
         if not rows:
             problems.append(f"{out}: no rows")
-        if {(r.get("source_url"), r.get("raw_sha256")) for r in rows} - {(record.url, record.sha256)}:
+        stamp = _stamp(record)
+        if any({column: row.get(column) for column in stamp} != stamp for row in rows):
             problems.append(f"{out}: rows come from an earlier fetch than {raw_name(source)}; re-run build")
     return problems
 

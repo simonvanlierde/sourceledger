@@ -12,3 +12,10 @@ authors:
     orcid: "https://orcid.org/0009-0006-6953-909X"
 repository-code: "https://github.com/simonvanlierde/sourceledger"
 license: MIT
+keywords:
+  - "provenance"
+  - "data pipeline"
+  - "reproducibility"
+  - "open data"
+  - "research software"
+  - "FAIR"
