@@ -35,7 +35,7 @@ import tomllib
 import urllib.error
 import urllib.request
 import urllib.response
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Collection, Generator
 from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
@@ -57,6 +57,23 @@ FETCH_LOG = Path("data/fetches.jsonl")
 # Written by build beside the outputs.
 DATAPACKAGE = "datapackage.json"
 _DATAPACKAGE_PROFILE = "https://datapackage.org/profiles/2.0/datapackage.json"
+# The schema's $id. A manifest's first line names it, for an editor to check the file.
+_SCHEMA_URL = "https://raw.githubusercontent.com/simonvanlierde/sourceledger/main/src/sourceledger/sources.schema.json"
+_STARTER = f"""#:schema {_SCHEMA_URL}
+
+# One [[source]] table per input. Uncomment the example and point it at your own source.
+# Every key: https://github.com/simonvanlierde/sourceledger#sourcestoml
+
+# [[source]]
+# id = "co2"
+# status = "implemented"
+# url = "https://raw.githubusercontent.com/datasets/co2-ppm/main/data/co2-annmean-mlo.csv"
+# vintage = "main branch, unversioned"
+# terms = "ODC-PDDL-1.0 (datasets/co2-ppm package; original data from NOAA GML)"
+# terms_url = "https://opendatacommons.org/licenses/pddl/"
+# license = "PDDL-1.0"
+# redistribute = true
+"""
 
 IMPLEMENTED = "implemented"
 UNIMPLEMENTED = "unimplemented"
@@ -157,6 +174,32 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
         _check_format(source)
         _check_headers(source)
     return sources
+
+
+def init(path: Path = MANIFEST) -> None:
+    """Write a starter sources.toml at `path`: the schema line and one commented example source.
+
+    Raises FileExistsError when `path` exists, which is never overwritten.
+    """
+    try:
+        with path.open("x", encoding="utf-8") as fh:
+            fh.write(_STARTER)
+    except FileExistsError as error:
+        msg = f"{path} already exists; not overwriting it"
+        raise FileExistsError(msg) from error
+
+
+def _select(sources: list[Source], only: Collection[str] | None) -> list[Source]:
+    """The sources whose ids are in `only`, in manifest order, or all of them when `only` is None.
+
+    Raises ValueError for an id the manifest does not have.
+    """
+    if only is None:
+        return sources
+    if unknown := sorted(set(only) - {s["id"] for s in sources}):
+        msg = f"ids {unknown} are not in sources.toml"
+        raise ValueError(msg)
+    return [s for s in sources if s["id"] in only]
 
 
 def _check_format(source: Source) -> None:
@@ -517,7 +560,12 @@ def revisions(before: Path, *, log: Path = FETCH_LOG) -> list[str]:
 
 
 def fetch(
-    sources: list[Source], *, raw: Path = RAW, log: Path = FETCH_LOG, user_agent: str = USER_AGENT
+    sources: list[Source],
+    *,
+    raw: Path = RAW,
+    log: Path = FETCH_LOG,
+    user_agent: str = USER_AGENT,
+    only: Collection[str] | None = None,
 ) -> list[FetchRecord]:
     """Download each implemented source into `raw`, with a fetch record beside it.
 
@@ -530,7 +578,11 @@ def fetch(
     `max_bytes` (default 200 MiB), bytes that miss the `sha256` the manifest pins, or an
     error that outlasts its retries. Raises OSError at once when another fetch holds the
     lock on `raw`.
+
+    `only` restricts the fetch to those source ids, and leaves the others as they are.
+    Raises ValueError for an id the manifest does not have.
     """
+    sources = _select(sources, only)
     raw.mkdir(parents=True, exist_ok=True)
     log.parent.mkdir(parents=True, exist_ok=True)
     records: list[FetchRecord] = []
@@ -756,7 +808,12 @@ def _stamp(record: FetchRecord) -> dict[str, str]:
 
 
 def build(
-    sources: list[Source], *, raw: Path = RAW, processed: Path = PROCESSED, parse: Parser = parse_source
+    sources: list[Source],
+    *,
+    raw: Path = RAW,
+    processed: Path = PROCESSED,
+    parse: Parser = parse_source,
+    only: Collection[str] | None = None,
 ) -> list[Path]:
     """Write each implemented source to `processed/<id>.csv`, each row stamped with its fetch record.
 
@@ -764,11 +821,20 @@ def build(
     Then writes `processed/datapackage.json`, a Frictionless Data Package (v2) describing every
     output: its columns, size and SHA-256, its source URL and licence, and its fetch record.
     The same records give the same file, byte for byte.
+
+    `only` restricts the build to those source ids. The package keeps each other source's
+    entry as the last build wrote it. Raises ValueError for an id the manifest does not have.
     """
+    selected = {s["id"] for s in _select(sources, only)}
+    earlier = {} if only is None else _listed(processed / DATAPACKAGE)
     processed.mkdir(parents=True, exist_ok=True)
     written = []
     resources = []
     for source in implemented(sources):
+        if source["id"] not in selected:
+            if source["id"] in earlier:
+                resources.append(earlier[source["id"]])
+            continue
         record, payload = verified(source, raw=raw)
         stamp = _stamp(record)
         columns, rows = parse(source, payload)
@@ -788,6 +854,16 @@ def build(
     package = {"$schema": _DATAPACKAGE_PROFILE, "name": _package_name(), "resources": resources}
     _write_atomic(processed / DATAPACKAGE, (json.dumps(package, indent=2, ensure_ascii=False) + "\n").encode())
     return written
+
+
+def _listed(path: Path) -> dict[str, Any]:
+    """The resources a data package lists, by name: none when it is missing or unreadable."""
+    try:
+        package = json.loads(path.read_text(encoding="utf-8"))
+    except _UNUSABLE:
+        return {}
+    resources = package.get("resources", []) if isinstance(package, dict) else []
+    return {r.get("name"): r for r in resources if isinstance(r, dict)}
 
 
 def _package_name() -> str:
@@ -842,17 +918,26 @@ def _terms_problems(source: Source) -> list[str]:
     return problems
 
 
-def validate(sources: list[Source], *, raw: Path = RAW, processed: Path = PROCESSED) -> list[str]:
-    """Check the published output against the manifest and the fetch records, and return one string per problem."""
+def validate(
+    sources: list[Source], *, raw: Path = RAW, processed: Path = PROCESSED, only: Collection[str] | None = None
+) -> list[str]:
+    """Check the published output against the manifest and the fetch records, and return one string per problem.
+
+    `only` restricts the checks to those source ids, and skips the two that concern the whole
+    output: files no source owns, and the package's list of sources. Raises ValueError for an
+    id the manifest does not have.
+    """
+    selected = _select(sources, only)
     problems = []
     ids = {source["id"] for source in sources}
     # Output of a source since removed or renamed would otherwise pass as published data.
-    problems += [
-        f"{out}: no source {out.stem!r} in sources.toml; delete it"
-        for out in sorted(processed.glob("*.csv"))
-        if out.stem not in ids
-    ]
-    for source in sources:
+    if only is None:
+        problems += [
+            f"{out}: no source {out.stem!r} in sources.toml; delete it"
+            for out in sorted(processed.glob("*.csv"))
+            if out.stem not in ids
+        ]
+    for source in selected:
         sid, status = source["id"], source.get("status")
         out = processed / f"{sid}.csv"
         if status == UNIMPLEMENTED:
@@ -874,29 +959,131 @@ def validate(sources: list[Source], *, raw: Path = RAW, processed: Path = PROCES
         stamp = _stamp(record)
         if any({column: row.get(column) for column in stamp} != stamp for row in rows):
             problems.append(f"{out}: rows come from an earlier fetch than {raw_name(source)}; re-run build")
-    return problems + _package_problems(sources, processed)
+    return problems + _package_problems(sources, processed, only)
 
 
-def _package_problems(sources: list[Source], processed: Path) -> list[str]:
-    """Whether datapackage.json lists exactly the implemented sources, each with its output's current hash."""
+def _package_problems(sources: list[Source], processed: Path, only: Collection[str] | None) -> list[str]:
+    """Whether datapackage.json lists exactly the implemented sources, each with its output's current hash.
+
+    With `only`, whether it lists those of them, each with its output's current hash.
+    """
     path = processed / DATAPACKAGE
     expected = {source["id"] for source in implemented(sources)}
+    checked = expected if only is None else expected & set(only)
     try:
         package = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return [f"{path} is missing; re-run build"] if expected else []
+        return [f"{path} is missing; re-run build"] if checked else []
     except ValueError as error:
         return [f"{path} is not JSON ({error}); re-run build"]
     listed = {r.get("name"): r for r in package.get("resources", []) if isinstance(r, dict)}
-    if set(listed) != expected:
+    if only is None and set(listed) != expected:
         return [
             f"{path} lists {sorted(map(str, listed))}, not the implemented sources {sorted(expected)}; re-run build"
         ]
     problems = []
-    for sid in sorted(expected):
+    for sid in sorted(checked):
         out = processed / f"{sid}.csv"
-        if out.exists() and listed[sid].get("hash") != f"sha256:{hashlib.sha256(out.read_bytes()).hexdigest()}":
+        if sid not in listed:
+            problems.append(f"{path} does not list {sid}; re-run build")
+        elif out.exists() and listed[sid].get("hash") != f"sha256:{hashlib.sha256(out.read_bytes()).hexdigest()}":
             problems.append(f"{path} describes an earlier build of {out}; re-run build")
+    return problems
+
+
+def _yes_no(value: object) -> str:
+    """`redistribute` as yes or no, or `?` when it is neither true nor false."""
+    if not isinstance(value, bool):
+        return "?"
+    return "yes" if value else "no"
+
+
+def status(sources: list[Source], *, log: Path = FETCH_LOG) -> list[str]:
+    """One line per source, from the manifest and the fetch log only: no network, no raw files.
+
+    Each line gives the id, the status, the vintage, when the version last logged was fetched
+    (or `never`), the start of its SHA-256, the licence, and whether the raw file may be
+    republished.
+    """
+    last = _last_records(log)
+    width = max((len(s["id"]) for s in sources), default=0)
+    lines = []
+    for source in sources:
+        record = last.get(source["id"], {})
+        fields = [
+            f"{source['id']:<{width}}",
+            f"{source.get('status')!s:<13}",
+            _vintage(source),
+            record.get("retrieved_at", "never"),
+            record.get("sha256", "-")[:12],
+            str(source.get("license") or "-"),
+            f"redistribute={_yes_no(source.get('redistribute'))}",
+        ]
+        lines.append("  ".join(fields))
+    return lines
+
+
+def _md_cell(value: object) -> str:
+    """A value as one Markdown table cell: on one line, with its pipes escaped."""
+    return " ".join(str(value).split()).replace("|", "\\|")
+
+
+def attribution(sources: list[Source]) -> list[str]:
+    """The implemented sources as the lines of a Markdown table, in manifest order.
+
+    One row per source: its name (or id), the terms in the publisher's words, the licence,
+    where the terms are stated, and whether the raw file may be republished. For a
+    dataset's README or release notes.
+    """
+    lines = ["| Source | Terms | Licence | Terms URL | Redistribute |", "| --- | --- | --- | --- | --- |"]
+    for source in implemented(sources):
+        values = [
+            source.get("name", source["id"]),
+            source.get("terms", ""),
+            source.get("license", ""),
+            source.get("terms_url", ""),
+            _yes_no(source.get("redistribute")),
+        ]
+        lines.append("| " + " | ".join(map(_md_cell, values)) + " |")
+    return lines
+
+
+def verify(folder: Path) -> list[str]:
+    """Check a published dataset against its datapackage.json, offline, and return one string per problem.
+
+    Each resource's file must be inside `folder` and match the `bytes` (when given) and the
+    `hash` (`sha256:<hex>`) the package lists. Raises OSError when the package is missing,
+    and ValueError when it is not JSON.
+    """
+    path = folder / DATAPACKAGE
+    package = json.loads(path.read_text(encoding="utf-8"))
+    resources = package.get("resources") if isinstance(package, dict) else None
+    if not isinstance(resources, list):
+        return [f"{path} has no list of resources"]
+    return [problem for r in resources for problem in _file_problems(folder, r if isinstance(r, dict) else {})]
+
+
+def _file_problems(folder: Path, resource: dict[str, Any]) -> list[str]:
+    """Whether one resource's file is in `folder`, with the size and SHA-256 the package lists."""
+    name = resource.get("path")
+    # The package comes from someone else, so a path may not point outside the folder.
+    if not isinstance(name, str) or urlsplit(name).scheme or Path(name).is_absolute() or os.pardir in Path(name).parts:
+        return [f"{folder / DATAPACKAGE}: resource path {name!r} is not a file in {folder}"]
+    file = folder / name
+    if not file.is_file():
+        return [f"{file} is missing"]
+    problems = []
+    size = file.stat().st_size
+    if (listed := resource.get("bytes")) is not None and listed != size:
+        problems.append(f"{file} is {size:,} bytes, not the {listed} the package lists")
+    expected = resource.get("hash")
+    if not (isinstance(expected, str) and expected.startswith("sha256:")):
+        problems.append(f"{file}: the package lists no sha256 hash to check it against")
+        return problems
+    with file.open("rb") as fh:
+        digest = hashlib.file_digest(fh, "sha256").hexdigest()
+    if f"sha256:{digest}" != expected.lower():
+        problems.append(f"{file} hashes to sha256:{digest[:12]}, not the hash the package lists")
     return problems
 
 
