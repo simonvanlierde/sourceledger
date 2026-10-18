@@ -1,4 +1,4 @@
-"""The command line: `<project> fetch|build|validate|revisions`, with the project's own parser."""
+"""The command line: `<project> fetch|build|validate` and the other stages, with the project's own parser."""
 
 from __future__ import annotations
 
@@ -11,21 +11,32 @@ from pathlib import Path
 from sourceledger.ledger import (
     DATAPACKAGE,
     FETCH_LOG,
+    MANIFEST,
     PROCESSED,
     USER_AGENT,
     FetchError,
     FetchRecord,
     Parser,
+    Source,
+    attribution,
     build,
     fetch,
+    init,
     load_manifest,
     logged_versions,
     one_line,
     parse_source,
     read_output,
     revisions,
+    status,
     validate,
+    verify,
 )
+
+# Stages that take --only.
+_SELECTABLE = ("fetch", "build", "validate")
+# Stages that take a path, and what it is.
+_NEEDS_PATH = {"revisions": "an earlier copy of the fetch log", "verify": "the folder of a published dataset"}
 
 
 def _fetch_line(record: FetchRecord, before: dict[str, str]) -> str:
@@ -43,22 +54,39 @@ def main(
     prog: str = "sourceledger",
     user_agent: str = USER_AGENT,
 ) -> int:
-    """Run one stage: fetch, build, validate, or revisions against an earlier copy of the fetch log.
+    """Run one stage: init, fetch, build, validate, status, attribution, revisions or verify.
+
+    `revisions` takes an earlier copy of the fetch log, and `verify` the folder of a published
+    dataset. `--only ID`, repeatable, restricts fetch, build and validate to those sources.
 
     A project's own entry point calls this with its `parse`, its name as `prog`, and that name
     as `user_agent`. Returns the exit code: 0, or 1 for any failure or validation problem.
     """
     parser = argparse.ArgumentParser(prog=prog, description="Fetch, build and validate the sources in sources.toml.")
-    parser.add_argument("stage", choices=["fetch", "build", "validate", "revisions"])
-    parser.add_argument("before", nargs="?", type=Path, help="revisions only: an earlier copy of data/fetches.jsonl")
+    parser.add_argument(
+        "stage", choices=["init", "fetch", "build", "validate", "status", "attribution", "revisions", "verify"]
+    )
+    parser.add_argument(
+        "path",
+        nargs="?",
+        type=Path,
+        help="revisions: an earlier copy of data/fetches.jsonl; verify: the folder of a published dataset",
+    )
+    parser.add_argument(
+        "--only", action="append", metavar="ID", help="fetch, build and validate: only this source (repeatable)"
+    )
     args = parser.parse_args(argv)
+    if args.only is not None and args.stage not in _SELECTABLE:
+        parser.error(f"--only works with {', '.join(_SELECTABLE)}, not {args.stage}")
+    if args.stage in _NEEDS_PATH and args.path is None:
+        parser.error(f"{args.stage} needs {_NEEDS_PATH[args.stage]}")
     # Retries and recovered fetch logs are reported as warnings, on stderr.
     logging.basicConfig(format=f"{prog}: %(message)s", level=logging.WARNING)
     before: dict[str, str] = {}
     try:
         # What the log held before this run, so each fetch line can say new or unchanged.
         before = logged_versions(FETCH_LOG)
-        problems = _run(args.stage, args.before, parse, user_agent, parser, before)
+        problems = _run(args.stage, args.path, args.only, parse, user_agent, before)
     except FetchError as error:
         for record in error.records:
             print(_fetch_line(record, before))
@@ -77,29 +105,50 @@ def main(
 
 def _run(
     stage: str,
-    earlier_log: Path | None,
+    path: Path | None,
+    only: list[str] | None,
     parse: Parser,
     user_agent: str,
-    parser: argparse.ArgumentParser,
     logged: dict[str, str],
 ) -> list[str]:
-    """Run `stage`, print its report, and return its problems: only validate has any."""
-    match stage:
-        case "revisions":
-            if earlier_log is None:
-                parser.error("revisions needs an earlier copy of the fetch log")
+    """Run `stage`, print its report, and return its problems: only validate and verify have any."""
+    match stage, path:
+        case "init", _:
+            init()
+            print(f"wrote {MANIFEST}")
+        case "revisions", Path():
             # Not a failure: a revised source is news, and the tripwire test decides whether it breaks anything.
-            for line in revisions(earlier_log):
+            for line in revisions(path):
                 print(line)
+        case "verify", Path():
+            problems = verify(path)
+            print(f"{len(problems)} problems")
+            return problems
+        case _:
+            return _run_on_manifest(stage, load_manifest(), only, parse, user_agent, logged)
+    return []
+
+
+def _run_on_manifest(
+    stage: str, sources: list[Source], only: list[str] | None, parse: Parser, user_agent: str, logged: dict[str, str]
+) -> list[str]:
+    """Run a stage that reads sources.toml, print its report, and return its problems: only validate has any."""
+    match stage:
         case "fetch":
-            for record in fetch(load_manifest(), user_agent=user_agent):
+            for record in fetch(sources, user_agent=user_agent, only=only):
                 print(_fetch_line(record, logged))
         case "build":
-            for path in build(load_manifest(), parse=parse):
-                print(f"{len(read_output(path))} rows -> {path}")
+            for out in build(sources, parse=parse, only=only):
+                print(f"{len(read_output(out))} rows -> {out}")
             print(f"package -> {PROCESSED / DATAPACKAGE}")
+        case "status":
+            for line in status(sources):
+                print(line)
+        case "attribution":
+            for line in attribution(sources):
+                print(line)
         case _:
-            problems = validate(load_manifest())
+            problems = validate(sources, only=only)
             print(f"{len(problems)} problems")
             return problems
     return []

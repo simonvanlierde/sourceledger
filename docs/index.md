@@ -108,6 +108,17 @@ redistributes a publisher's data. Anyone can rebuild them with `fetch` and `buil
 whether a source changed since your last commit, copy the log before fetching and run
 `sourceledger revisions` against the copy.
 
+### Check a dataset you downloaded
+
+Someone who downloads a published dataset can check it against its package, offline:
+
+```console
+$ sourceledger verify my-dataset/
+0 problems
+```
+
+Each file the package lists must exist, with the size and SHA-256 it gives.
+
 ### Check a manifest as you type
 
 To have an editor with a TOML language server (Tombi, Taplo) check the manifest, put this

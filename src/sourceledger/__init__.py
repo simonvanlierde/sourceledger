@@ -14,6 +14,7 @@ from sourceledger.ledger import (
     FetchRecord,
     Parser,
     Source,
+    attribution,
     build,
     fetch,
     load_manifest,
@@ -23,8 +24,10 @@ from sourceledger.ledger import (
     parse_xlsx,
     read_output,
     revisions,
+    status,
     validate,
     verified,
+    verify,
 )
 
 __all__ = [
@@ -33,6 +36,7 @@ __all__ = [
     "FetchRecord",
     "Parser",
     "Source",
+    "attribution",
     "build",
     "fetch",
     "load_manifest",
@@ -43,6 +47,8 @@ __all__ = [
     "parse_xlsx",
     "read_output",
     "revisions",
+    "status",
     "validate",
     "verified",
+    "verify",
 ]

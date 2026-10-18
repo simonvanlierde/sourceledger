@@ -1122,3 +1122,216 @@ def test_validate_reports_a_damaged_data_package(
     capsys.readouterr()
     assert _run("validate") == [1]
     assert expected in capsys.readouterr().err
+
+
+def test_init_writes_a_starter_manifest_and_never_overwrites_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The starter names the schema and loads as no sources; its example, uncommented, fetches."""
+    monkeypatch.chdir(tmp_path)
+    assert main(["init"]) == 0
+    text = Path("sources.toml").read_text(encoding="utf-8")
+    schema = json.loads((Path(ledger.__file__).parent / "sources.schema.json").read_text(encoding="utf-8"))
+    assert text.splitlines()[0] == f"#:schema {schema['$id']}"
+    assert ledger.load_manifest() == []
+
+    upstream = tmp_path / "upstream.csv"
+    upstream.write_text(FIXTURE, encoding="utf-8")
+    example = text[text.index("# [[source]]") :]
+    lines = [line.removeprefix("# ") for line in example.splitlines()]
+    lines = [f'url = "{upstream.as_uri()}"' if line.startswith("url = ") else line for line in lines]
+    Path("sources.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+
+    manifest = Path("sources.toml").read_text(encoding="utf-8")
+    capsys.readouterr()
+    assert main(["init"]) == 1
+    assert capsys.readouterr().err == "init: sources.toml already exists; not overwriting it\n"
+    assert Path("sources.toml").read_text(encoding="utf-8") == manifest
+
+
+@pytest.mark.usefixtures("upstream")
+def test_status_lists_every_source_without_the_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Fetched, never-fetched and unimplemented sources each get a line from the manifest and the log."""
+    text = (tmp_path / "sources.toml").read_text(encoding="utf-8")
+    fresh = '[[source]]\nid = "fresh"\nstatus = "implemented"\nurl = "https://example.invalid/f"\nvintage = "2025"\n'
+    (tmp_path / "sources.toml").write_text(text + "\n" + fresh, encoding="utf-8")
+    _run("fetch")
+    capsys.readouterr()
+    _serve(monkeypatch)  # any request would fail the test
+    assert main(["status"]) == 0
+    record = json.loads(LOG.read_text(encoding="utf-8").splitlines()[0])
+    assert capsys.readouterr().out.splitlines() == [
+        (
+            f"example  implemented    not stated  {record['retrieved_at']}  {record['sha256'][:12]}  CC0-1.0  "
+            "redistribute=yes"
+        ),
+        "later    unimplemented  not stated  never  -  -  redistribute=?",
+        "fresh    implemented    2025  never  -  -  redistribute=?",
+    ]
+
+
+def test_only_fetches_builds_and_validates_the_named_sources(
+    upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The other sources are left alone, and the package keeps their entries from the last build."""
+    other = upstream.with_name("b.csv")
+    other.write_text(FIXTURE, encoding="utf-8")
+    _two_sources(tmp_path, upstream.as_uri(), other.as_uri())
+    assert main(["fetch", "--only", "a"]) == 0
+    assert Path("data/raw/a.csv").exists()
+    assert not Path("data/raw/b.csv").exists()
+    assert main(["build", "--only", "a"]) == 0
+    assert main(["validate", "--only", "a"]) == 0
+    capsys.readouterr()
+    assert main(["validate"]) == 1
+    assert "not the implemented sources" in capsys.readouterr().err
+
+    assert _run("fetch", "build") == [0, 0]
+    package = Path("data/processed/datapackage.json")
+    b_entry = json.loads(package.read_text(encoding="utf-8"))["resources"][1]
+    upstream.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8")
+    assert main(["fetch", "--only", "a", "--only", "a"]) == 0
+    assert main(["build", "--only", "a"]) == 0
+    assert json.loads(package.read_text(encoding="utf-8"))["resources"][1] == b_entry
+    assert _run("validate") == [0]
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["fetch", "--only", "zz"], "fetch: ids ['zz'] are not in sources.toml"),
+        (["build", "--only", "zz"], "build: ids ['zz'] are not in sources.toml"),
+        (["validate", "--only", "zz"], "validate: ids ['zz'] are not in sources.toml"),
+    ],
+)
+@pytest.mark.usefixtures("upstream")
+def test_only_refuses_an_unknown_id(argv: list[str], expected: str, capsys: pytest.CaptureFixture[str]) -> None:
+    """A mistyped id fails before anything is written, instead of quietly doing nothing."""
+    assert main(argv) == 1
+    assert capsys.readouterr().err == expected + "\n"
+    assert not Path("data").exists()
+
+
+@pytest.mark.usefixtures("upstream")
+def test_only_and_paths_go_with_their_stages(capsys: pytest.CaptureFixture[str]) -> None:
+    """--only is for fetch, build and validate; verify, like revisions, needs its path."""
+    with pytest.raises(SystemExit):
+        main(["status", "--only", "example"])
+    assert "--only works with fetch, build, validate, not status" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        main(["verify"])
+    assert "verify needs the folder of a published dataset" in capsys.readouterr().err
+
+
+@pytest.mark.usefixtures("upstream")
+def test_validate_only_reports_a_package_that_does_not_list_the_source(capsys: pytest.CaptureFixture[str]) -> None:
+    """The package checks narrow to the named source too: missing, or without its entry."""
+    _run("fetch", "build")
+    package = Path("data/processed/datapackage.json")
+    package.write_text('{"resources": []}', encoding="utf-8")
+    capsys.readouterr()
+    assert main(["validate", "--only", "example"]) == 1
+    assert "datapackage.json does not list example; re-run build" in capsys.readouterr().err
+    package.unlink()
+    assert main(["validate", "--only", "example"]) == 1
+    assert "datapackage.json is missing" in capsys.readouterr().err
+    assert main(["validate", "--only", "later"]) == 0
+
+
+def test_attribution_prints_a_markdown_table_in_manifest_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One row per implemented source, its name or id first, pipes escaped; unimplemented ones are left out."""
+    (tmp_path / "sources.toml").write_text(
+        """
+[[source]]
+id = "co2"
+name = "Mauna Loa CO2"
+status = "implemented"
+url = "https://example.org/co2.csv"
+terms = "Public domain | US government work"
+terms_url = "https://gml.noaa.gov/about/disclaimer.html"
+license = "LicenseRef-us-government-public-domain"
+redistribute = true
+
+[[source]]
+id = "later"
+status = "unimplemented"
+
+[[source]]
+id = "eurostat"
+status = "implemented"
+url = "https://example.org/e.csv"
+terms = "Reuse authorised,\\nsource acknowledged"
+terms_url = "https://example.org/terms"
+license = "CC-BY-4.0"
+redistribute = false
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    assert main(["attribution"]) == 0
+    assert capsys.readouterr().out == (
+        "| Source | Terms | Licence | Terms URL | Redistribute |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        "| Mauna Loa CO2 | Public domain \\| US government work | LicenseRef-us-government-public-domain"
+        " | https://gml.noaa.gov/about/disclaimer.html | yes |\n"
+        "| eurostat | Reuse authorised, source acknowledged | CC-BY-4.0 | https://example.org/terms | no |\n"
+    )
+
+
+@pytest.mark.usefixtures("upstream")
+def test_verify_checks_a_published_dataset_against_its_package(capsys: pytest.CaptureFixture[str]) -> None:
+    """A downloaded copy passes as built, and a tampered file is named with what no longer matches."""
+    _run("fetch", "build")
+    capsys.readouterr()
+    assert main(["verify", "data/processed"]) == 0
+    assert capsys.readouterr().out == "0 problems\n"
+    OUT.write_text(OUT.read_text(encoding="utf-8") + "extra,row\n", encoding="utf-8")
+    assert main(["verify", "data/processed"]) == 1
+    out, err = capsys.readouterr()
+    assert out == "2 problems\n"
+    size_line, hash_line = err.splitlines()
+    assert size_line.startswith("data/processed/example.csv is ")
+    assert size_line.endswith(" the package lists")
+    assert hash_line.startswith("data/processed/example.csv hashes to sha256:")
+
+
+@pytest.mark.parametrize(
+    ("resources", "expected"),
+    [
+        ([{"path": "gone.csv", "hash": "sha256:00"}], ["d/gone.csv is missing"]),
+        ([{"path": "a.csv"}], ["d/a.csv: the package lists no sha256 hash to check it against"]),
+        ([{"path": "../a.csv"}], ["d/datapackage.json: resource path '../a.csv' is not a file in d"]),
+        ([{"path": "/etc/hostname"}], ["d/datapackage.json: resource path '/etc/hostname' is not a file in d"]),
+        ([{"path": "https://example.org/a.csv"}], ["d/datapackage.json: resource path 'https://example.org/a.csv'"]),
+        (["a.csv"], ["d/datapackage.json: resource path None is not a file in d"]),
+        ({"a": 1}, ["d/datapackage.json has no list of resources"]),
+    ],
+)
+def test_verify_reports_a_package_it_cannot_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, resources: object, expected: list[str]
+) -> None:
+    """Missing files, missing hashes and paths that leave the folder are problems, not passes."""
+    monkeypatch.chdir(tmp_path)
+    Path("d").mkdir()
+    Path("d/a.csv").write_text("x\n", encoding="utf-8")
+    Path("d/datapackage.json").write_text(json.dumps({"resources": resources}), encoding="utf-8")
+    problems = ledger.verify(Path("d"))
+    assert len(problems) == len(expected)
+    assert all(p.startswith(e) for p, e in zip(problems, expected, strict=True))
+
+
+def test_verify_needs_a_readable_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A folder without a package, or with a broken one, is one line and a failed exit."""
+    monkeypatch.chdir(tmp_path)
+    assert main(["verify", "."]) == 1
+    assert capsys.readouterr().err == "verify: datapackage.json is missing\n"
+    Path("datapackage.json").write_text("not json", encoding="utf-8")
+    assert main(["verify", "."]) == 1
+    assert capsys.readouterr().err.startswith("verify: Expecting value")

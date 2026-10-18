@@ -24,6 +24,17 @@ a breaking change comes only in a minor version (see Stability in the README).
 - A JSON Schema for `sources.toml`, shipped in the package, for editors to check a manifest
   as it is typed. A test keeps it in step with what `load_manifest` accepts.
 - `sourceledger fetch` marks each line `new` or `unchanged`, against the fetch log.
+- `sourceledger init` writes a starter `sources.toml` with the schema line and a commented
+  example source. It never overwrites an existing one.
+- `sourceledger status` lists every source with its status, vintage, last fetch, checksum,
+  licence and whether it may be republished, from the manifest and the log, offline.
+- `sourceledger attribution` prints the implemented sources' reuse terms as a Markdown
+  table, for a dataset's README or release notes.
+- `sourceledger verify DIR` checks a downloaded dataset against its `datapackage.json`:
+  every file it lists must exist with the size and SHA-256 it gives.
+- `--only ID` for `fetch`, `build` and `validate`, and an `only` argument for the same
+  functions, to work on some sources only. An unknown id is an error.
+- `status`, `attribution` and `verify` are also functions in the public API.
 
 ### Changed
 

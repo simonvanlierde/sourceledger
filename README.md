@@ -23,6 +23,11 @@ terms, and whether the raw file may be republished. sourceledger runs four stage
 - `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
   log. A weekly CI run can use it to report a publisher's revision.
 
+Four smaller commands help around them: `init` writes a starter `sources.toml`, `status`
+lists every source and its last fetch, `attribution` prints the reuse terms as a table, and
+`verify DIR` checks a downloaded dataset against its `datapackage.json`. See
+[Other commands](#other-commands).
+
 There are no dependencies. Excel files need the optional `xlsx` extra. The
 [docs page](https://simonvanlierde.github.io/sourceledger/) walks through a fetch and a
 publisher's silent revision.
@@ -35,7 +40,8 @@ uv add sourceledger            # or 'sourceledger[xlsx]' to read Excel files
 
 ## Quick start
 
-Write a `sources.toml` in the project root:
+Write a `sources.toml` in the project root. `sourceledger init` writes one to start from,
+with this example commented out:
 
 ```toml
 [[source]]
@@ -76,6 +82,7 @@ Each `[[source]]` table takes these keys:
 | Key | Required | Meaning |
 | --- | --- | --- |
 | `id` | yes | ASCII letters, digits, `_` and `-`. Names the raw file (`id` plus the URL's extension) and the output. |
+| `name` | no | A title for people. The data package and `attribution` show it in place of the id. |
 | `status` | yes | `"implemented"`, read by every stage, or `"unimplemented"`: a source you know about but don't read yet. `validate` fails if one of those has output. |
 | `url` | for implemented sources | What `fetch` downloads. Change it and `build` refuses the old download until you fetch again. |
 | `terms`, `terms_url` | for implemented sources | The publisher's reuse terms in their words, and where they are stated. |
@@ -121,6 +128,26 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   `data/raw/.lock`, Linux and macOS only).
 - Each line it prints says `new` or `unchanged`, against the last version in the log.
 
+## Other commands
+
+- `init` writes a starter `sources.toml` in the current directory: the schema line and one
+  example source, commented out. It refuses to overwrite a `sources.toml` that exists.
+- `status` prints one line per source: its id, status and vintage, when its last logged
+  version was fetched (or `never`), the start of its SHA-256, its licence, and whether
+  the raw file may be republished. It reads the manifest and the log, never the network.
+- `attribution` prints a Markdown table of the implemented sources, in manifest order:
+  name, terms in the publisher's words, licence, terms URL, and whether the raw file may be
+  republished. Paste it into a dataset's README or release notes.
+- `verify DIR` is for someone who downloaded a published dataset. It reads
+  `DIR/datapackage.json` and checks that each file it lists exists, with the size and
+  SHA-256 it gives. It prints one line per problem and exits 1 if there are any. It needs
+  no `sources.toml` and no network.
+
+`fetch`, `build` and `validate` take `--only ID`, as often as needed, to work on just those
+sources. An id that is not in `sources.toml` is an error. `build --only` keeps the other
+sources' entries in `datapackage.json` as the last full build wrote them, and
+`validate --only` skips the checks that cover the whole output.
+
 ## Your own readers
 
 `sourceledger` reads every source with `parse_source`, which hands it to `parse_csv`,
@@ -153,7 +180,8 @@ my-dataset = "my_dataset.pipeline:main"
 `my-dataset` as the User-Agent. The
 [project-templates](https://github.com/simonvanlierde/project-templates) `data-pipeline`
 kind sets this up for you, with CI and a weekly revision report. The stages are also
-functions: `load_manifest`, `fetch`, `build`, `validate` and `revisions`.
+functions: `load_manifest`, `fetch`, `build`, `validate`, `revisions`, `status`,
+`attribution` and `verify`.
 
 ## Compared with
 
