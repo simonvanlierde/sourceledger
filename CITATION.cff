@@ -10,6 +10,7 @@ authors:
   - given-names: "Simon"
     family-names: "van Lierde"
     orcid: "https://orcid.org/0009-0006-6953-909X"
+doi: "10.5281/zenodo.23460694"
 repository-code: "https://github.com/simonvanlierde/sourceledger"
 license: MIT
 version: "0.2.0"
