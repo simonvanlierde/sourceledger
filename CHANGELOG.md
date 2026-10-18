@@ -37,8 +37,9 @@ a breaking change comes only in a minor version (see Stability in the README).
 - `status`, `attribution` and `verify` are also functions in the public API.
 - `archive = true` in `sources.toml` asks the Internet Archive's Save Page Now to snapshot
   a source's URL after a fetch that brings new bytes. The snapshot's address is kept in the
-  fetch record and the log as `archive_url`. The request times out after 15 s, and a
-  failure is a warning, never a failed fetch. Records written before this field still load.
+  fetch record and the log as `archive_url`. Each connect and read times out after 15 s,
+  and a failure is a warning, never a failed fetch. Records written before this field
+  still load.
 
 ### Changed
 
@@ -47,6 +48,14 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Fixed
 
+- `verify` rejects a listed file that is a symlink leading out of the dataset's folder,
+  and a `bytes` of `true` in `datapackage.json`, which passed for a 1-byte file.
+- A source with `archive = true` keeps its `archive_url` when the same bytes are
+  downloaded again in full, such as from a server that sends no ETag.
+- A damaged `data/fetches.jsonl` no longer stops `build`, `validate`, `init`,
+  `attribution` or `verify`; only `fetch` and `status` read it. A log line that is JSON but
+  not a fetch record is reported by line number instead of crashing.
+- `validate` reports a `datapackage.json` that holds a JSON list instead of crashing.
 - A second `fetch` in the same project while one is running exits at once instead of
   interleaving writes with it (Linux and macOS).
 - Downloads stream to disk in 1 MiB chunks, so a 200 MiB source no longer needs 200 MiB

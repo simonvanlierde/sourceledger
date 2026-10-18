@@ -31,6 +31,7 @@ RAW = Path("data/raw/example.csv")
 OUT = Path("data/processed/example.csv")
 LOG = Path("data/fetches.jsonl")
 TERMS = 'terms = "CC0-1.0"\nterms_url = "https://example.org/terms"\nlicense = "CC0-1.0"\nredistribute = true'
+SCHEMA = json.loads((Path(ledger.__file__).parent / "sources.schema.json").read_text(encoding="utf-8"))
 
 
 def _manifest(root: Path, url: str, terms: str = TERMS) -> None:
@@ -82,12 +83,15 @@ def _headers(**fields: str) -> Message:
 
 
 class _Response(io.BytesIO):
-    """What the opener returns: a body, and headers whose Content-Length is `length` (default: the true length)."""
+    """What the opener returns: a body, and headers whose Content-Length is `length` (default: the true length).
 
-    def __init__(self, body: bytes, length: int | None = None, **headers: str) -> None:
+    `url` is where the opener ended after redirects; empty means the request's own URL.
+    """
+
+    def __init__(self, body: bytes, length: int | None = None, url: str = "", **headers: str) -> None:
         super().__init__(body)
         self.headers = _headers(Content_Length=str(len(body) if length is None else length), **headers)
-        self.url = ""  # set to the request's URL when served
+        self.url = url
 
 
 def _serve(monkeypatch: pytest.MonkeyPatch, *outcomes: _Response | Exception) -> list[urllib.request.Request]:
@@ -640,6 +644,19 @@ def test_a_bad_line_inside_the_log_is_an_error_that_names_it(capsys: pytest.Capt
     assert "fetches.jsonl:1 is not a fetch record" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("line", ["[1]", "{}"])
+@pytest.mark.usefixtures("upstream")
+def test_a_log_line_that_is_not_a_record_breaks_only_fetch(line: str, capsys: pytest.CaptureFixture[str]) -> None:
+    """JSON that is not a record is reported as one; build, validate and verify never read the log."""
+    _run("fetch", "build")
+    LOG.write_text(line + "\n", encoding="utf-8")
+    capsys.readouterr()
+    assert _run("fetch") == [1]
+    assert capsys.readouterr().err == "fetch: data/fetches.jsonl:1 is not a fetch record\n"
+    assert _run("build", "validate") == [0, 0]
+    assert main(["verify", "data/processed"]) == 0
+
+
 def test_a_sha256_pin_in_upper_case_matches(upstream: Path, tmp_path: Path) -> None:
     """Windows tools print hashes in upper case; the pin still matches the bytes."""
     pin = hashlib.sha256(FIXTURE.encode()).hexdigest().upper()
@@ -1057,11 +1074,10 @@ _GOOD = f'[[source]]\nid = "a"\nstatus = "implemented"\nurl = "https://example.o
 def test_the_schema_and_the_loader_agree(tmp_path: Path, text: str) -> None:
     """An editor using the published schema accepts exactly the manifests sourceledger accepts."""
     jsonschema = pytest.importorskip("jsonschema")
-    schema = json.loads((Path(ledger.__file__).parent / "sources.schema.json").read_text(encoding="utf-8"))
     path = tmp_path / "sources.toml"
     path.write_text(text, encoding="utf-8")
     data = tomllib.loads(text)
-    schema_ok = jsonschema.Draft202012Validator(schema).is_valid(data)
+    schema_ok = jsonschema.Draft202012Validator(SCHEMA).is_valid(data)
     try:
         sources = ledger.load_manifest(path)
     except ValueError:
@@ -1112,6 +1128,7 @@ def test_validate_catches_a_stale_data_package(capsys: pytest.CaptureFixture[str
     [
         ("not json", "is not JSON"),
         ('{"resources": []}', "not the implemented sources"),
+        ("[]", "not the implemented sources"),
     ],
 )
 @pytest.mark.usefixtures("upstream")
@@ -1129,23 +1146,12 @@ def test_validate_reports_a_damaged_data_package(
 def test_init_writes_a_starter_manifest_and_never_overwrites_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The starter names the schema and loads as no sources; its example, uncommented, fetches."""
+    """The starter names the schema and loads as no sources. Its example is the README's, which test_docs runs."""
     monkeypatch.chdir(tmp_path)
     assert main(["init"]) == 0
-    text = Path("sources.toml").read_text(encoding="utf-8")
-    schema = json.loads((Path(ledger.__file__).parent / "sources.schema.json").read_text(encoding="utf-8"))
-    assert text.splitlines()[0] == f"#:schema {schema['$id']}"
-    assert ledger.load_manifest() == []
-
-    upstream = tmp_path / "upstream.csv"
-    upstream.write_text(FIXTURE, encoding="utf-8")
-    example = text[text.index("# [[source]]") :]
-    lines = [line.removeprefix("# ") for line in example.splitlines()]
-    lines = [f'url = "{upstream.as_uri()}"' if line.startswith("url = ") else line for line in lines]
-    Path("sources.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    assert _run("fetch", "build", "validate") == [0, 0, 0]
-
     manifest = Path("sources.toml").read_text(encoding="utf-8")
+    assert manifest.splitlines()[0] == f"#:schema {SCHEMA['$id']}"
+    assert ledger.load_manifest() == []
     capsys.readouterr()
     assert main(["init"]) == 1
     assert capsys.readouterr().err == "init: sources.toml already exists; not overwriting it\n"
@@ -1229,6 +1235,26 @@ def test_only_and_paths_go_with_their_stages(capsys: pytest.CaptureFixture[str])
 
 
 @pytest.mark.usefixtures("upstream")
+def test_validate_only_skips_the_check_for_files_no_source_owns(capsys: pytest.CaptureFixture[str]) -> None:
+    """An orphan output fails a full validate, but not one narrowed to a source."""
+    _run("fetch", "build")
+    Path("data/processed/old.csv").write_text("x\n", encoding="utf-8")
+    capsys.readouterr()
+    assert _run("validate") == [1]
+    assert "data/processed/old.csv: no source 'old' in sources.toml; delete it" in capsys.readouterr().err
+    assert main(["validate", "--only", "example"]) == 0
+
+
+def test_only_runs_in_manifest_order(upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The order of --only flags does not reorder the sources; a lone string is refused, not split into letters."""
+    _two_sources(tmp_path, upstream.as_uri(), upstream.as_uri())
+    assert main(["fetch", "--only", "b", "--only", "a"]) == 0
+    assert [line.split()[0] for line in capsys.readouterr().out.splitlines()] == ["a", "b"]
+    with pytest.raises(TypeError, match="not the string 'ab'"):
+        ledger.validate(ledger.load_manifest(), only="ab")
+
+
+@pytest.mark.usefixtures("upstream")
 def test_validate_only_reports_a_package_that_does_not_list_the_source(capsys: pytest.CaptureFixture[str]) -> None:
     """The package checks narrow to the named source too: missing, or without its entry."""
     _run("fetch", "build")
@@ -1304,6 +1330,10 @@ def test_verify_checks_a_published_dataset_against_its_package(capsys: pytest.Ca
     assert hash_line.startswith("data/processed/example.csv hashes to sha256:")
 
 
+# The hash of "x\n", the file the verify tests list.
+_X_HASH = f"sha256:{hashlib.sha256(b'x\n').hexdigest()}"
+
+
 @pytest.mark.parametrize(
     ("resources", "expected"),
     [
@@ -1318,6 +1348,9 @@ def test_verify_checks_a_published_dataset_against_its_package(capsys: pytest.Ca
             [{"path": "a.csv", "bytes": "many", "hash": "sha256:00"}],
             ["d/a.csv is 2 bytes, not the 'many' the package lists", "d/a.csv hashes to sha256:"],
         ),
+        ([{"path": "out.csv", "hash": _X_HASH}], ["d/datapackage.json: resource path 'out.csv' is not a file in d"]),
+        ([{"path": "a.csv", "bytes": True, "hash": _X_HASH}], ["d/a.csv is 2 bytes, not the True the package lists"]),
+        ([{"path": "a.csv", "bytes": 2, "hash": _X_HASH.upper()}], []),
     ],
 )
 def test_verify_reports_a_package_it_cannot_check(
@@ -1327,6 +1360,8 @@ def test_verify_reports_a_package_it_cannot_check(
     monkeypatch.chdir(tmp_path)
     Path("d").mkdir()
     Path("d/a.csv").write_text("x\n", encoding="utf-8")
+    Path("outside.csv").write_text("x\n", encoding="utf-8")
+    Path("d/out.csv").symlink_to(Path("../outside.csv"))
     Path("d/datapackage.json").write_text(json.dumps({"resources": resources}), encoding="utf-8")
     problems = ledger.verify(Path("d"))
     assert len(problems) == len(expected)
@@ -1349,22 +1384,19 @@ _DATA = "https://example.org/data.csv"
 _SNAPSHOT = f"https://web.archive.org/web/20261018033833/{_DATA}"
 
 
-def _archived(response: _Response, url: str) -> _Response:
-    """`response` as served from `url`, the address the opener ended at after redirects."""
-    response.url = url
-    return response
-
-
 @pytest.mark.usefixtures("upstream")
 def test_archive_asks_for_a_snapshot_of_new_bytes_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The snapshot's URL lands in the record and the log; an unchanged source is not archived again."""
+    """The snapshot's URL lands in the record and the log; the same bytes keep it, and new bytes get their own."""
     _manifest(tmp_path, _DATA, terms=f"{TERMS}\narchive = true")
+    newer = f"https://web.archive.org/web/20261019033833/{_DATA}"
     calls = _serve(
         monkeypatch,
         _Response(FIXTURE.encode(), ETag='"v1"'),
-        _archived(_Response(b""), _SNAPSHOT),
+        _Response(b"", url=_SNAPSHOT),
         _http_error(304),
         _Response(FIXTURE.encode()),
+        _Response((FIXTURE + "2022,3.5\n").encode()),
+        _Response(b"", url=newer),
     )
     assert _run("fetch") == [0]
     assert (calls[1].full_url, calls[1].timeout) == (f"https://web.archive.org/save/{_DATA}", ledger._ARCHIVE_TIMEOUT_S)  # noqa: SLF001
@@ -1377,20 +1409,30 @@ def test_archive_asks_for_a_snapshot_of_new_bytes_only(tmp_path: Path, monkeypat
     assert _run("fetch") == [0]  # the same bytes again, downloaded in full
     assert len(calls) == 4
     assert json.loads(LOG.read_text(encoding="utf-8"))["archive_url"] == _SNAPSHOT
+    record = json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
+    assert record["archive_url"] == _SNAPSHOT
+    assert _run("fetch") == [0]  # new bytes
+    assert len(calls) == 6
+    assert [json.loads(line)["archive_url"] for line in LOG.read_text(encoding="utf-8").splitlines()] == [
+        _SNAPSHOT,
+        newer,
+    ]
 
 
 @pytest.mark.parametrize(
     ("answer", "snapshot"),
     [
         (
-            _archived(
-                _Response(b"", Content_Location=f"/web/20261018033833/{_DATA}"), f"https://web.archive.org/save/{_DATA}"
+            _Response(
+                b"", url=f"https://web.archive.org/save/{_DATA}", Content_Location=f"/web/20261018033833/{_DATA}"
             ),
             _SNAPSHOT,
         ),
-        (_archived(_Response(b""), f"https://web.archive.org/save/{_DATA}"), ""),
+        (_Response(b"", url=f"https://web.archive.org/save/{_DATA}"), ""),
         (_http_error(503), ""),
         (TimeoutError("timed out"), ""),
+        (urllib.error.URLError("x"), ""),
+        (ValueError("bad"), ""),
     ],
 )
 @pytest.mark.usefixtures("upstream")
