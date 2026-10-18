@@ -16,11 +16,15 @@ that manifest:
   appended to `data/fetches.jsonl`.
 - `build` re-hashes each download against its record, reads it, and writes
   `data/processed/<id>.csv` with five provenance columns in front of the source's own:
-  `source_id`, `source_url`, `retrieved_at`, `vintage` and `raw_sha256`.
+  `source_id`, `source_url`, `retrieved_at`, `vintage` and `raw_sha256`. Beside the outputs
+  it writes `datapackage.json`, a [Frictionless Data Package](https://datapackage.org)
+  that describes each output's columns, size, SHA-256, source and licence, so the outputs
+  open in Frictionless tools. The same records always give the same file.
 - `validate` re-reads the output and reports every problem it finds: output built from
   an older fetch, a raw file changed since its fetch, a record made for another URL,
-  vintage or pin, a source with no reuse terms, an output with no rows, and output left
-  by a source that is gone or marked unimplemented.
+  vintage or pin, a source with no reuse terms, an output with no rows, output left by a
+  source that is gone or marked unimplemented, and a `datapackage.json` that no longer
+  matches the outputs.
 - `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
   fetch log. A weekly CI run can use it to say when a publisher revised its data.
 

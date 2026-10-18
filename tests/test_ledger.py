@@ -444,8 +444,9 @@ def test_validate_reports_missing_output_as_a_problem(capsys: pytest.CaptureFixt
     _run("fetch")
     assert _run("validate") == [1]
     out, err = capsys.readouterr()
-    assert "1 problems" in out
+    assert "2 problems" in out
     assert "data/processed/example.csv is missing" in err
+    assert "datapackage.json is missing; re-run build" in err
 
 
 @pytest.mark.usefixtures("upstream")
@@ -1068,3 +1069,56 @@ def test_the_schema_and_the_loader_agree(tmp_path: Path, text: str) -> None:
         terms = [p for s in ledger.implemented(sources) for p in ledger._terms_problems(s)]  # noqa: SLF001
         loader_ok = not bad_status and not terms
     assert schema_ok == loader_ok
+
+
+def test_build_describes_its_outputs_as_a_data_package(upstream: Path) -> None:
+    """datapackage.json is a valid Frictionless Data Package, with each output's hash, source and licence."""
+    frictionless = pytest.importorskip("frictionless")
+    _run("fetch", "build")
+    path = Path("data/processed/datapackage.json")
+    package = json.loads(path.read_text(encoding="utf-8"))
+    (resource,) = package["resources"]
+    assert resource["hash"] == f"sha256:{hashlib.sha256(OUT.read_bytes()).hexdigest()}"
+    assert resource["sources"] == [{"title": "example", "path": upstream.as_uri()}]
+    assert resource["licenses"] == [{"name": "CC0-1.0", "path": "https://example.org/terms", "title": "CC0-1.0"}]
+    assert resource["sourceledger"]["raw_sha256"] == hashlib.sha256(FIXTURE.encode()).hexdigest()
+    report = frictionless.validate(str(path))
+    assert report.valid, report.flatten(["type", "message"])
+
+
+@pytest.mark.usefixtures("upstream")
+def test_the_same_records_build_the_same_package() -> None:
+    """No timestamps of its own: two builds from one fetch give the same bytes."""
+    _run("fetch", "build")
+    first = Path("data/processed/datapackage.json").read_bytes()
+    _run("build")
+    assert Path("data/processed/datapackage.json").read_bytes() == first
+
+
+@pytest.mark.usefixtures("upstream")
+def test_validate_catches_a_stale_data_package(capsys: pytest.CaptureFixture[str]) -> None:
+    """An output edited after its build no longer matches the hash the package gives it."""
+    _run("fetch", "build")
+    OUT.write_text(OUT.read_text(encoding="utf-8").replace(",1.5", ",9.9"), encoding="utf-8")
+    capsys.readouterr()
+    assert _run("validate") == [1]
+    assert "describes an earlier build" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("damage", "expected"),
+    [
+        ("not json", "is not JSON"),
+        ('{"resources": []}', "not the implemented sources"),
+    ],
+)
+@pytest.mark.usefixtures("upstream")
+def test_validate_reports_a_damaged_data_package(
+    damage: str, expected: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A package that is unreadable or lists other sources is reported, not trusted."""
+    _run("fetch", "build")
+    Path("data/processed/datapackage.json").write_text(damage, encoding="utf-8")
+    capsys.readouterr()
+    assert _run("validate") == [1]
+    assert expected in capsys.readouterr().err
