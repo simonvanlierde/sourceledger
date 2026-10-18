@@ -54,6 +54,9 @@ MANIFEST = Path("sources.toml")
 RAW = Path("data/raw")
 PROCESSED = Path("data/processed")
 FETCH_LOG = Path("data/fetches.jsonl")
+# Written by build beside the outputs.
+DATAPACKAGE = "datapackage.json"
+_DATAPACKAGE_PROFILE = "https://datapackage.org/profiles/2.0/datapackage.json"
 
 IMPLEMENTED = "implemented"
 UNIMPLEMENTED = "unimplemented"
@@ -758,9 +761,13 @@ def build(
     """Write each implemented source to `processed/<id>.csv`, each row stamped with its fetch record.
 
     `parse` reads each raw file; the default reads CSV, JSON and Excel by each source's format.
+    Then writes `processed/datapackage.json`, a Frictionless Data Package (v2) describing every
+    output: its columns, size and SHA-256, its source URL and licence, and its fetch record.
+    The same records give the same file, byte for byte.
     """
     processed.mkdir(parents=True, exist_ok=True)
     written = []
+    resources = []
     for source in implemented(sources):
         record, payload = verified(source, raw=raw)
         stamp = _stamp(record)
@@ -774,9 +781,46 @@ def build(
         # The stamp last: a parser's row cannot overwrite a provenance column.
         writer.writerows({**row, **stamp} for row in rows)
         out = processed / f"{source['id']}.csv"
-        _write_atomic(out, buffer.getvalue().encode())
+        data = buffer.getvalue().encode()
+        _write_atomic(out, data)
         written.append(out)
+        resources.append(_resource(source, record, [*stamp, *columns], data))
+    package = {"$schema": _DATAPACKAGE_PROFILE, "name": _package_name(), "resources": resources}
+    _write_atomic(processed / DATAPACKAGE, (json.dumps(package, indent=2, ensure_ascii=False) + "\n").encode())
     return written
+
+
+def _package_name() -> str:
+    """The project directory's name, lower-cased, as Data Package names should be."""
+    return re.sub(r"[^a-z0-9._-]+", "-", Path.cwd().name.lower()).strip("-") or "dataset"
+
+
+def _resource(source: Source, record: FetchRecord, fields: list[str], data: bytes) -> dict[str, Any]:
+    """One output as a Data Package resource. Every column is text, as the CSV holds it."""
+    resource: dict[str, Any] = {
+        "name": source["id"],
+        "type": "table",
+        "path": f"{source['id']}.csv",
+        "format": "csv",
+        "mediatype": "text/csv",
+        "encoding": "utf-8",
+        "bytes": len(data),
+        "hash": f"sha256:{hashlib.sha256(data).hexdigest()}",
+        "schema": {"fields": [{"name": field, "type": "string"} for field in fields]},
+        "sources": [{"title": str(source.get("name", source["id"])), "path": record.url}],
+    }
+    if source.get("license"):
+        licence = {"name": source["license"], "path": source.get("terms_url"), "title": source.get("terms")}
+        resource["licenses"] = [{k: v for k, v in licence.items() if v}]
+    # Custom properties are allowed in Data Package v2; these name the bytes the rows came from.
+    resource["sourceledger"] = {
+        "retrieved_at": record.retrieved_at,
+        "vintage": record.vintage,
+        "raw_sha256": record.sha256,
+        "final_url": record.final_url,
+        "redistribute": source.get("redistribute"),
+    }
+    return resource
 
 
 def read_output(path: Path) -> list[dict[str, str]]:
@@ -830,6 +874,29 @@ def validate(sources: list[Source], *, raw: Path = RAW, processed: Path = PROCES
         stamp = _stamp(record)
         if any({column: row.get(column) for column in stamp} != stamp for row in rows):
             problems.append(f"{out}: rows come from an earlier fetch than {raw_name(source)}; re-run build")
+    return problems + _package_problems(sources, processed)
+
+
+def _package_problems(sources: list[Source], processed: Path) -> list[str]:
+    """Whether datapackage.json lists exactly the implemented sources, each with its output's current hash."""
+    path = processed / DATAPACKAGE
+    expected = {source["id"] for source in implemented(sources)}
+    try:
+        package = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return [f"{path} is missing; re-run build"] if expected else []
+    except ValueError as error:
+        return [f"{path} is not JSON ({error}); re-run build"]
+    listed = {r.get("name"): r for r in package.get("resources", []) if isinstance(r, dict)}
+    if set(listed) != expected:
+        return [
+            f"{path} lists {sorted(map(str, listed))}, not the implemented sources {sorted(expected)}; re-run build"
+        ]
+    problems = []
+    for sid in sorted(expected):
+        out = processed / f"{sid}.csv"
+        if out.exists() and listed[sid].get("hash") != f"sha256:{hashlib.sha256(out.read_bytes()).hexdigest()}":
+            problems.append(f"{path} describes an earlier build of {out}; re-run build")
     return problems
 
 

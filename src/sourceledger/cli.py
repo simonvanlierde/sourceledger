@@ -9,7 +9,9 @@ import sys
 from pathlib import Path
 
 from sourceledger.ledger import (
+    DATAPACKAGE,
     FETCH_LOG,
+    PROCESSED,
     USER_AGENT,
     FetchError,
     FetchRecord,
@@ -95,6 +97,7 @@ def _run(
         case "build":
             for path in build(load_manifest(), parse=parse):
                 print(f"{len(read_output(path))} rows -> {path}")
+            print(f"package -> {PROCESSED / DATAPACKAGE}")
         case _:
             problems = validate(load_manifest())
             print(f"{len(problems)} problems")

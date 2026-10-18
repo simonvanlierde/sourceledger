@@ -37,6 +37,7 @@ xlsx = [
 
 [dependency-groups]
 dev = [
+  "frictionless>=5.20",
   "jsonschema>=4.26",
   "openpyxl>=3.1",
   "pytest>=9.1.1",

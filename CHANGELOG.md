@@ -17,6 +17,10 @@ a breaking change comes only in a minor version (see Stability in the README).
 - `headers` in `sources.toml` for API keys: each value names an environment variable
   (`"env:NAME"`), literal values are refused, the record keeps the header names only, and a
   redirect to another host drops them.
+- `build` writes `data/processed/datapackage.json`, a Frictionless Data Package (v2) for
+  the outputs: columns, size, SHA-256, source URL, licence and fetch record per output.
+  It has no timestamp of its own, so the same records build the same bytes. `validate`
+  reports a package that no longer matches the outputs.
 - A JSON Schema for `sources.toml`, shipped in the package, for editors to check a manifest
   as it is typed. A test keeps it in step with what `load_manifest` accepts.
 - `sourceledger fetch` marks each line `new` or `unchanged`, against the fetch log.
