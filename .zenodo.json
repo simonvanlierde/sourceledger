@@ -9,5 +9,13 @@
     }
   ],
   "access_right": "open",
-  "license": "mit"
+  "license": "mit",
+  "keywords": [
+    "provenance",
+    "data pipeline",
+    "reproducibility",
+    "open data",
+    "research software",
+    "FAIR"
+  ]
 }

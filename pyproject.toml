@@ -7,7 +7,20 @@ requires-python = ">=3.12"
 authors = [{ name = "Simon van Lierde", email = "90462640+simonvanlierde@users.noreply.github.com" }]
 license = "MIT"
 license-files = ["LICENSE"]
+keywords = ["provenance", "data pipeline", "reproducibility", "open data", "research software", "FAIR"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering",
+  "Typing :: Typed",
+]
 dependencies = []
+
+# `sourceledger fetch|build|validate|revisions`, reading every source as CSV. A project
+# with its own readers calls `sourceledger.main` from its own entry point instead.
+[project.scripts]
+sourceledger = "sourceledger.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/simonvanlierde/sourceledger"
@@ -21,8 +34,6 @@ dev = [
   "ty>=0.0.84",
 ]
 
-# Research projects are packaged too, so notebooks can `import sourceledger`
-# without sys.path edits.
 [build-system]
 requires = ["uv_build>=0.12.19,<0.14.0"]
 build-backend = "uv_build"

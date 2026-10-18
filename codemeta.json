@@ -15,5 +15,13 @@
   "codeRepository": "https://github.com/simonvanlierde/sourceledger",
   "issueTracker": "https://github.com/simonvanlierde/sourceledger/issues",
   "license": "https://spdx.org/licenses/MIT",
-  "programmingLanguage": "Python"
+  "programmingLanguage": "Python",
+  "keywords": [
+    "provenance",
+    "data pipeline",
+    "reproducibility",
+    "open data",
+    "research software",
+    "FAIR"
+  ]
 }
