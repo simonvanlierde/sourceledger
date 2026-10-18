@@ -1,5 +1,5 @@
 # Managed by copier. Do not edit by hand. Run: copier update
-_commit: v0.10.0-11-g9e3116c
+_commit: v0.10.0-14-g60039c0
 _src_path: gh:simonvanlierde/project-templates
 author_email: 90462640+simonvanlierde@users.noreply.github.com
 author_name: Simon van Lierde
@@ -17,6 +17,6 @@ project_name: sourceledger
 publish_to_pypi: true
 python_dir: .
 python_min: '3.12'
-python_version: '3.14'
+python_version: '3.15'
 stacks:
 - python

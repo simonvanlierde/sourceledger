@@ -10,6 +10,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Added
 
+- Python 3.15 is supported and tested in CI.
 - `sourceledger fetch` marks each line `new` or `unchanged`, against the fetch log.
 
 ### Fixed

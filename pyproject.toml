@@ -12,6 +12,10 @@ classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
   "Topic :: Scientific/Engineering",
   "Typing :: Typed",
 ]
@@ -88,12 +92,14 @@ addopts = ["-ra", "--strict-config", "--strict-markers", "--import-mode=importli
 testpaths = ["tests"]
 
 # Coverage is opt-in via `pytest --cov` (`just py-cov`), not addopts, because it
-# slows every plain test run. No fail_under until there is a suite worth setting
-# one against.
+# slows every plain test run. CI's run fails under the fail_under below.
 [tool.coverage.run]
 source = ["src"]
 branch = true
 
 [tool.coverage.report]
 show_missing = true
+# CI runs the suite with --cov and fails below this. Not in addopts: the release
+# workflow tests the installed wheel, where src/ is not what runs.
+fail_under = 95
 exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
