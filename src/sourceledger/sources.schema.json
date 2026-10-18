@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/simonvanlierde/sourceledger/main/src/sourceledger/sources.schema.json",
+  "title": "sourceledger sources.toml",
+  "description": "The manifest sourceledger fetches, builds and validates: one [[source]] table per input.",
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/source" }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "description": "One input. Keys other than these are kept, for a project's own reader.",
+      "required": ["id", "status"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "description": "ASCII letters, digits, _ and -. Names the raw file and the output."
+        },
+        "status": {
+          "enum": ["implemented", "unimplemented"],
+          "description": "implemented: read by every stage. unimplemented: known, not read yet."
+        },
+        "name": { "type": "string", "description": "A title for people." },
+        "url": { "type": "string", "description": "What fetch downloads." },
+        "terms": { "type": "string", "description": "The publisher's reuse terms, in their words." },
+        "terms_url": { "type": "string", "description": "Where the terms are stated." },
+        "license": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The terms as an SPDX id, or LicenseRef-<name>."
+        },
+        "redistribute": {
+          "type": "boolean",
+          "description": "Whether the terms let you republish the raw file."
+        },
+        "vintage": {
+          "type": "string",
+          "description": "The edition you expect: text or a TOML date."
+        },
+        "release": {
+          "type": "string",
+          "deprecated": true,
+          "description": "Old name for vintage. Still read, with a warning."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f]{64}$",
+          "description": "The SHA-256 the download must have."
+        },
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The largest download fetch accepts. 200 MiB unless set."
+        },
+        "format": {
+          "enum": ["csv", "json", "xlsx"],
+          "description": "How the default reader reads the file. Otherwise from the URL's extension."
+        },
+        "sheet": { "type": "string", "description": "The Excel sheet to read. The first unless set." },
+        "headers": {
+          "type": "object",
+          "description": "Extra request headers, each value an environment variable: \"env:NAME\".",
+          "propertyNames": {
+            "not": {
+              "enum": ["User-Agent", "Accept-Encoding", "If-None-Match", "If-Modified-Since"]
+            }
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^env:[A-Za-z_][A-Za-z0-9_]*$"
+          }
+        },
+        "reason": { "type": "string", "description": "A note for people. Not read." }
+      },
+      "if": { "properties": { "status": { "const": "implemented" } } },
+      "then": { "required": ["url", "terms", "terms_url", "license", "redistribute"] }
+    }
+  }
+}

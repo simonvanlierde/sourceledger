@@ -11,7 +11,20 @@ a breaking change comes only in a minor version (see Stability in the README).
 ### Added
 
 - Python 3.15 is supported and tested in CI.
+- JSON (an array of objects), Excel (the `xlsx` extra) and gzipped CSV and JSON sources,
+  read by the new default reader `parse_source` from a source's `format` or its URL's
+  extension. A gzipped file is refused when it expands past `max_bytes`.
+- `headers` in `sources.toml` for API keys: each value names an environment variable
+  (`"env:NAME"`), literal values are refused, the record keeps the header names only, and a
+  redirect to another host drops them.
+- A JSON Schema for `sources.toml`, shipped in the package, for editors to check a manifest
+  as it is typed. A test keeps it in step with what `load_manifest` accepts.
 - `sourceledger fetch` marks each line `new` or `unchanged`, against the fetch log.
+
+### Changed
+
+- **Breaking:** source ids must be ASCII (letters, digits, `_`, `-`). They name files,
+  which must mean the same file on every system. Before, any Unicode letter passed.
 
 ### Fixed
 

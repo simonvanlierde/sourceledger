@@ -30,8 +30,15 @@ sourceledger = "sourceledger.cli:main"
 Homepage = "https://github.com/simonvanlierde/sourceledger"
 Issues = "https://github.com/simonvanlierde/sourceledger/issues"
 
+[project.optional-dependencies]
+xlsx = [
+    "openpyxl>=3.1",
+]
+
 [dependency-groups]
 dev = [
+  "jsonschema>=4.26",
+  "openpyxl>=3.1",
   "pytest>=9.1.1",
   "pytest-cov>=7.1.0",
   "ruff>=0.16.10",
