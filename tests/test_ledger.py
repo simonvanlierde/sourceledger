@@ -5,6 +5,7 @@ import http.client
 import http.server
 import io
 import json
+import sys
 import threading
 import time
 import urllib.error
@@ -16,6 +17,9 @@ from email.utils import format_datetime
 from pathlib import Path
 
 import pytest
+
+if sys.platform != "win32":
+    import fcntl
 
 from sourceledger import ledger
 from sourceledger.cli import main
@@ -224,7 +228,7 @@ def test_fetch_rejects_a_body_shorter_than_its_content_length(
     calls = _serve(monkeypatch, *[_Response(FIXTURE.encode()[:5], length=len(FIXTURE)) for _ in range(4)])
     assert _run("fetch") == [1]
     assert len(calls) == 4
-    assert "IncompleteRead" in capsys.readouterr().err
+    assert "body ended after 5 of the 29 bytes" in capsys.readouterr().err
     assert not RAW.exists()
 
 
@@ -857,3 +861,38 @@ def test_real_http_fetches_redirects_and_304s(publisher: str, tmp_path: Path) ->
     assert (record["etag"], record["final_url"]) == ('"v1"', f"{publisher}/data.csv")
     assert _run("fetch", "build", "validate") == [0, 0, 0]
     assert json.loads(record_path.read_text(encoding="utf-8")) == record
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
+@pytest.mark.usefixtures("upstream")
+def test_a_second_fetch_at_once_is_refused(capsys: pytest.CaptureFixture[str]) -> None:
+    """Two runs interleaving their writes could pair one run's raw file with the other's record."""
+    RAW.parent.mkdir(parents=True)
+    with (RAW.parent / ".lock").open("w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        assert _run("fetch") == [1]
+    assert "another fetch is already running" in capsys.readouterr().err
+    assert _run("fetch") == [0]
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_download_streams_to_disk_in_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A body larger than one chunk arrives whole, and a refused one leaves no temp file behind."""
+    monkeypatch.setattr(ledger, "_CHUNK_BYTES", 4)
+    assert _run("fetch") == [0]
+    assert RAW.read_text(encoding="utf-8") == FIXTURE
+    monkeypatch.setattr(ledger, "_MAX_BYTES", 10)
+    RAW.write_text("edited\n", encoding="utf-8")  # forces a full fetch
+    assert _run("fetch") == [1]
+    assert not list(RAW.parent.glob("*.part"))
+
+
+def test_each_fetch_line_says_new_or_unchanged(upstream: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The first fetch and a publisher revision are new; the same bytes again are unchanged."""
+    _run("fetch")
+    assert capsys.readouterr().out.split()[1] == "new"
+    _run("fetch")
+    assert capsys.readouterr().out.split()[1] == "unchanged"
+    upstream.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8")
+    _run("fetch")
+    assert capsys.readouterr().out.split()[1] == "new"

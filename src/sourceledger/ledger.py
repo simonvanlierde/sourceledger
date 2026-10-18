@@ -14,6 +14,7 @@ Paths are relative to the working directory, the project root.
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import dataclasses
 import errno
@@ -26,13 +27,14 @@ import logging
 import os
 import re
 import socket
+import sys
 import tempfile
 import time
 import tomllib
 import urllib.error
 import urllib.request
 import urllib.response
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
@@ -43,6 +45,9 @@ from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from email.message import Message
+
+if sys.platform != "win32":  # noqa: PLR2004
+    import fcntl
 
 MANIFEST = Path("sources.toml")
 RAW = Path("data/raw")
@@ -255,14 +260,41 @@ def _content_length(headers: Message) -> int | None:
     return int(value) if value.isascii() and value.isdigit() else None
 
 
-def _read(response: _Response, source: Source, deadline: float) -> bytes:
-    """The whole body, refused past the source's `max_bytes` or past the fetch's time budget."""
-    cap = source.get("max_bytes", _MAX_BYTES)
+@dataclasses.dataclass(frozen=True, slots=True)
+class _Download:
+    """A body streamed to a temp file, not yet moved into place."""
+
+    path: Path
+    sha256: str
+    size: int
+    headers: Message
+    url: str
+
+
+def _download(response: _Response, source: Source, deadline: float, folder: Path) -> tuple[Path, str, int]:
+    """Stream the body to a new temp file in `folder`, hashing it on the way: its path, SHA-256 and size.
+
+    Memory stays at one chunk whatever the file's size. Refused past the source's
+    `max_bytes` or past the fetch's time budget; the temp file is removed then.
+    """
     encoding = response.headers.get("Content-Encoding", "identity").strip().lower()
     if encoding not in {"", "identity"}:
         msg = f"{source['id']}: served with Content-Encoding {encoding}, so its bytes are not the file itself"
         raise ValueError(msg)
-    chunks: list[bytes] = []
+    fd, temp = tempfile.mkstemp(dir=folder, prefix=f".{source['id']}.", suffix=".part")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            digest, size = _copy(response, fh, source, deadline)
+    except BaseException:
+        Path(temp).unlink(missing_ok=True)
+        raise
+    return Path(temp), digest, size
+
+
+def _copy(response: _Response, fh: IO[bytes], source: Source, deadline: float) -> tuple[str, int]:
+    """Copy the body into `fh` chunk by chunk, flushed to disk: its SHA-256 and size."""
+    cap = source.get("max_bytes", _MAX_BYTES)
+    digest = hashlib.sha256()
     size = 0
     while chunk := response.read(_CHUNK_BYTES):
         size += len(chunk)
@@ -272,12 +304,15 @@ def _read(response: _Response, source: Source, deadline: float) -> bytes:
         if time.monotonic() > deadline:
             msg = f"download still unfinished after {_BUDGET_S} s"
             raise TimeoutError(msg)
-        chunks.append(chunk)
-    return b"".join(chunks)
+        digest.update(chunk)
+        fh.write(chunk)
+    fh.flush()
+    os.fsync(fh.fileno())
+    return digest.hexdigest(), size
 
 
-def _get(source: Source, previous: FetchRecord | None, user_agent: str) -> tuple[bytes, Message, str] | FetchRecord:
-    """GET one source's URL: its body, headers and final URL, retrying failures a publisher recovers from.
+def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: Path) -> _Download | FetchRecord:
+    """GET one source's URL into a temp file in `folder`, retrying failures a publisher recovers from.
 
     The request is conditional on the ETag and Last-Modified of a `previous` record, which
     is returned as it is when the server answers 304 Not Modified.
@@ -297,12 +332,14 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str) -> tuple
         wait = _BACKOFF_S * 2 ** (attempt - 1)
         try:
             with _open(request, timeout=_SOCKET_TIMEOUT_S) as response:
-                payload = _read(response, source, deadline)
+                path, digest, size = _download(response, source, deadline, folder)
                 # A connection dropped mid-body can end the read early without an error.
                 expected = _content_length(response.headers)
-                if expected is not None and expected != len(payload):
-                    raise http.client.IncompleteRead(payload, expected - len(payload))
-                return payload, response.headers, response.url
+                if expected is not None and expected != size:
+                    path.unlink()
+                    msg = f"body ended after {size} of the {expected} bytes its Content-Length promised"
+                    raise http.client.HTTPException(msg)
+                return _Download(path, digest, size, response.headers, response.url)
         except urllib.error.HTTPError as error:
             # urllib raises a 304 like an error. Only a conditional request can get one.
             if error.code == HTTPStatus.NOT_MODIFIED and previous and conditional:
@@ -382,6 +419,29 @@ def _append(log: Path, record: FetchRecord) -> None:
         os.fsync(fh.fileno())
 
 
+def logged_versions(log: Path = FETCH_LOG) -> dict[str, str]:
+    """The SHA-256 most recently logged for each source id."""
+    return {sid: r["sha256"] for sid, r in _last_records(log).items()}
+
+
+@contextlib.contextmanager
+def _lock(raw: Path) -> Generator[None]:
+    """Hold an exclusive lock on `raw/.lock`, so two fetches at once can't interleave their writes.
+
+    Fails at once rather than waiting. POSIX only: on Windows no lock is taken.
+    """
+    if sys.platform == "win32":  # noqa: PLR2004
+        yield
+        return
+    with (raw / ".lock").open("w") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            msg = f"another fetch is already running in {raw}"
+            raise OSError(msg) from error
+        yield
+
+
 def revisions(before: Path, *, log: Path = FETCH_LOG) -> list[str]:
     """One Markdown line per source whose bytes changed between `before`, an earlier copy of the log, and `log`.
 
@@ -412,20 +472,22 @@ def fetch(
     Every source is tried. Raises FetchError after the loop when any failed, listing each
     with its reason; nothing is written for those. A source fails for a download over its
     `max_bytes` (default 200 MiB), bytes that miss the `sha256` the manifest pins, or an
-    error that outlasts its retries.
+    error that outlasts its retries. Raises OSError at once when another fetch holds the
+    lock on `raw`.
     """
     raw.mkdir(parents=True, exist_ok=True)
     log.parent.mkdir(parents=True, exist_ok=True)
-    logged = {sid: r["sha256"] for sid, r in _last_records(log).items()}
     records: list[FetchRecord] = []
     failures: list[str] = []
-    for source in implemented(sources):
-        try:
-            records.append(_fetch_one(source, raw, log, logged, user_agent))
-        except ValueError as error:  # messages already name the source
-            failures.append(str(error))
-        except _TRANSIENT as error:
-            failures.append(f"{source['id']}: fetching {source['url']} failed: {error}")
+    with _lock(raw):
+        logged = logged_versions(log)
+        for source in implemented(sources):
+            try:
+                records.append(_fetch_one(source, raw, log, logged, user_agent))
+            except ValueError as error:  # messages already name the source
+                failures.append(str(error))
+            except _TRANSIENT as error:
+                failures.append(f"{source['id']}: fetching {source['url']} failed: {error}")
     if failures:
         raise FetchError(records, failures)
     return records
@@ -433,13 +495,20 @@ def fetch(
 
 def _fetch_one(source: Source, raw: Path, log: Path, logged: dict[str, str], user_agent: str) -> FetchRecord:
     """Fetch one source, write its raw file, log and record, and return the record."""
-    response = _get(source, _previous(source, raw), user_agent)
+    response = _get(source, _previous(source, raw), user_agent, raw)
     if isinstance(response, FetchRecord):
         # A version written to disk by a fetch that died before logging it gets logged now.
         _log_new_version(log, logged, response)
         return response
-    payload, headers, final_url = response
-    digest = hashlib.sha256(payload).hexdigest()
+    try:
+        return _keep(source, response, raw, log, logged)
+    finally:
+        response.path.unlink(missing_ok=True)  # gone already once moved into place
+
+
+def _keep(source: Source, download: _Download, raw: Path, log: Path, logged: dict[str, str]) -> FetchRecord:
+    """Check a finished download against the pin, move it into place, and log and record it."""
+    digest = download.sha256
     if source.get("sha256", digest) != digest:
         msg = f"{source['id']}: downloaded bytes hash to {digest}, not the sha256 in sources.toml"
         raise ValueError(msg)
@@ -448,15 +517,15 @@ def _fetch_one(source: Source, raw: Path, log: Path, logged: dict[str, str], use
         url=source["url"],
         retrieved_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         sha256=digest,
-        bytes=len(payload),
+        bytes=download.size,
         vintage=_vintage(source),
         # Kept for a conditional request (If-Modified-Since, If-None-Match) on a later run.
-        last_modified=headers.get("Last-Modified", ""),
-        etag=headers.get("ETag", ""),
-        final_url="" if final_url == source["url"] else final_url,
+        last_modified=download.headers.get("Last-Modified", ""),
+        etag=download.headers.get("ETag", ""),
+        final_url="" if download.url == source["url"] else download.url,
     )
     name = raw_name(source)
-    _write_atomic(raw / name, payload)
+    download.path.replace(raw / name)
     # Logged before the record is written: until the record matches the raw file, the next
     # run fetches in full, so a crash in between loses nothing.
     _log_new_version(log, logged, record)
