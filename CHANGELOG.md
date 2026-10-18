@@ -35,6 +35,10 @@ a breaking change comes only in a minor version (see Stability in the README).
 - `--only ID` for `fetch`, `build` and `validate`, and an `only` argument for the same
   functions, to work on some sources only. An unknown id is an error.
 - `status`, `attribution` and `verify` are also functions in the public API.
+- `archive = true` in `sources.toml` asks the Internet Archive's Save Page Now to snapshot
+  a source's URL after a fetch that brings new bytes. The snapshot's address is kept in the
+  fetch record and the log as `archive_url`. The request times out after 15 s, and a
+  failure is a warning, never a failed fetch. Records written before this field still load.
 
 ### Changed
 

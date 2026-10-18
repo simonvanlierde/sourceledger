@@ -42,7 +42,7 @@ from http import HTTPStatus
 from importlib.metadata import version
 from pathlib import Path, PurePosixPath
 from typing import IO, TYPE_CHECKING, Any
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 if TYPE_CHECKING:
     from email.message import Message
@@ -104,6 +104,11 @@ _ENV_REF = re.compile(r"env:([A-Za-z_][A-Za-z0-9_]*)")
 _RESERVED_HEADERS = frozenset({"user-agent", "accept-encoding", "if-none-match", "if-modified-since"})
 # Sent again after a redirect to another host. Credentials from the manifest are not.
 _SAFE_ON_REDIRECT = frozenset({"user-agent", "accept-encoding"})
+# The Internet Archive's Save Page Now: a GET of this plus a URL asks it to snapshot that URL.
+_ARCHIVE = "https://web.archive.org/save/"
+_SNAPSHOT = "https://web.archive.org/web/"
+# A snapshot can take the archive a while; a fetch never waits on it longer than this.
+_ARCHIVE_TIMEOUT_S = 15
 
 # Sent with every request, so a publisher can tell who is fetching. `main` takes the project's own.
 USER_AGENT = f"sourceledger/{version('sourceledger')}"
@@ -134,6 +139,10 @@ class FetchRecord:
     final_url: str = ""
     # The request headers taken from environment variables (names only, never values).
     env_headers: list[str] = dataclasses.field(default_factory=list)
+    # The Internet Archive's snapshot of the URL, for a source with `archive = true`. Set only
+    # by the fetch that first brought these bytes, whose line in the log keeps it. Empty when
+    # the source does not ask for one, or the archive did not answer with one.
+    archive_url: str = ""
 
 
 class FetchError(OSError):
@@ -167,6 +176,9 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
     caps = {s["id"]: s.get("max_bytes", _MAX_BYTES) for s in sources}
     if bad_cap := [i for i, cap in caps.items() if type(cap) is not int or cap < 1]:
         msg = f"sources {bad_cap} in sources.toml need max_bytes to be a positive whole number"
+        raise ValueError(msg)
+    if bad_archive := [s["id"] for s in sources if not isinstance(s.get("archive", False), bool)]:
+        msg = f"sources {bad_archive} in sources.toml need archive to be true or false"
         raise ValueError(msg)
     for source in sources:
         _check_pin(source)
@@ -448,6 +460,29 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
     raise AssertionError  # unreachable: the last attempt returns or raises
 
 
+def _archive(source: Source, user_agent: str) -> str:
+    """Ask the Internet Archive to snapshot the source's URL: the snapshot's URL, or "" when there is none.
+
+    Never raises. An archive that is down, slow or answers oddly costs a warning, not the fetch.
+    """
+    url = source["url"]
+    if urlsplit(url).scheme not in {"http", "https"}:
+        _logger.warning("%s: archive needs an http or https URL, not %s; skipped", source["id"], url)
+        return ""
+    request = urllib.request.Request(_ARCHIVE + url, headers={"User-Agent": user_agent})  # noqa: S310  # a fixed https URL
+    try:
+        with _open(request, timeout=_ARCHIVE_TIMEOUT_S) as response:
+            # The archive redirects to the snapshot, or names it in Content-Location.
+            snapshot = urljoin(response.url, response.headers.get("Content-Location", ""))
+    except (*_TRANSIENT, ValueError) as error:
+        _logger.warning("%s: the Internet Archive did not snapshot %s (%s)", source["id"], url, error)
+        return ""
+    if not snapshot.startswith(_SNAPSHOT):
+        _logger.warning("%s: the Internet Archive answered without a snapshot of %s", source["id"], url)
+        return ""
+    return snapshot
+
+
 def _env_headers(source: Source) -> dict[str, str]:
     """The manifest's extra request headers, each value read from the environment variable it names."""
     resolved = {}
@@ -609,17 +644,23 @@ def _fetch_one(source: Source, raw: Path, log: Path, logged: dict[str, str], use
         _log_new_version(log, logged, response)
         return response
     try:
-        return _keep(source, response, raw, log, logged)
+        return _keep(source, response, raw, log, logged, user_agent)
     finally:
         response.path.unlink(missing_ok=True)  # gone already once moved into place
 
 
-def _keep(source: Source, download: _Download, raw: Path, log: Path, logged: dict[str, str]) -> FetchRecord:
-    """Check a finished download against the pin, move it into place, and log and record it."""
+def _keep(
+    source: Source, download: _Download, raw: Path, log: Path, logged: dict[str, str], user_agent: str
+) -> FetchRecord:
+    """Check a finished download against the pin, move it into place, and log and record it.
+
+    Bytes the log has not had for this source are first archived, when the source asks for it.
+    """
     digest = download.sha256
     if source.get("sha256", digest) != digest:
         msg = f"{source['id']}: downloaded bytes hash to {digest}, not the sha256 in sources.toml"
         raise ValueError(msg)
+    archived = _archive(source, user_agent) if source.get("archive") and logged.get(source["id"]) != digest else ""
     record = FetchRecord(
         source_id=source["id"],
         url=source["url"],
@@ -632,6 +673,7 @@ def _keep(source: Source, download: _Download, raw: Path, log: Path, logged: dic
         etag=download.headers.get("ETag", ""),
         final_url="" if download.url == source["url"] else download.url,
         env_headers=sorted(source.get("headers", {})),
+        archive_url=archived,
     )
     name = raw_name(source)
     download.path.replace(raw / name)

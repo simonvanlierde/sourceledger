@@ -252,7 +252,7 @@ def test_build_reads_a_fetch_record_from_before_the_http_headers(monkeypatch: py
     _run("fetch")
     path = Path("data/raw/example.csv.fetch.json")
     record = json.loads(path.read_text(encoding="utf-8"))
-    del record["last_modified"], record["etag"]
+    del record["last_modified"], record["etag"], record["archive_url"]
     path.write_text(json.dumps(record), encoding="utf-8")
     assert _run("build") == [0]
 
@@ -1040,6 +1040,8 @@ _GOOD = f'[[source]]\nid = "a"\nstatus = "implemented"\nurl = "https://example.o
         _GOOD,
         _GOOD + 'sha256 = "' + "A" * 64 + '"\nmax_bytes = 10\nformat = "json"\nsheet = "x"\nvintage = "2024"\n',
         _GOOD + 'headers = { Authorization = "env:TOKEN" }\ncolumn_map = "kept for the project\'s own reader"\n',
+        _GOOD + "archive = true\n",
+        _GOOD + 'archive = "yes"\n',
         '[[source]]\nid = "b"\nstatus = "unimplemented"\nreason = "later"\n',
         _GOOD.replace('id = "a"', 'id = "a/b"'),
         _GOOD.replace('status = "implemented"', 'status = "done"'),
@@ -1335,3 +1337,86 @@ def test_verify_needs_a_readable_package(
     Path("datapackage.json").write_text("not json", encoding="utf-8")
     assert main(["verify", "."]) == 1
     assert capsys.readouterr().err.startswith("verify: Expecting value")
+
+
+_DATA = "https://example.org/data.csv"
+_SNAPSHOT = f"https://web.archive.org/web/20261018033833/{_DATA}"
+
+
+def _archived(response: _Response, url: str) -> _Response:
+    """`response` as served from `url`, the address the opener ended at after redirects."""
+    response.url = url
+    return response
+
+
+@pytest.mark.usefixtures("upstream")
+def test_archive_asks_for_a_snapshot_of_new_bytes_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The snapshot's URL lands in the record and the log; an unchanged source is not archived again."""
+    _manifest(tmp_path, _DATA, terms=f"{TERMS}\narchive = true")
+    calls = _serve(
+        monkeypatch,
+        _Response(FIXTURE.encode(), ETag='"v1"'),
+        _archived(_Response(b""), _SNAPSHOT),
+        _http_error(304),
+        _Response(FIXTURE.encode()),
+    )
+    assert _run("fetch") == [0]
+    assert (calls[1].full_url, calls[1].timeout) == (f"https://web.archive.org/save/{_DATA}", ledger._ARCHIVE_TIMEOUT_S)  # noqa: SLF001
+    assert calls[1].get_header("User-agent") == ledger.USER_AGENT
+    record = json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
+    assert record["archive_url"] == _SNAPSHOT
+    assert json.loads(LOG.read_text(encoding="utf-8"))["archive_url"] == _SNAPSHOT
+    assert _run("fetch") == [0]  # a 304
+    RAW.write_text("edited\n", encoding="utf-8")
+    assert _run("fetch") == [0]  # the same bytes again, downloaded in full
+    assert len(calls) == 4
+    assert json.loads(LOG.read_text(encoding="utf-8"))["archive_url"] == _SNAPSHOT
+
+
+@pytest.mark.parametrize(
+    ("answer", "snapshot"),
+    [
+        (
+            _archived(
+                _Response(b"", Content_Location=f"/web/20261018033833/{_DATA}"), f"https://web.archive.org/save/{_DATA}"
+            ),
+            _SNAPSHOT,
+        ),
+        (_archived(_Response(b""), f"https://web.archive.org/save/{_DATA}"), ""),
+        (_http_error(503), ""),
+        (TimeoutError("timed out"), ""),
+    ],
+)
+@pytest.mark.usefixtures("upstream")
+def test_archive_never_fails_the_fetch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    answer: _Response | Exception,
+    snapshot: str,
+) -> None:
+    """A snapshot named in Content-Location is kept; no snapshot, an error or a timeout is a warning."""
+    _manifest(tmp_path, _DATA, terms=f"{TERMS}\narchive = true")
+    _serve(monkeypatch, _Response(FIXTURE.encode()), answer)
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    record = json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
+    assert record["archive_url"] == snapshot
+    assert ("Internet Archive" in caplog.text) == (not snapshot)
+
+
+def test_archive_skips_a_url_that_is_not_http(
+    upstream: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Save Page Now can only reach the web, so a file:// source is fetched and not archived."""
+    _manifest(tmp_path, upstream.as_uri(), terms=f"{TERMS}\narchive = true")
+    calls = _serve(monkeypatch, _Response(FIXTURE.encode()))
+    assert _run("fetch") == [0]
+    assert len(calls) == 1
+    assert "archive needs an http or https URL" in caplog.text
+
+
+def test_archive_must_be_true_or_false(upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A string such as "yes" is a manifest error, not a silent yes."""
+    _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\narchive = "yes"')
+    assert _run("fetch") == [1]
+    assert "need archive to be true or false" in capsys.readouterr().err

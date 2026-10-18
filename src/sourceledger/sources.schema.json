@@ -75,6 +75,10 @@
             "pattern": "^env:[A-Za-z_][A-Za-z0-9_]*$"
           }
         },
+        "archive": {
+          "type": "boolean",
+          "description": "Ask the Internet Archive to snapshot the URL after a fetch that brings new bytes."
+        },
         "reason": { "type": "string", "description": "A note for people. Not read." }
       },
       "if": { "properties": { "status": { "const": "implemented" } } },
