@@ -8,6 +8,8 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-18
+
 ### Added
 
 - `fetch`, `build`, `validate` and `revisions` over a `sources.toml` manifest, as
@@ -29,4 +31,5 @@ a breaking change comes only in a minor version (see Stability in the README).
   vintage or pin.
 - Manifest key `vintage`. The key `release` is still read, with a warning.
 
-[Unreleased]: https://github.com/simonvanlierde/sourceledger/commits/HEAD
+[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/simonvanlierde/sourceledger/releases/tag/v0.1.0
