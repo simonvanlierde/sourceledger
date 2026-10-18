@@ -30,7 +30,7 @@ jobs:
 
       # prek is the action author's own binary, so the digest pin is the trust anchor.
       # Hook revs are pinned in .pre-commit-config.yaml.
-      - uses: j178/prek-action@4e14d07f9231acabce116ccfca13b13dd9755ece # v3.0.0
+      - uses: j178/prek-action@1382ad72dea72f9d53832f2bcb65b3e87a947204 # v3.0.1
         env:
           # The stack workflows run these from the project's own environment.
           # betterleaks scans staged changes only and CI stages nothing. GitHub secret
@@ -41,7 +41,7 @@ jobs:
 
       # zizmor's online audits (impostor commits, known-vulnerable actions) need a token.
       # It is read-only, and only this hook sees it, not every third-party hook above.
-      - uses: j178/prek-action@4e14d07f9231acabce116ccfca13b13dd9755ece # v3.0.0
+      - uses: j178/prek-action@1382ad72dea72f9d53832f2bcb65b3e87a947204 # v3.0.1
         with:
           extra-args: zizmor --all-files
         env:
