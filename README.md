@@ -103,8 +103,13 @@ keys are checked when the manifest loads.
   address. When a redirect is followed, the record keeps the final URL too.
 - Every source is tried. When some fail, the others are still written, and the run
   exits 1 with one line per failed source.
-- Each file is written to a new temporary file and renamed into place, so a crash never
-  leaves half a file. A fetch log line cut off by a crash is dropped on the next run.
+- Each download streams to a new temporary file beside its destination, hashed on the
+  way, and is renamed into place, so memory stays small and a crash never leaves half a
+  file. A fetch log line cut off by a crash is dropped on the next run.
+- Two fetches at once in the same project are refused: the second exits at once. This
+  uses a lock on `data/raw/.lock`, on Linux and macOS only.
+- Each line it prints says `new` when a source's bytes differ from the last ones in the
+  log, and `unchanged` when they don't.
 
 ## Your own readers
 

@@ -8,6 +8,21 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+### Added
+
+- `sourceledger fetch` marks each line `new` or `unchanged`, against the fetch log.
+
+### Fixed
+
+- A second `fetch` in the same project while one is running exits at once instead of
+  interleaving writes with it (Linux and macOS).
+- Downloads stream to disk in 1 MiB chunks, so a 200 MiB source no longer needs 200 MiB
+  of memory, plus copies, to fetch.
+
+### Security
+
+- CI gives the read-only GitHub token to the zizmor hook only, not to every hook.
+
 ## [0.1.0] - 2026-10-18
 
 ### Added
