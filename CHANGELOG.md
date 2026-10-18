@@ -8,6 +8,14 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-18
+
+Upgrade steps:
+
+- Rename any source id that uses a non-ASCII letter: ids must be ASCII letters, digits,
+  `_` and `-` (see the Breaking change below). Fetch again afterwards, since the id names
+  the raw file and the output.
+
 ### Added
 
 - Python 3.15 is supported and tested in CI.
@@ -31,13 +39,15 @@ a breaking change comes only in a minor version (see Stability in the README).
 - `sourceledger attribution` prints the implemented sources' reuse terms as a Markdown
   table, for a dataset's README or release notes.
 - `sourceledger verify DIR` checks a downloaded dataset against its `datapackage.json`:
-  every file it lists must exist with the size and SHA-256 it gives.
+  every file it lists must exist inside `DIR`, symlinks included, with the size and
+  SHA-256 it gives.
 - `--only ID` for `fetch`, `build` and `validate`, and an `only` argument for the same
   functions, to work on some sources only. An unknown id is an error.
 - `status`, `attribution` and `verify` are also functions in the public API.
 - `archive = true` in `sources.toml` asks the Internet Archive's Save Page Now to snapshot
   a source's URL after a fetch that brings new bytes. The snapshot's address is kept in the
-  fetch record and the log as `archive_url`. Each connect and read times out after 15 s,
+  fetch record and the log as `archive_url`, and kept when the same bytes are downloaded
+  again. Each connect and read times out after 15 s,
   and a failure is a warning, never a failed fetch. Records written before this field
   still load.
 
@@ -48,14 +58,8 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Fixed
 
-- `verify` rejects a listed file that is a symlink leading out of the dataset's folder,
-  and a `bytes` of `true` in `datapackage.json`, which passed for a 1-byte file.
-- A source with `archive = true` keeps its `archive_url` when the same bytes are
-  downloaded again in full, such as from a server that sends no ETag.
-- A damaged `data/fetches.jsonl` no longer stops `build`, `validate`, `init`,
-  `attribution` or `verify`; only `fetch` and `status` read it. A log line that is JSON but
-  not a fetch record is reported by line number instead of crashing.
-- `validate` reports a `datapackage.json` that holds a JSON list instead of crashing.
+- A line in `data/fetches.jsonl` that is JSON but not a fetch record is reported by line
+  number instead of crashing `fetch` and `revisions`.
 - A second `fetch` in the same project while one is running exits at once instead of
   interleaving writes with it (Linux and macOS).
 - Downloads stream to disk in 1 MiB chunks, so a 200 MiB source no longer needs 200 MiB
@@ -91,5 +95,6 @@ a breaking change comes only in a minor version (see Stability in the README).
   vintage or pin.
 - Manifest key `vintage`. The key `release` is still read, with a warning.
 
-[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/simonvanlierde/sourceledger/releases/tag/v0.1.0
