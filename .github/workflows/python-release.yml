@@ -30,6 +30,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  # As in python.yml: uv checks every package against OSV's malware advisories before
+  # its code runs. The preview flag only silences the "experimental" warning.
+  UV_MALWARE_CHECK: "1"
+  UV_PREVIEW_FEATURES: malware-check
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -55,8 +61,12 @@ jobs:
       - run: uv build
 
       # The suite again, against the wheel instead of src/. --no-project stops uv
-      # resolving the local tree, so the import can only come from dist/.
-      - run: uv run --isolated --no-project --with dist/*.whl --with pytest pytest tests
+      # resolving the local tree, so the import can only come from dist/. The test
+      # tools come from uv.lock, with their hashes, not from whatever PyPI serves now:
+      # they run before dist/ is uploaded.
+      - run: |
+          uv export --locked --only-group dev --no-emit-project >"$RUNNER_TEMP/dev.txt"
+          uv run --isolated --no-project --with dist/*.whl --with-requirements "$RUNNER_TEMP/dev.txt" pytest tests
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

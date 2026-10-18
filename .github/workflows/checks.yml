@@ -36,9 +36,15 @@ jobs:
           # betterleaks scans staged changes only and CI stages nothing. GitHub secret
           # scanning covers the server side (free on public repos; a private repo needs
           # GitHub Advanced Security).
-          SKIP: ruff-check,ruff-format,ty,biome,tsc,cargo-fmt,cargo-clippy,golangci-lint-fmt,golangci-lint,betterleaks
-          # Enables zizmor's online audits (impostor commits, known-vulnerable actions).
-          # Read-only.
+          # zizmor runs in the next step, the only one given a token.
+          SKIP: ruff-check,ruff-format,ty,biome,tsc,cargo-fmt,cargo-clippy,golangci-lint-fmt,golangci-lint,betterleaks,zizmor
+
+      # zizmor's online audits (impostor commits, known-vulnerable actions) need a token.
+      # It is read-only, and only this hook sees it, not every third-party hook above.
+      - uses: j178/prek-action@4e14d07f9231acabce116ccfca13b13dd9755ece # v3.0.0
+        with:
+          extra-args: zizmor --all-files
+        env:
           GH_TOKEN: ${{ github.token }}
 
   dependency-review:

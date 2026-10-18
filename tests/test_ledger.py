@@ -1,15 +1,27 @@
 """The whole pipeline against a fixture served from a local file: no network."""
 
+import gzip
 import hashlib
+import http.client
+import http.server
 import io
 import json
+import sys
+import threading
 import time
+import tomllib
 import urllib.error
 import urllib.request
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from email.message import Message
+from email.utils import format_datetime
 from pathlib import Path
 
 import pytest
+
+if sys.platform != "win32":
+    import fcntl
 
 from sourceledger import ledger
 from sourceledger.cli import main
@@ -70,26 +82,32 @@ def _headers(**fields: str) -> Message:
 
 
 class _Response(io.BytesIO):
-    """What urlopen returns: a body, and headers whose Content-Length is `length` (default: the true length)."""
+    """What the opener returns: a body, and headers whose Content-Length is `length` (default: the true length)."""
 
     def __init__(self, body: bytes, length: int | None = None, **headers: str) -> None:
         super().__init__(body)
         self.headers = _headers(Content_Length=str(len(body) if length is None else length), **headers)
+        self.url = ""  # set to the request's URL when served
 
 
 def _serve(monkeypatch: pytest.MonkeyPatch, *outcomes: _Response | Exception) -> list[urllib.request.Request]:
-    """Answer each urlopen call with the next outcome, raising it if it is an exception. Returns the requests made."""
+    """Answer each request with the next outcome, raising it if it is an exception. Returns the requests made.
+
+    Each request's socket timeout is kept as its `timeout` attribute.
+    """
     calls: list[urllib.request.Request] = []
     queue = list(outcomes)
 
-    def urlopen(request: urllib.request.Request, timeout: float) -> _Response:  # noqa: ARG001
+    def open_(request: urllib.request.Request, timeout: float) -> _Response:
+        request.timeout = timeout
         calls.append(request)
         outcome = queue.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
+        outcome.url = outcome.url or request.full_url
         return outcome
 
-    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(ledger, "_open", open_)
     return calls
 
 
@@ -212,7 +230,7 @@ def test_fetch_rejects_a_body_shorter_than_its_content_length(
     calls = _serve(monkeypatch, *[_Response(FIXTURE.encode()[:5], length=len(FIXTURE)) for _ in range(4)])
     assert _run("fetch") == [1]
     assert len(calls) == 4
-    assert "IncompleteRead" in capsys.readouterr().err
+    assert "body ended after 5 of the 29 bytes" in capsys.readouterr().err
     assert not RAW.exists()
 
 
@@ -267,7 +285,7 @@ def test_max_bytes_must_be_a_positive_whole_number(
     """A cap that is not a byte count is a manifest error, not a silent 0- or 1-byte limit."""
     _manifest(tmp_path, upstream.as_uri(), terms=f"max_bytes = {cap}")
     assert _run("fetch") == [1]
-    assert "max_bytes" in capsys.readouterr().err
+    assert "positive whole number" in capsys.readouterr().err
 
 
 def test_an_empty_manifest_is_no_sources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -426,8 +444,9 @@ def test_validate_reports_missing_output_as_a_problem(capsys: pytest.CaptureFixt
     _run("fetch")
     assert _run("validate") == [1]
     out, err = capsys.readouterr()
-    assert "1 problems" in out
+    assert "2 problems" in out
     assert "data/processed/example.csv is missing" in err
+    assert "datapackage.json is missing; re-run build" in err
 
 
 @pytest.mark.usefixtures("upstream")
@@ -564,3 +583,542 @@ def test_a_project_passes_its_own_parser_and_name(monkeypatch: pytest.MonkeyPatc
 def test_the_default_user_agent_names_the_library() -> None:
     """A fetch without a project name still says who is asking."""
     assert ledger.USER_AGENT.startswith("sourceledger/")
+
+
+def _two_sources(root: Path, first: str, second: str) -> None:
+    """Two implemented sources, `a` at `first` and `b` at `second`."""
+    text = "".join(
+        f'[[source]]\nid = "{sid}"\nstatus = "implemented"\nurl = "{url}"\n{TERMS}\n\n'
+        for sid, url in (("a", first), ("b", second))
+    )
+    (root / "sources.toml").write_text(text, encoding="utf-8")
+
+
+def test_one_failing_source_does_not_stop_the_others(
+    upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every source is tried; the run fails, names the failed one, and keeps what the others fetched."""
+    _two_sources(tmp_path, upstream.with_name("gone.csv").as_uri(), upstream.as_uri())
+    assert _run("fetch") == [1]
+    out, err = capsys.readouterr()
+    assert err.startswith("fetch: a: fetching ")
+    assert out.startswith("b ")
+    assert Path("data/raw/b.csv").read_text(encoding="utf-8") == FIXTURE
+    assert not Path("data/raw/a.csv").exists()
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_version_the_log_missed_is_logged_on_the_next_304(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fetch that died after writing the record but before logging it loses no history."""
+    _serve(monkeypatch, _Response(FIXTURE.encode(), ETag='"abc"'), _http_error(304))
+    _run("fetch")
+    LOG.unlink()
+    assert _run("fetch") == [0]
+    assert len(LOG.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_a_cut_off_last_log_line_is_dropped_not_fatal(upstream: Path, tmp_path: Path) -> None:
+    """An interrupted append leaves half a line; the next fetch drops it and carries on."""
+    _run("fetch")
+    with LOG.open("a", encoding="utf-8") as fh:
+        fh.write('{"source_id": "exa')
+    upstream.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8")
+    before = tmp_path / "before.jsonl"
+    before.write_text(LOG.read_text(encoding="utf-8"), encoding="utf-8")
+    assert main(["revisions", str(before)]) == 0
+    assert _run("fetch") == [0]
+    lines = [json.loads(line) for line in LOG.read_text(encoding="utf-8").splitlines()]
+    assert len(lines) == 2
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_bad_line_inside_the_log_is_an_error_that_names_it(capsys: pytest.CaptureFixture[str]) -> None:
+    """Only a cut-off last line is forgiven: damage earlier in the history is reported."""
+    LOG.parent.mkdir(parents=True)
+    LOG.write_text('not json\n{"source_id": "x", "sha256": "0"}\n', encoding="utf-8")
+    assert _run("fetch") == [1]
+    assert "fetches.jsonl:1 is not a fetch record" in capsys.readouterr().err
+
+
+def test_a_sha256_pin_in_upper_case_matches(upstream: Path, tmp_path: Path) -> None:
+    """Windows tools print hashes in upper case; the pin still matches the bytes."""
+    pin = hashlib.sha256(FIXTURE.encode()).hexdigest().upper()
+    _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nsha256 = "{pin}"')
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+
+
+def test_a_sha256_pin_must_be_a_sha256(upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A truncated or mistyped pin is a manifest error, not a download that never matches."""
+    _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nsha256 = "abc123"')
+    assert _run("fetch") == [1]
+    assert "64 hexadecimal characters" in capsys.readouterr().err
+
+
+def test_build_checks_the_pin_too(upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A pin added after the fetch applies to build and validate, not only to the next fetch."""
+    _run("fetch")
+    _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nsha256 = "{"0" * 64}"')
+    capsys.readouterr()
+    assert _run("build", "validate") == [1, 1]
+    assert "not the sha256 sources.toml now pins" in capsys.readouterr().err
+
+
+def test_a_new_vintage_needs_a_new_fetch(upstream: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Records and output never keep a vintage the manifest no longer declares."""
+    _run("fetch", "build")
+    _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nvintage = "2025"')
+    assert _run("validate") == [1]
+    calls = _serve(monkeypatch, _Response(FIXTURE.encode()))
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    assert calls[0].get_header("If-none-match") is None
+    assert {r["vintage"] for r in ledger.read_output(OUT)} == {"2025"}
+
+
+def test_release_is_read_as_vintage_with_a_warning(
+    upstream: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Manifests written before the rename keep working."""
+    _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nrelease = "2024"')
+    assert _run("fetch") == [0]
+    assert json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))["vintage"] == "2024"
+    assert "is now `vintage`" in caplog.text
+    _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nrelease = "2024"\nvintage = "2024"')
+    assert _run("fetch") == [1]
+
+
+@pytest.mark.usefixtures("upstream")
+def test_validate_compares_every_provenance_column(capsys: pytest.CaptureFixture[str]) -> None:
+    """Output whose retrieval time or vintage no longer matches the record is stale."""
+    _run("fetch", "build")
+    OUT.write_text(OUT.read_text(encoding="utf-8").replace("Z,", "Z0,"), encoding="utf-8")
+    assert _run("validate") == [1]
+    assert "re-run build" in capsys.readouterr().err
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_parser_cannot_overwrite_a_provenance_column() -> None:
+    """The stamp is written last, so a parser's row keys never replace it."""
+
+    def sneaky(source: ledger.Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
+        columns, rows = ledger.parse_csv(source, payload)
+        return columns, [{**row, "vintage": "forged"} for row in rows]
+
+    _run("fetch")
+    assert main(["build"], parse=sneaky) == 0
+    assert {r["vintage"] for r in ledger.read_output(OUT)} == {"not stated"}
+
+
+def test_revisions_needs_the_earlier_log_to_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A missing copy is an error, not an empty report; and revisions needs no sources.toml."""
+    monkeypatch.chdir(tmp_path)
+    assert main(["revisions", "missing.jsonl"]) == 1
+    assert "missing.jsonl is missing" in capsys.readouterr().err
+    (tmp_path / "before.jsonl").write_text("", encoding="utf-8")
+    assert main(["revisions", "before.jsonl"]) == 0
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_content_length_that_is_not_a_number_is_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A malformed header can't verify the length, so it doesn't fail the fetch either."""
+    response = _Response(FIXTURE.encode())
+    response.headers.replace_header("Content-Length", "29, 29")
+    _serve(monkeypatch, response)
+    assert _run("fetch") == [0]
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_compressed_body_is_refused(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """Hashing gzip bytes would record something that is not the file the publisher serves."""
+    _serve(monkeypatch, _Response(FIXTURE.encode(), Content_Encoding="gzip"))
+    assert _run("fetch") == [1]
+    assert "Content-Encoding gzip" in capsys.readouterr().err
+    assert not RAW.exists()
+
+
+@pytest.mark.parametrize(
+    ("retry_after", "expected"),
+    [("1", [5]), ("²", [5]), ("soon", [5])],
+)
+@pytest.mark.usefixtures("upstream")
+def test_a_short_or_unreadable_retry_after_waits_the_backoff(
+    monkeypatch: pytest.MonkeyPatch, sleeps: list[float], retry_after: str, expected: list[float]
+) -> None:
+    """Retry-After raises the wait above the backoff, never below it, and junk is ignored."""
+    _serve(monkeypatch, _http_error(429, Retry_After=retry_after), _Response(FIXTURE.encode()))
+    assert _run("fetch") == [0]
+    assert sleeps == expected
+
+
+@pytest.mark.usefixtures("upstream")
+def test_retry_after_as_an_http_date_is_honoured(monkeypatch: pytest.MonkeyPatch, sleeps: list[float]) -> None:
+    """RFC 9110 lets Retry-After be a date; a minute from now waits about a minute."""
+    when = format_datetime(datetime.now(UTC) + timedelta(seconds=60), usegmt=True)
+    _serve(monkeypatch, _http_error(503, Retry_After=when), _Response(FIXTURE.encode()))
+    assert _run("fetch") == [0]
+    assert 55 <= sleeps[0] <= 60
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_status_that_never_recovers_is_not_retried(monkeypatch: pytest.MonkeyPatch, sleeps: list[float]) -> None:
+    """501 Not Implemented will say the same thing in 20 seconds."""
+    calls = _serve(monkeypatch, _http_error(501))
+    assert _run("fetch") == [1]
+    assert (len(calls), sleeps) == (1, [])
+
+
+@pytest.mark.usefixtures("upstream")
+def test_each_request_has_a_socket_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A server that never answers can't hold the run forever."""
+    calls = _serve(monkeypatch, _Response(FIXTURE.encode()))
+    _run("fetch")
+    assert calls[0].timeout == ledger._SOCKET_TIMEOUT_S  # noqa: SLF001
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_304_to_an_unconditional_request_is_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without validators there is no earlier copy for a 304 to point at."""
+    _serve(monkeypatch, _http_error(304))
+    assert _run("fetch") == [1]
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_download_that_outlasts_its_budget_fails(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A server trickling bytes inside every socket timeout is still stopped."""
+    monkeypatch.setattr(ledger, "_BUDGET_S", -1)
+    _serve(monkeypatch, _Response(FIXTURE.encode()))
+    assert _run("fetch") == [1]
+    assert "unfinished after" in capsys.readouterr().err
+
+
+def test_a_redirect_from_a_public_host_to_an_internal_one_is_refused() -> None:
+    """A third-party server can't make the fetch save an internal service's response."""
+    handler = ledger._NoRedirectInward()  # noqa: SLF001
+    public = urllib.request.Request("http://93.184.215.14/data.csv")
+    with pytest.raises(urllib.error.HTTPError, match="refused a redirect"):
+        handler.redirect_request(
+            public, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://127.0.0.1/secret"
+        )
+    internal = urllib.request.Request("http://127.0.0.1/data.csv")
+    assert handler.redirect_request(
+        internal, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://127.0.0.1/moved"
+    )
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_symlink_where_the_temp_file_would_go_is_not_followed(tmp_path: Path) -> None:
+    """Temp files get fresh names, so a planted link can't redirect a write."""
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep me", encoding="utf-8")
+    RAW.parent.mkdir(parents=True)
+    RAW.with_name(RAW.name + ".part").symlink_to(victim)
+    assert _run("fetch") == [0]
+    assert victim.read_text(encoding="utf-8") == "keep me"
+    assert RAW.read_text(encoding="utf-8") == FIXTURE
+
+
+class _Publisher(http.server.BaseHTTPRequestHandler):
+    """A real HTTP server: /data.csv with an ETag and 304s, and /old.csv redirecting to it."""
+
+    def do_GET(self) -> None:
+        if self.path == "/old.csv":
+            self.send_response(302)
+            self.send_header("Location", "/data.csv")
+            self.end_headers()
+            return
+        if self.headers.get("If-None-Match") == '"v1"':
+            self.send_response(304)
+            self.end_headers()
+            return
+        body = FIXTURE.encode()
+        self.send_response(200)
+        self.send_header("ETag", '"v1"')
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002  # the base class names it
+        """Keep test output quiet."""
+
+
+@pytest.fixture
+def publisher(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """The base URL of a `_Publisher` on a free local port; the test runs in a project directory."""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Publisher)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    monkeypatch.chdir(tmp_path)
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+
+
+def test_real_http_fetches_redirects_and_304s(publisher: str, tmp_path: Path) -> None:
+    """Against a real server: the final URL is recorded, and the second fetch is a 304 that keeps the record."""
+    _manifest(tmp_path, f"{publisher}/old.csv")
+    assert _run("fetch") == [0]
+    record_path = Path("data/raw/example.csv.fetch.json")
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    assert (record["etag"], record["final_url"]) == ('"v1"', f"{publisher}/data.csv")
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    assert json.loads(record_path.read_text(encoding="utf-8")) == record
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
+@pytest.mark.usefixtures("upstream")
+def test_a_second_fetch_at_once_is_refused(capsys: pytest.CaptureFixture[str]) -> None:
+    """Two runs interleaving their writes could pair one run's raw file with the other's record."""
+    RAW.parent.mkdir(parents=True)
+    with (RAW.parent / ".lock").open("w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        assert _run("fetch") == [1]
+    assert "another fetch is already running" in capsys.readouterr().err
+    assert _run("fetch") == [0]
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_download_streams_to_disk_in_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A body larger than one chunk arrives whole, and a refused one leaves no temp file behind."""
+    monkeypatch.setattr(ledger, "_CHUNK_BYTES", 4)
+    assert _run("fetch") == [0]
+    assert RAW.read_text(encoding="utf-8") == FIXTURE
+    monkeypatch.setattr(ledger, "_MAX_BYTES", 10)
+    RAW.write_text("edited\n", encoding="utf-8")  # forces a full fetch
+    assert _run("fetch") == [1]
+    assert not list(RAW.parent.glob("*.part"))
+
+
+def test_each_fetch_line_says_new_or_unchanged(upstream: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The first fetch and a publisher revision are new; the same bytes again are unchanged."""
+    _run("fetch")
+    assert capsys.readouterr().out.split()[1] == "new"
+    _run("fetch")
+    assert capsys.readouterr().out.split()[1] == "unchanged"
+    upstream.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8")
+    _run("fetch")
+    assert capsys.readouterr().out.split()[1] == "new"
+
+
+@pytest.mark.parametrize(
+    ("name", "body", "extra"),
+    [
+        ("example.json", b'[{"year": 2020, "value": 1.5}, {"year": 2021, "value": 2.5, "note": null}]', ""),
+        ("example.csv.gz", gzip.compress(FIXTURE.encode()), ""),
+        ("example.data", b'[{"year": 2020, "value": 1.5}, {"year": 2021, "value": 2.5}]', 'format = "json"'),
+    ],
+)
+def test_the_default_reader_follows_the_format(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, body: bytes, extra: str
+) -> None:
+    """JSON and gzipped CSV need no code of the project's own; `format` overrides the extension."""
+    upstream = tmp_path / "upstream" / name
+    upstream.parent.mkdir()
+    upstream.write_bytes(body)
+    _manifest(tmp_path, upstream.as_uri(), terms=f"{TERMS}\n{extra}")
+    monkeypatch.chdir(tmp_path)
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    rows = ledger.read_output(OUT)
+    assert [(r["year"], r["value"]) for r in rows] == [("2020", "1.5"), ("2021", "2.5")]
+
+
+def test_a_gzip_that_expands_past_max_bytes_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A small compressed file can decompress without limit; the cap applies to what it expands to."""
+    upstream = tmp_path / "upstream" / "example.csv.gz"
+    upstream.parent.mkdir()
+    upstream.write_bytes(gzip.compress(b"year,value\n" + b"2020,1.5\n" * 1000))
+    _manifest(tmp_path, upstream.as_uri(), terms=f"{TERMS}\nmax_bytes = 2000")
+    monkeypatch.chdir(tmp_path)
+    assert _run("fetch", "build") == [0, 1]
+    assert "decompresses past 2000 bytes" in capsys.readouterr().err
+
+
+def test_json_values_become_text() -> None:
+    """Missing keys are empty, booleans are lower case, nested values stay JSON."""
+    payload = b'[{"a": true, "b": {"c": 1}}, {"a": null, "d": "x"}]'
+    columns, rows = ledger.parse_json({"id": "j"}, payload)
+    assert columns == ["a", "b", "d"]
+    assert rows == [{"a": "true", "b": '{"c": 1}', "d": ""}, {"a": "", "b": "", "d": "x"}]
+    with pytest.raises(ValueError, match="array of objects"):
+        ledger.parse_json({"id": "j"}, b'{"a": 1}')
+
+
+def test_an_excel_sheet_reads_by_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The xlsx extra reads the named sheet, header first, skipping empty rows."""
+    openpyxl = pytest.importorskip("openpyxl")
+    book = openpyxl.Workbook()
+    book.active.title = "notes"
+    sheet = book.create_sheet("data")
+    for row in (("year", "value"), (2020, 1.5), (None, None), (2021, 2.5)):
+        sheet.append(row)
+    upstream = tmp_path / "upstream" / "example.xlsx"
+    upstream.parent.mkdir()
+    book.save(upstream)
+    _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nsheet = "data"')
+    monkeypatch.chdir(tmp_path)
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    assert [(r["year"], r["value"]) for r in ledger.read_output(OUT)] == [("2020", "1.5"), ("2021", "2.5")]
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_header_comes_from_the_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The token reaches the request, its variable's name reaches the record, its value doesn't."""
+    _manifest(
+        tmp_path, "https://example.invalid/data.csv", terms=f'{TERMS}\nheaders = {{ Authorization = "env:SL_TOKEN" }}'
+    )
+    monkeypatch.setenv("SL_TOKEN", "Bearer s3cret")
+    calls = _serve(monkeypatch, _Response(FIXTURE.encode()))
+    assert _run("fetch") == [0]
+    assert calls[0].get_header("Authorization") == "Bearer s3cret"
+    record = Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8")
+    assert json.loads(record)["env_headers"] == ["Authorization"]
+    assert "s3cret" not in record
+    assert "s3cret" not in LOG.read_text(encoding="utf-8")
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_missing_variable_fails_that_source(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """An unset token is named, and nothing is fetched without it."""
+    _manifest(
+        tmp_path, "https://example.invalid/data.csv", terms=f'{TERMS}\nheaders = {{ Authorization = "env:SL_UNSET" }}'
+    )
+    assert _run("fetch") == [1]
+    assert "environment variable SL_UNSET for the Authorization header is not set" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        ('{ Authorization = "Bearer s3cret" }', "never write a secret"),
+        ('{ User-Agent = "env:UA" }', "sets the User-Agent header itself"),
+    ],
+)
+@pytest.mark.usefixtures("upstream")
+def test_a_literal_or_reserved_header_is_a_manifest_error(
+    tmp_path: Path, headers: str, expected: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Secrets stay out of the manifest, and the fetch's own headers stay the fetch's."""
+    _manifest(tmp_path, "https://example.invalid/data.csv", terms=f"{TERMS}\nheaders = {headers}")
+    assert _run("fetch") == [1]
+    assert expected in capsys.readouterr().err
+
+
+def test_a_redirect_to_another_host_drops_the_credentials() -> None:
+    """Urllib copies every header to a redirect; a token for one host must not reach another."""
+    handler = ledger._NoRedirectInward()  # noqa: SLF001
+    req = urllib.request.Request("https://93.184.215.14/data.csv", headers={"Authorization": "x", "User-Agent": "ua"})
+    other = handler.redirect_request(
+        req, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "https://8.8.8.8/data.csv"
+    )
+    same = handler.redirect_request(
+        req, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "https://93.184.215.14/v2.csv"
+    )
+    assert other is not None
+    assert same is not None
+    assert (other.get_header("Authorization"), other.get_header("User-agent")) == (None, "ua")
+    assert same.get_header("Authorization") == "x"
+
+
+@pytest.mark.usefixtures("upstream")
+def test_an_id_must_be_ascii(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """An id names files, which must mean the same file on every system."""
+    manifest = tmp_path / "sources.toml"
+    manifest.write_text(manifest.read_text(encoding="utf-8").replace('"example"', '"exämple"'), encoding="utf-8")
+    assert _run("fetch") == [1]
+    assert "ASCII" in capsys.readouterr().err
+
+
+_GOOD = f'[[source]]\nid = "a"\nstatus = "implemented"\nurl = "https://example.org/a.csv"\n{TERMS}\n'
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        _GOOD,
+        _GOOD + 'sha256 = "' + "A" * 64 + '"\nmax_bytes = 10\nformat = "json"\nsheet = "x"\nvintage = "2024"\n',
+        _GOOD + 'headers = { Authorization = "env:TOKEN" }\ncolumn_map = "kept for the project\'s own reader"\n',
+        '[[source]]\nid = "b"\nstatus = "unimplemented"\nreason = "later"\n',
+        _GOOD.replace('id = "a"', 'id = "a/b"'),
+        _GOOD.replace('status = "implemented"', 'status = "done"'),
+        _GOOD.replace('license = "CC0-1.0"\n', ""),
+        _GOOD.replace("redistribute = true", 'redistribute = "yes"'),
+        _GOOD + 'sha256 = "abc"\n',
+        _GOOD + "max_bytes = 0\n",
+        _GOOD + 'format = "parquet"\n',
+        _GOOD + 'headers = { Authorization = "Bearer x" }\n',
+        _GOOD.replace('url = "https://example.org/a.csv"\n', ""),
+    ],
+)
+def test_the_schema_and_the_loader_agree(tmp_path: Path, text: str) -> None:
+    """An editor using the published schema accepts exactly the manifests sourceledger accepts."""
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads((Path(ledger.__file__).parent / "sources.schema.json").read_text(encoding="utf-8"))
+    path = tmp_path / "sources.toml"
+    path.write_text(text, encoding="utf-8")
+    data = tomllib.loads(text)
+    schema_ok = jsonschema.Draft202012Validator(schema).is_valid(data)
+    try:
+        sources = ledger.load_manifest(path)
+    except ValueError:
+        loader_ok = False
+    else:
+        bad_status = [s for s in sources if s["status"] not in (ledger.IMPLEMENTED, ledger.UNIMPLEMENTED)]
+        terms = [p for s in ledger.implemented(sources) for p in ledger._terms_problems(s)]  # noqa: SLF001
+        loader_ok = not bad_status and not terms
+    assert schema_ok == loader_ok
+
+
+def test_build_describes_its_outputs_as_a_data_package(upstream: Path) -> None:
+    """datapackage.json is a valid Frictionless Data Package, with each output's hash, source and licence."""
+    frictionless = pytest.importorskip("frictionless")
+    _run("fetch", "build")
+    path = Path("data/processed/datapackage.json")
+    package = json.loads(path.read_text(encoding="utf-8"))
+    (resource,) = package["resources"]
+    assert resource["hash"] == f"sha256:{hashlib.sha256(OUT.read_bytes()).hexdigest()}"
+    assert resource["sources"] == [{"title": "example", "path": upstream.as_uri()}]
+    assert resource["licenses"] == [{"name": "CC0-1.0", "path": "https://example.org/terms", "title": "CC0-1.0"}]
+    assert resource["sourceledger"]["raw_sha256"] == hashlib.sha256(FIXTURE.encode()).hexdigest()
+    report = frictionless.validate(str(path))
+    assert report.valid, report.flatten(["type", "message"])
+
+
+@pytest.mark.usefixtures("upstream")
+def test_the_same_records_build_the_same_package() -> None:
+    """No timestamps of its own: two builds from one fetch give the same bytes."""
+    _run("fetch", "build")
+    first = Path("data/processed/datapackage.json").read_bytes()
+    _run("build")
+    assert Path("data/processed/datapackage.json").read_bytes() == first
+
+
+@pytest.mark.usefixtures("upstream")
+def test_validate_catches_a_stale_data_package(capsys: pytest.CaptureFixture[str]) -> None:
+    """An output edited after its build no longer matches the hash the package gives it."""
+    _run("fetch", "build")
+    OUT.write_text(OUT.read_text(encoding="utf-8").replace(",1.5", ",9.9"), encoding="utf-8")
+    capsys.readouterr()
+    assert _run("validate") == [1]
+    assert "describes an earlier build" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("damage", "expected"),
+    [
+        ("not json", "is not JSON"),
+        ('{"resources": []}', "not the implemented sources"),
+    ],
+)
+@pytest.mark.usefixtures("upstream")
+def test_validate_reports_a_damaged_data_package(
+    damage: str, expected: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A package that is unreadable or lists other sources is reported, not trusted."""
+    _run("fetch", "build")
+    Path("data/processed/datapackage.json").write_text(damage, encoding="utf-8")
+    capsys.readouterr()
+    assert _run("validate") == [1]
+    assert expected in capsys.readouterr().err
