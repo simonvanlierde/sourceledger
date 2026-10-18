@@ -5,6 +5,9 @@
 
 Build a dataset from public sources where every row says which download it came from.
 
+A worked example, from a first fetch through a publisher's silent revision, is on the
+[docs page](https://simonvanlierde.github.io/sourceledger/).
+
 A project lists its inputs in `sources.toml`: each source's URL, the publisher's reuse
 terms, and whether the raw file may be republished. sourceledger runs four stages over
 that manifest:
