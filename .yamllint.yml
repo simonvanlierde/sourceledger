@@ -1,0 +1,25 @@
+extends: default
+
+# Copier and pnpm write these files, so don't lint them. A bare name matches at
+# any depth, including a nested package's lockfile.
+ignore: |
+  .copier-answers.yml
+  pnpm-lock.yaml
+
+rules:
+  # No file here opens with `---`, and comments, not code, are what run long, so a
+  # hard cap is not worth it.
+  document-start: disable
+  line-length: disable
+  # `on:` is the GitHub Actions trigger key, not a YAML 1.1 boolean.
+  truthy:
+    ignore: |
+      .github/workflows/
+  # yamlfmt adds a trailing comma to the last flow mapping before a blank line
+  # when it retains blank lines (`{a: 1,}`), and it spaces commas itself.
+  commas:
+    min-spaces-after: 0
+  # Pin comments (`uses: ... # v1.2.3`, `rev: ... # frozen: v1.2.3`) take a
+  # single space, not two.
+  comments:
+    min-spaces-from-content: 1

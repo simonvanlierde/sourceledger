@@ -1,0 +1,39 @@
+# Dependabot, the default `dependency_bot` answer: no app install, and it covers every
+# ecosystem here, including the `rev` pins in .pre-commit-config.yaml. No automerge: that needs a
+# workflow with contents:write.
+#
+# `cooldown` holds a version update back until the release has been public for a
+# week, long enough for a compromised release to be caught and yanked. Security
+# updates ignore it. github-actions and pre-commit take default-days only.
+#
+# No docker ecosystem: it reads FROM lines only, and those tags are copier answers,
+# so its PRs would fight the next `copier update`.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+    cooldown: {default-days: 7}
+    groups:
+      actions: {patterns: ["*"]}
+
+  # Version updates only. Dependabot has no security updates for this ecosystem.
+  # Hook revs group wholesale: all dev tooling.
+  - package-ecosystem: pre-commit
+    directory: /
+    schedule: {interval: weekly}
+    cooldown: {default-days: 7}
+    groups:
+      hooks: {patterns: ["*"]}
+
+  # Dev tooling lands as one PR. A runtime dependency gets its own, so a risky bump
+  # is not buried in lint-tool churn.
+  - package-ecosystem: uv
+    directory: /
+    schedule: {interval: weekly}
+    cooldown: {default-days: 7, semver-major-days: 30}
+    groups:
+      dev-tooling:
+        dependency-type: development
+        update-types: [minor, patch]
+        patterns: ["*"]

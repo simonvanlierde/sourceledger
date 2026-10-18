@@ -1,0 +1,56 @@
+name: python
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # uv checks every package against OSV's malware advisories before its code
+  # runs, and fails if OSV is unreachable. The preview flag only silences the
+  # "experimental" warning.
+  UV_MALWARE_CHECK: "1"
+  UV_PREVIEW_FEATURES: malware-check
+
+jobs:
+  check:
+    name: lint, types, tests
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Every version from requires-python up: a library runs on interpreters its
+    # author doesn't use.
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          version: "0.12.23"
+          python-version: ${{ matrix.python }}
+
+      - run: uv sync --locked
+      # Checks every locked dependency, dev group included, against the OSV database
+      # for known vulnerabilities and deprecated or quarantined projects. Experimental
+      # in uv 0.12, hence the preview flag.
+      - run: uv audit --locked --preview-features audit-command
+
+      - run: uv run ruff check --output-format=github
+      - run: uv run ruff format --check
+      - run: uv run ty check
+      - run: uv run pytest

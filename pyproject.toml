@@ -1,0 +1,88 @@
+[project]
+name = "sourceledger"
+version = "0.1.0"
+description = "Fetch, verify and validate the public sources a dataset is built from, with a provenance record for every download"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Simon van Lierde", email = "90462640+simonvanlierde@users.noreply.github.com" }]
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/simonvanlierde/sourceledger"
+Issues = "https://github.com/simonvanlierde/sourceledger/issues"
+
+[dependency-groups]
+dev = [
+  "pytest>=9.1.1",
+  "pytest-cov>=7.1.0",
+  "ruff>=0.16.10",
+  "ty>=0.0.84",
+]
+
+# Research projects are packaged too, so notebooks can `import sourceledger`
+# without sys.path edits.
+[build-system]
+requires = ["uv_build>=0.12.19,<0.14.0"]
+build-backend = "uv_build"
+
+# Resolve only releases at least a week old: a compromised release is usually
+# caught and yanked within that window. Dependabot's cooldown waits the same. Set here,
+# not user-wide, so every machine writes the same uv.lock.
+[tool.uv]
+exclude-newer = "1 week"
+
+# uv_build derives the package dir from the normalized project.name, so pin it
+# for a module_name that differs.
+[tool.uv.build-backend]
+module-name = "sourceledger"
+
+# NOTE: self-contained ruff config, deliberately not extended from any shared base.
+# No target-version: ruff derives it from requires-python above.
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+  "ANN204", # missing-return-type-special-method
+  "COM812", # trailing-comma-missing: conflicts with the formatter
+  "CPY001", # missing copyright notice
+  "D105",   # undocumented-magic-method
+  "D107",   # undocumented-public-init
+  "TD002",  # missing-todo-author: a plain `# TODO:` is enough
+  "TD003",  # missing-todo-link
+]
+
+# Tests assert, use literal expectations, and need no docstrings, return
+# annotations, or package __init__.py.
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101", "D1", "INP001", "PLR2004", "ANN201"]
+# The command line reports to the terminal.
+"src/sourceledger/cli.py" = ["T201"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.pylint]
+allow-magic-value-types = ["int"]
+max-args = 10
+
+[tool.pytest.ini_options]
+addopts = ["-ra", "--strict-config", "--strict-markers", "--import-mode=importlib"]
+testpaths = ["tests"]
+
+# Coverage is opt-in via `pytest --cov` (`just py-cov`), not addopts, because it
+# slows every plain test run. No fail_under until there is a suite worth setting
+# one against.
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]

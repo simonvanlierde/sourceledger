@@ -1,0 +1,95 @@
+# Run with prek, a drop-in pre-commit replacement: prek install && prek run -a
+#
+# Python projects get prek from `uv tool install prek`. TypeScript-only projects
+# get it from the @j178/prek devDependency. Revs are commit SHAs, since tags are
+# mutable; Dependabot moves each SHA and its `# frozen:` tag together.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # frozen: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-yaml
+        # pnpm writes its own version into the lockfile as a second YAML document.
+        exclude: (^|/)pnpm-lock\.yaml$
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+      # Not gated to python: .rumdl.toml ships to every stack.
+      - id: check-toml
+
+  # Formats first, so yamllint below sees the formatted file.
+  - repo: https://github.com/google/yamlfmt
+    rev: 21ca5323a9c87ee37a434e0ca908efc0a89daa07 # frozen: v0.21.0
+    hooks:
+      - id: yamlfmt
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: cba56bcde1fdd01c1deb3f945e69764c291a6530 # frozen: v1.38.0
+    hooks:
+      - id: yamllint
+
+  # gitleaks' successor from the same authors. gitleaks takes security fixes only.
+  - repo: https://github.com/betterleaks/betterleaks
+    rev: 81aff7a638638aae3a659845d089043e1d8fe9ac # frozen: v1.9.0
+    hooks:
+      - id: betterleaks
+
+  # Audits .github/ for template injection, credential leakage, cache poisoning
+  # and impostor commits. Set GH_TOKEN to enable the audits that need the API;
+  # without it only the offline subset runs.
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: fa412071e4f5d44d44f9e365f4676f9df92456a2 # frozen: v1.30.1
+    hooks:
+      - id: zizmor
+
+  # Checks what zizmor doesn't: unknown keys, bad `needs`, expression type errors,
+  # and shellcheck over every `run:` when shellcheck is on PATH. jactionlint is a
+  # maintained fork of actionlint that adds release, cache and concurrency checks.
+  - repo: https://github.com/jdx/jactionlint
+    rev: 1027f0a131ab98bc7e191d995bfa15dbed5bbf8f # frozen: v2.2.0
+    hooks:
+      - id: jactionlint
+
+  # CITATION.cff against the official schema. GitHub's "Cite this repository"
+  # silently drops a file that fails it.
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0494aa7fa1314e98913a41227d8f0a515b2c1049 # frozen: 0.38.2
+    hooks:
+      - id: check-citation-file-format
+
+  - repo: https://github.com/kynan/nbstripout
+    rev: 34071b78c181af3bf5af955c1426466e096fc3db # frozen: 0.9.1
+    hooks:
+      - id: nbstripout
+  - repo: https://github.com/rvben/rumdl-pre-commit
+    rev: 83cecb6b523a053d7d3dfdc4798d705b505a88f9 # frozen: v0.2.78
+    hooks:
+      - id: rumdl
+        args: [--fix]
+
+  - repo: local
+    hooks:
+      # Runs from the project's venv, not the ruff-pre-commit mirror, so it uses the
+      # same ruff as CI. --force-exclude keeps ruff's excludes when the hook passes
+      # explicit filenames.
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --frozen ruff check --fix --force-exclude
+        language: system
+        types_or: [python, pyi, jupyter]
+        require_serial: true
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --frozen ruff format --force-exclude
+        language: system
+        types_or: [python, pyi, jupyter]
+        require_serial: true
+
+      - id: ty
+        name: ty check
+        entry: uv run --frozen ty check
+        language: system
+        pass_filenames: false
+        types: [python]

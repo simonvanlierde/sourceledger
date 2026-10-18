@@ -1,0 +1,14 @@
+# GitHub reads this for its "Cite this repository" button. Zenodo reads
+# .zenodo.json instead when it archives a release, and software indexes read
+# codemeta.json: change authors in all three. Check the name split below: the
+# first word becomes the given name.
+cff-version: 1.2.0
+message: If you use this software, please cite it as below.
+title: "sourceledger"
+abstract: "Fetch, verify and validate the public sources a dataset is built from, with a provenance record for every download"
+authors:
+  - given-names: "Simon"
+    family-names: "van Lierde"
+    orcid: "https://orcid.org/0009-0006-6953-909X"
+repository-code: "https://github.com/simonvanlierde/sourceledger"
+license: MIT

@@ -1,0 +1,8 @@
+# TOML style: aligned `=` and 100 columns. Schemas off: formatting only, no
+# schema-driven key sorting.
+[format.rules]
+key-value-equals-sign-alignment = true
+line-width                      = 100
+
+[schema]
+enabled = false

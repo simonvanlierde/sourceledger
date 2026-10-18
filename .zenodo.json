@@ -1,0 +1,13 @@
+{
+  "upload_type": "software",
+  "title": "sourceledger",
+  "description": "Fetch, verify and validate the public sources a dataset is built from, with a provenance record for every download",
+  "creators": [
+    {
+      "name": "van Lierde, Simon",
+      "orcid": "0009-0006-6953-909X"
+    }
+  ],
+  "access_right": "open",
+  "license": "mit"
+}

@@ -1,0 +1,14 @@
+# yamlfmt's defaults, plus: keep single blank lines between blocks, trim trailing
+# spaces, and leave folded (`>`) scalars' line breaks alone. Without the last,
+# retained blank lines inside a folded scalar come out as `#magic___^_^___line`.
+# yamllint (.yamllint.yml) checks the result.
+formatter:
+  retain_line_breaks_single: true
+  scan_folded_as_literal: true
+  trim_trailing_whitespace: true
+# Copier and pnpm write these, as in .yamllint.yml. `**/` misses the root copy.
+exclude:
+  - ".copier-answers.yml"
+  - "**/.copier-answers.yml"
+  - "pnpm-lock.yaml"
+  - "**/pnpm-lock.yaml"

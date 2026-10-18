@@ -1,0 +1,19 @@
+{
+  "@context": "https://w3id.org/codemeta/4.0",
+  "@type": "SoftwareSourceCode",
+  "name": "sourceledger",
+  "description": "Fetch, verify and validate the public sources a dataset is built from, with a provenance record for every download",
+  "author": [
+    {
+      "@type": "Person",
+      "@id": "https://orcid.org/0009-0006-6953-909X",
+      "givenName": "Simon",
+      "familyName": "van Lierde",
+      "email": "90462640+simonvanlierde@users.noreply.github.com"
+    }
+  ],
+  "codeRepository": "https://github.com/simonvanlierde/sourceledger",
+  "issueTracker": "https://github.com/simonvanlierde/sourceledger/issues",
+  "license": "https://spdx.org/licenses/MIT",
+  "programmingLanguage": "Python"
+}
