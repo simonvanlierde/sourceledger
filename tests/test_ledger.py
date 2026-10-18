@@ -1,5 +1,6 @@
 """The whole pipeline against a fixture served from a local file: no network."""
 
+import gzip
 import hashlib
 import http.client
 import http.server
@@ -8,6 +9,7 @@ import json
 import sys
 import threading
 import time
+import tomllib
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -896,3 +898,173 @@ def test_each_fetch_line_says_new_or_unchanged(upstream: Path, capsys: pytest.Ca
     upstream.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8")
     _run("fetch")
     assert capsys.readouterr().out.split()[1] == "new"
+
+
+@pytest.mark.parametrize(
+    ("name", "body", "extra"),
+    [
+        ("example.json", b'[{"year": 2020, "value": 1.5}, {"year": 2021, "value": 2.5, "note": null}]', ""),
+        ("example.csv.gz", gzip.compress(FIXTURE.encode()), ""),
+        ("example.data", b'[{"year": 2020, "value": 1.5}, {"year": 2021, "value": 2.5}]', 'format = "json"'),
+    ],
+)
+def test_the_default_reader_follows_the_format(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, body: bytes, extra: str
+) -> None:
+    """JSON and gzipped CSV need no code of the project's own; `format` overrides the extension."""
+    upstream = tmp_path / "upstream" / name
+    upstream.parent.mkdir()
+    upstream.write_bytes(body)
+    _manifest(tmp_path, upstream.as_uri(), terms=f"{TERMS}\n{extra}")
+    monkeypatch.chdir(tmp_path)
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    rows = ledger.read_output(OUT)
+    assert [(r["year"], r["value"]) for r in rows] == [("2020", "1.5"), ("2021", "2.5")]
+
+
+def test_a_gzip_that_expands_past_max_bytes_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A small compressed file can decompress without limit; the cap applies to what it expands to."""
+    upstream = tmp_path / "upstream" / "example.csv.gz"
+    upstream.parent.mkdir()
+    upstream.write_bytes(gzip.compress(b"year,value\n" + b"2020,1.5\n" * 1000))
+    _manifest(tmp_path, upstream.as_uri(), terms=f"{TERMS}\nmax_bytes = 2000")
+    monkeypatch.chdir(tmp_path)
+    assert _run("fetch", "build") == [0, 1]
+    assert "decompresses past 2000 bytes" in capsys.readouterr().err
+
+
+def test_json_values_become_text() -> None:
+    """Missing keys are empty, booleans are lower case, nested values stay JSON."""
+    payload = b'[{"a": true, "b": {"c": 1}}, {"a": null, "d": "x"}]'
+    columns, rows = ledger.parse_json({"id": "j"}, payload)
+    assert columns == ["a", "b", "d"]
+    assert rows == [{"a": "true", "b": '{"c": 1}', "d": ""}, {"a": "", "b": "", "d": "x"}]
+    with pytest.raises(ValueError, match="array of objects"):
+        ledger.parse_json({"id": "j"}, b'{"a": 1}')
+
+
+def test_an_excel_sheet_reads_by_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The xlsx extra reads the named sheet, header first, skipping empty rows."""
+    openpyxl = pytest.importorskip("openpyxl")
+    book = openpyxl.Workbook()
+    book.active.title = "notes"
+    sheet = book.create_sheet("data")
+    for row in (("year", "value"), (2020, 1.5), (None, None), (2021, 2.5)):
+        sheet.append(row)
+    upstream = tmp_path / "upstream" / "example.xlsx"
+    upstream.parent.mkdir()
+    book.save(upstream)
+    _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nsheet = "data"')
+    monkeypatch.chdir(tmp_path)
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    assert [(r["year"], r["value"]) for r in ledger.read_output(OUT)] == [("2020", "1.5"), ("2021", "2.5")]
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_header_comes_from_the_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The token reaches the request, its variable's name reaches the record, its value doesn't."""
+    _manifest(
+        tmp_path, "https://example.invalid/data.csv", terms=f'{TERMS}\nheaders = {{ Authorization = "env:SL_TOKEN" }}'
+    )
+    monkeypatch.setenv("SL_TOKEN", "Bearer s3cret")
+    calls = _serve(monkeypatch, _Response(FIXTURE.encode()))
+    assert _run("fetch") == [0]
+    assert calls[0].get_header("Authorization") == "Bearer s3cret"
+    record = Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8")
+    assert json.loads(record)["env_headers"] == ["Authorization"]
+    assert "s3cret" not in record
+    assert "s3cret" not in LOG.read_text(encoding="utf-8")
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_missing_variable_fails_that_source(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """An unset token is named, and nothing is fetched without it."""
+    _manifest(
+        tmp_path, "https://example.invalid/data.csv", terms=f'{TERMS}\nheaders = {{ Authorization = "env:SL_UNSET" }}'
+    )
+    assert _run("fetch") == [1]
+    assert "environment variable SL_UNSET for the Authorization header is not set" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        ('{ Authorization = "Bearer s3cret" }', "never write a secret"),
+        ('{ User-Agent = "env:UA" }', "sets the User-Agent header itself"),
+    ],
+)
+@pytest.mark.usefixtures("upstream")
+def test_a_literal_or_reserved_header_is_a_manifest_error(
+    tmp_path: Path, headers: str, expected: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Secrets stay out of the manifest, and the fetch's own headers stay the fetch's."""
+    _manifest(tmp_path, "https://example.invalid/data.csv", terms=f"{TERMS}\nheaders = {headers}")
+    assert _run("fetch") == [1]
+    assert expected in capsys.readouterr().err
+
+
+def test_a_redirect_to_another_host_drops_the_credentials() -> None:
+    """Urllib copies every header to a redirect; a token for one host must not reach another."""
+    handler = ledger._NoRedirectInward()  # noqa: SLF001
+    req = urllib.request.Request("https://93.184.215.14/data.csv", headers={"Authorization": "x", "User-Agent": "ua"})
+    other = handler.redirect_request(
+        req, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "https://8.8.8.8/data.csv"
+    )
+    same = handler.redirect_request(
+        req, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "https://93.184.215.14/v2.csv"
+    )
+    assert other is not None
+    assert same is not None
+    assert (other.get_header("Authorization"), other.get_header("User-agent")) == (None, "ua")
+    assert same.get_header("Authorization") == "x"
+
+
+@pytest.mark.usefixtures("upstream")
+def test_an_id_must_be_ascii(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """An id names files, which must mean the same file on every system."""
+    manifest = tmp_path / "sources.toml"
+    manifest.write_text(manifest.read_text(encoding="utf-8").replace('"example"', '"exämple"'), encoding="utf-8")
+    assert _run("fetch") == [1]
+    assert "ASCII" in capsys.readouterr().err
+
+
+_GOOD = f'[[source]]\nid = "a"\nstatus = "implemented"\nurl = "https://example.org/a.csv"\n{TERMS}\n'
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        _GOOD,
+        _GOOD + 'sha256 = "' + "A" * 64 + '"\nmax_bytes = 10\nformat = "json"\nsheet = "x"\nvintage = "2024"\n',
+        _GOOD + 'headers = { Authorization = "env:TOKEN" }\ncolumn_map = "kept for the project\'s own reader"\n',
+        '[[source]]\nid = "b"\nstatus = "unimplemented"\nreason = "later"\n',
+        _GOOD.replace('id = "a"', 'id = "a/b"'),
+        _GOOD.replace('status = "implemented"', 'status = "done"'),
+        _GOOD.replace('license = "CC0-1.0"\n', ""),
+        _GOOD.replace("redistribute = true", 'redistribute = "yes"'),
+        _GOOD + 'sha256 = "abc"\n',
+        _GOOD + "max_bytes = 0\n",
+        _GOOD + 'format = "parquet"\n',
+        _GOOD + 'headers = { Authorization = "Bearer x" }\n',
+        _GOOD.replace('url = "https://example.org/a.csv"\n', ""),
+    ],
+)
+def test_the_schema_and_the_loader_agree(tmp_path: Path, text: str) -> None:
+    """An editor using the published schema accepts exactly the manifests sourceledger accepts."""
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads((Path(ledger.__file__).parent / "sources.schema.json").read_text(encoding="utf-8"))
+    path = tmp_path / "sources.toml"
+    path.write_text(text, encoding="utf-8")
+    data = tomllib.loads(text)
+    schema_ok = jsonschema.Draft202012Validator(schema).is_valid(data)
+    try:
+        sources = ledger.load_manifest(path)
+    except ValueError:
+        loader_ok = False
+    else:
+        bad_status = [s for s in sources if s["status"] not in (ledger.IMPLEMENTED, ledger.UNIMPLEMENTED)]
+        terms = [p for s in ledger.implemented(sources) for p in ledger._terms_problems(s)]  # noqa: SLF001
+        loader_ok = not bad_status and not terms
+    assert schema_ok == loader_ok

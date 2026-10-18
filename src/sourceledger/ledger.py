@@ -18,6 +18,7 @@ import contextlib
 import csv
 import dataclasses
 import errno
+import gzip
 import hashlib
 import http.client
 import io
@@ -35,7 +36,7 @@ import urllib.error
 import urllib.request
 import urllib.response
 from collections.abc import Callable, Generator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
 from importlib.metadata import version
@@ -77,6 +78,12 @@ _UNUSABLE = (OSError, ValueError)
 # its own `max_bytes` in sources.toml.
 _MAX_BYTES = 200 * 1024 * 1024
 _SHA256 = re.compile(r"[0-9a-f]{64}")
+_GZIP_MAGIC = b"\x1f\x8b"
+_ENV_REF = re.compile(r"env:([A-Za-z_][A-Za-z0-9_]*)")
+# Headers a manifest may not set: the fetch's own.
+_RESERVED_HEADERS = frozenset({"user-agent", "accept-encoding", "if-none-match", "if-modified-since"})
+# Sent again after a redirect to another host. Credentials from the manifest are not.
+_SAFE_ON_REDIRECT = frozenset({"user-agent", "accept-encoding"})
 
 # Sent with every request, so a publisher can tell who is fetching. `main` takes the project's own.
 USER_AGENT = f"sourceledger/{version('sourceledger')}"
@@ -86,7 +93,7 @@ _logger = logging.getLogger("sourceledger")
 type Source = dict[str, Any]
 # What the opener returns: an HTTP response, or a file:// one.
 type _Response = http.client.HTTPResponse | urllib.response.addinfourl
-# Reads one raw file as its columns and rows. `parse_csv` is the default.
+# Reads one raw file as its columns and rows. `parse_source` is the default.
 type Parser = Callable[[Source, bytes], tuple[list[str], list[dict[str, str]]]]
 
 
@@ -105,6 +112,8 @@ class FetchRecord:
     etag: str = ""
     # Where the bytes came from after redirects. Empty when there were none.
     final_url: str = ""
+    # The request headers taken from environment variables (names only, never values).
+    env_headers: list[str] = dataclasses.field(default_factory=list)
 
 
 class FetchError(OSError):
@@ -124,8 +133,9 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
         msg = "sources.toml: every [[source]] needs a string id"
         raise ValueError(msg)
     ids = [s["id"] for s in sources]
-    if bad := [i for i in ids if not re.fullmatch(r"[\w-]+", i)]:
-        msg = f"ids {bad} in sources.toml may hold only letters, digits, _ and -"
+    # ASCII only: an id names files, and must mean the same file on every system.
+    if bad := [i for i in ids if not re.fullmatch(r"[\w-]+", i, re.ASCII)]:
+        msg = f"ids {bad} in sources.toml may hold only ASCII letters, digits, _ and -"
         raise ValueError(msg)
     if dupes := sorted({i for i in ids if ids.count(i) > 1}):
         msg = f"ids {dupes} appear more than once in sources.toml"
@@ -141,7 +151,33 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
     for source in sources:
         _check_pin(source)
         _check_vintage(source)
+        _check_format(source)
+        _check_headers(source)
     return sources
+
+
+def _check_format(source: Source) -> None:
+    if (fmt := source.get("format")) is not None and fmt not in _PARSERS:
+        msg = f"{source['id']}: format in sources.toml must be one of {sorted(_PARSERS)}, not {fmt!r}"
+        raise ValueError(msg)
+
+
+def _check_headers(source: Source) -> None:
+    """Each extra request header must take its value from an environment variable, never a literal."""
+    headers = source.get("headers", {})
+    if not isinstance(headers, dict):
+        msg = f"{source['id']}: headers in sources.toml must be a table"
+        raise ValueError(msg)  # noqa: TRY004  # a manifest error: the CLI reports ValueError as one line
+    for name, value in headers.items():
+        if name.lower() in _RESERVED_HEADERS:
+            msg = f"{source['id']}: sourceledger sets the {name} header itself"
+            raise ValueError(msg)
+        if not (isinstance(value, str) and _ENV_REF.fullmatch(value)):
+            msg = (
+                f'{source["id"]}: header {name} must name an environment variable, as "env:NAME"; '
+                "never write a secret into sources.toml"
+            )
+            raise ValueError(msg)
 
 
 def _check_pin(source: Source) -> None:
@@ -229,7 +265,12 @@ class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
         if _is_public(urlsplit(req.full_url).hostname or "") and not _is_public(urlsplit(newurl).hostname or ""):
             reason = f"refused a redirect from a public host to {newurl}"
             raise urllib.error.HTTPError(newurl, code, reason, headers, fp)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        # urllib copies every header to the new request. A token meant for one host must not
+        # reach another, so a redirect off the host keeps only the harmless ones.
+        if new is not None and urlsplit(newurl).netloc != urlsplit(req.full_url).netloc:
+            new.headers = {k: v for k, v in new.headers.items() if k.lower() in _SAFE_ON_REDIRECT}
+        return new
 
 
 _OPENER = urllib.request.build_opener(_NoRedirectInward())
@@ -325,7 +366,7 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
     served compressed.
     """
     conditional = _conditional(previous)
-    headers = {"User-Agent": user_agent, "Accept-Encoding": "identity", **conditional}
+    headers = {"User-Agent": user_agent, "Accept-Encoding": "identity", **_env_headers(source), **conditional}
     request = urllib.request.Request(source["url"], headers=headers)  # noqa: S310  # see _open
     deadline = time.monotonic() + _BUDGET_S
     for attempt in range(1, _ATTEMPTS + 1):
@@ -359,6 +400,18 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
         )
         time.sleep(wait)
     raise AssertionError  # unreachable: the last attempt returns or raises
+
+
+def _env_headers(source: Source) -> dict[str, str]:
+    """The manifest's extra request headers, each value read from the environment variable it names."""
+    resolved = {}
+    for name, ref in source.get("headers", {}).items():
+        var = ref.removeprefix("env:")
+        if (value := os.environ.get(var)) is None:
+            msg = f"{source['id']}: environment variable {var} for the {name} header is not set"
+            raise ValueError(msg)
+        resolved[name] = value
+    return resolved
 
 
 def _previous(source: Source, raw: Path) -> FetchRecord | None:
@@ -523,6 +576,7 @@ def _keep(source: Source, download: _Download, raw: Path, log: Path, logged: dic
         last_modified=download.headers.get("Last-Modified", ""),
         etag=download.headers.get("ETag", ""),
         final_url="" if download.url == source["url"] else download.url,
+        env_headers=sorted(source.get("headers", {})),
     )
     name = raw_name(source)
     download.path.replace(raw / name)
@@ -569,19 +623,30 @@ def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
     return record, payload
 
 
-def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
-    """One raw CSV file as its columns and rows: the default `Parser`.
+def parse_source(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
+    """One raw file as its columns and rows, read by its format: the default `Parser`.
 
-    Raises ValueError for a repeated column name, or a row with more or fewer fields than the header.
+    The format is the source's `format` key, or else the URL's extension: `.json` is JSON,
+    `.xlsx` is Excel, anything else is CSV (gzipped or not).
     """
+    suffix = PurePosixPath(urlsplit(source.get("url", "")).path).suffix.lower()
+    fmt = source.get("format") or {".json": "json", ".xlsx": "xlsx"}.get(suffix, "csv")
+    return _PARSERS[fmt](source, payload)
+
+
+def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
+    """One raw CSV file as its columns and rows. A gzipped file is decompressed first.
+
+    Raises ValueError for a repeated column name, a row with more or fewer fields than the
+    header, or a gzipped file that decompresses past the source's `max_bytes`.
+    """
+    if payload[:2] == _GZIP_MAGIC:
+        payload = _gunzip(source, payload)
     # utf-8-sig drops the byte-order mark that spreadsheet exports start with. Plain UTF-8 reads the same.
     text = payload.decode("utf-8-sig")
     reader = csv.DictReader(io.StringIO(text, newline=""))
     columns = list(reader.fieldnames or [])
-    # DictReader keeps only the last of two same-named columns, silently dropping the other.
-    if dupes := sorted({c for c in columns if columns.count(c) > 1}):
-        msg = f"{source['id']}: columns {dupes} appear more than once in the header"
-        raise ValueError(msg)
+    _check_columns(source, columns)
     rows = []
     for row in reader:
         # DictReader files the surplus fields of a long row under the key None.
@@ -596,6 +661,86 @@ def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str,
     return columns, rows
 
 
+def _gunzip(source: Source, payload: bytes) -> bytes:
+    """The decompressed bytes, refused past the source's `max_bytes`: a small file can expand without limit."""
+    cap = source.get("max_bytes", _MAX_BYTES)
+    with gzip.GzipFile(fileobj=io.BytesIO(payload)) as fh:
+        data = fh.read(cap + 1)
+    if len(data) > cap:
+        msg = f"{source['id']}: decompresses past {cap} bytes; raise max_bytes in sources.toml if expected"
+        raise ValueError(msg)
+    return data
+
+
+def _check_columns(source: Source, columns: list[str]) -> None:
+    # A dict keeps only the last of two same-named columns, silently dropping the other.
+    if dupes := sorted({c for c in columns if columns.count(c) > 1}):
+        msg = f"{source['id']}: columns {dupes} appear more than once in the header"
+        raise ValueError(msg)
+
+
+def _cell(value: object) -> str:
+    """A JSON or spreadsheet value as output text: empty for none, `true`/`false`, numbers as written."""
+    match value:
+        case None:
+            return ""
+        case bool():
+            return "true" if value else "false"
+        case str():
+            return value
+        case datetime() | date():
+            return value.isoformat()
+        case int() | float():
+            return json.dumps(value)
+        case _:
+            return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def parse_json(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
+    """A JSON array of objects as columns and rows: one column per key, in the order keys first appear.
+
+    A key an object lacks is an empty cell. Nested values are kept as JSON text. Raises
+    ValueError for anything but an array of objects.
+    """
+    if payload[:2] == _GZIP_MAGIC:
+        payload = _gunzip(source, payload)
+    data = json.loads(payload.decode("utf-8-sig"))
+    if not (isinstance(data, list) and all(isinstance(item, dict) for item in data)):
+        msg = f"{source['id']}: expected a JSON array of objects"
+        raise ValueError(msg)
+    columns = list(dict.fromkeys(key for item in data for key in item))
+    return columns, [{column: _cell(item.get(column)) for column in columns} for item in data]
+
+
+def parse_xlsx(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
+    """One sheet of an Excel workbook as columns and rows, the first row as the header.
+
+    The sheet is the source's `sheet` key, or else the first. Fully empty rows are skipped.
+    Needs the `xlsx` extra: `uv add 'sourceledger[xlsx]'`.
+    """
+    try:
+        import openpyxl  # noqa: PLC0415  # an optional extra, imported only when a source needs it
+    except ImportError as error:
+        msg = f"{source['id']}: reading .xlsx needs the xlsx extra: uv add 'sourceledger[xlsx]'"
+        raise ValueError(msg) from error
+    workbook = openpyxl.load_workbook(io.BytesIO(payload), read_only=True, data_only=True)
+    try:
+        sheet = workbook[source["sheet"]] if source.get("sheet") is not None else workbook.worksheets[0]
+    except KeyError as error:
+        msg = f"{source['id']}: no sheet {source['sheet']!r}; the workbook has {workbook.sheetnames}"
+        raise ValueError(msg) from error
+    rows = [row for row in sheet.iter_rows(values_only=True) if any(cell is not None for cell in row)]
+    workbook.close()
+    if not rows:
+        return [], []
+    columns = [_cell(cell) for cell in rows[0]]
+    _check_columns(source, columns)
+    return columns, [dict(zip(columns, (_cell(cell) for cell in row), strict=False)) for row in rows[1:]]
+
+
+_PARSERS: dict[str, Parser] = {"csv": parse_csv, "json": parse_json, "xlsx": parse_xlsx}
+
+
 def _stamp(record: FetchRecord) -> dict[str, str]:
     """The provenance columns `build` adds to every output row."""
     return {
@@ -608,11 +753,11 @@ def _stamp(record: FetchRecord) -> dict[str, str]:
 
 
 def build(
-    sources: list[Source], *, raw: Path = RAW, processed: Path = PROCESSED, parse: Parser = parse_csv
+    sources: list[Source], *, raw: Path = RAW, processed: Path = PROCESSED, parse: Parser = parse_source
 ) -> list[Path]:
     """Write each implemented source to `processed/<id>.csv`, each row stamped with its fetch record.
 
-    `parse` reads each raw file. Give it a function that branches on `source["id"]` for sources that are not CSV.
+    `parse` reads each raw file; the default reads CSV, JSON and Excel by each source's format.
     """
     processed.mkdir(parents=True, exist_ok=True)
     written = []

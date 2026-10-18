@@ -19,7 +19,7 @@ from sourceledger.ledger import (
     load_manifest,
     logged_versions,
     one_line,
-    parse_csv,
+    parse_source,
     read_output,
     revisions,
     validate,
@@ -37,7 +37,7 @@ def _fetch_line(record: FetchRecord, before: dict[str, str]) -> str:
 def main(
     argv: list[str] | None = None,
     *,
-    parse: Parser = parse_csv,
+    parse: Parser = parse_source,
     prog: str = "sourceledger",
     user_agent: str = USER_AGENT,
 ) -> int:

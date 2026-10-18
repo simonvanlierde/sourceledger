@@ -24,7 +24,8 @@ that manifest:
 - `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
   fetch log. A weekly CI run can use it to say when a publisher revised its data.
 
-sourceledger has no dependencies: the standard library does all of it.
+sourceledger has no dependencies: the standard library does all of it. Reading Excel files
+needs the optional `xlsx` extra (`uv add 'sourceledger[xlsx]'`).
 
 ## Install
 
@@ -59,8 +60,8 @@ sourceledger build
 sourceledger validate
 ```
 
-`sourceledger` reads every source as CSV. For other formats, see
-[Your own readers](#your-own-readers).
+`sourceledger` reads CSV (gzipped or not), JSON and Excel, by each source's `format` or else
+its URL's extension. For anything else, see [Your own readers](#your-own-readers).
 
 ## What to commit
 
@@ -86,10 +87,22 @@ Each `[[source]]` table takes these keys:
 | `vintage` | no | The edition you expect, such as `"2024 release"` or a TOML date. Recorded with each fetch and stamped on each row. `"not stated"` when absent. The old key `release` still works, with a warning. |
 | `sha256` | no | The SHA-256 the download must have. Pin it for a fixed release, and `fetch` refuses bytes that changed upstream. |
 | `max_bytes` | no | The largest download `fetch` accepts. 200 MiB unless set. |
+| `format` | no | `"csv"`, `"json"` (an array of objects) or `"xlsx"`. Otherwise from the URL's extension: `.json`, `.xlsx`, and CSV for anything else. A gzipped CSV or JSON file is decompressed, within `max_bytes`. |
+| `sheet` | no | The Excel sheet to read. The first unless set. |
+| `headers` | no | Extra request headers, such as an API key, each value naming an environment variable: `{ Authorization = "env:EIA_TOKEN" }`. A literal value is refused, so a secret never lands in the manifest. The record keeps the header names, not the values, and a redirect to another host drops them. |
 | `reason` | no | A note for people, such as why a source is unimplemented. sourceledger doesn't read it. |
 
 `validate` reports a missing `terms`, `terms_url`, `license` or `redistribute`. The other
-keys are checked when the manifest loads.
+keys are checked when the manifest loads. Other keys are kept, for a project's own reader.
+
+Editors can check a manifest as you type it. Put this line at the top of `sources.toml`
+for a TOML language server such as Tombi or Taplo:
+
+```toml
+#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/main/src/sourceledger/sources.schema.json
+```
+
+The schema accepts exactly the manifests sourceledger accepts; a test keeps the two in step.
 
 ## How fetch behaves
 
@@ -113,8 +126,8 @@ keys are checked when the manifest loads.
 
 ## Your own readers
 
-`sourceledger` reads every source with `parse_csv`. A project with other formats gives
-it its own reader, a function from a source's manifest table and raw bytes to columns
+`sourceledger` reads every source with `parse_source`, which dispatches on the format to
+`parse_csv`, `parse_json` or `parse_xlsx`. A project with another format gives it its own reader, a function from a source's manifest table and raw bytes to columns
 and rows, and its own command:
 
 ```python
