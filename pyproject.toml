@@ -96,7 +96,9 @@ allow-magic-value-types = ["int"]
 max-args = 10
 
 [tool.pytest.ini_options]
-addopts = ["-ra", "--strict-config", "--strict-markers", "--import-mode=importlib"]
+# `live` tests reach real services; `pytest -m live` runs only them (the last -m wins).
+addopts = ["-ra", "--strict-config", "--strict-markers", "--import-mode=importlib", "-m", "not live"]
+markers = ["live: calls a real external service; deselected unless run with -m live"]
 testpaths = ["tests"]
 
 # Coverage is opt-in via `pytest --cov` (`just py-cov`), not addopts, because it

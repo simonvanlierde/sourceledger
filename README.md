@@ -128,7 +128,9 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 - Each line it prints says `new` or `unchanged`, against the last version in the log.
 - For a source with `archive = true`, each connect and read of the Internet Archive
   request times out after 15 s. When it fails, fetch prints a warning, leaves
-  `archive_url` empty, and still succeeds.
+  `archive_url` empty, and still succeeds. Archiving is best effort: Save Page Now
+  rate-limits anonymous clients. On 2026-10-19 a request from a home connection got
+  HTTP 429 (no `Retry-After`) back in about 1 s, so that fetch recorded no snapshot.
 
 ## Other commands
 
@@ -213,6 +215,11 @@ uv tool install prek   # once per machine
 prek install           # git hooks
 just check             # lint, types and tests, as CI runs them
 ```
+
+By default the tests never touch the network. Where they stand in for a web service (Save Page
+Now), a contract test runs against both the stand-in and the real service, the second
+only under `uv run pytest -m live`. CI runs that weekly, so the stand-in cannot drift
+from the service unnoticed.
 
 ## License
 
