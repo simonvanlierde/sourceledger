@@ -1040,6 +1040,27 @@ def test_a_redirect_to_another_host_drops_the_credentials() -> None:
     assert same.get_header("Authorization") == "x"
 
 
+def test_a_redirect_to_plain_http_on_the_same_host_drops_the_credentials() -> None:
+    """A token sent over https must not go out again in clear text after a downgrade."""
+    handler = ledger._NoRedirectInward()  # noqa: SLF001
+    req = urllib.request.Request("https://93.184.215.14/data.csv", headers={"Authorization": "x", "User-Agent": "ua"})
+    new = handler.redirect_request(
+        req, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://93.184.215.14/data.csv"
+    )
+    assert new is not None
+    assert (new.get_header("Authorization"), new.get_header("User-agent")) == (None, "ua")
+
+
+@pytest.mark.usefixtures("upstream")
+def test_headers_on_a_plain_http_url_are_a_manifest_error(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A token would cross the network in clear text from the first request."""
+    _manifest(
+        tmp_path, "http://example.invalid/data.csv", terms=f'{TERMS}\nheaders = {{ Authorization = "env:SL_TOKEN" }}'
+    )
+    assert _run("fetch") == [1]
+    assert "example: headers in sources.toml need an https url" in capsys.readouterr().err
+
+
 @pytest.mark.usefixtures("upstream")
 def test_an_id_must_be_ascii(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """An id names files, which must mean the same file on every system."""
@@ -1069,6 +1090,8 @@ _GOOD = f'[[source]]\nid = "a"\nstatus = "implemented"\nurl = "https://example.o
         _GOOD + "max_bytes = 0\n",
         _GOOD + 'format = "parquet"\n',
         _GOOD + 'headers = { Authorization = "Bearer x" }\n',
+        _GOOD.replace("https://", "http://") + 'headers = { Authorization = "env:TOKEN" }\n',
+        _GOOD.replace("https://", "HTTPS://") + 'headers = { Authorization = "env:TOKEN" }\n',
         _GOOD.replace('url = "https://example.org/a.csv"\n', ""),
     ],
 )

@@ -102,7 +102,7 @@ _GZIP_MAGIC = b"\x1f\x8b"
 _ENV_REF = re.compile(r"env:([A-Za-z_][A-Za-z0-9_]*)")
 # Headers a manifest may not set: the fetch's own.
 _RESERVED_HEADERS = frozenset({"user-agent", "accept-encoding", "if-none-match", "if-modified-since"})
-# Sent again after a redirect to another host. Credentials from the manifest are not.
+# Sent again after a redirect to another scheme, host or port. Credentials from the manifest are not.
 _SAFE_ON_REDIRECT = frozenset({"user-agent", "accept-encoding"})
 # The Internet Archive's Save Page Now: a GET of this plus a URL asks it to snapshot that URL.
 _ARCHIVE = "https://web.archive.org/save/"
@@ -226,11 +226,16 @@ def _check_format(source: Source) -> None:
 
 
 def _check_headers(source: Source) -> None:
-    """Each extra request header must take its value from an environment variable, never a literal."""
+    """Each extra request header takes its value from an environment variable, never a literal, and goes over https."""
     headers = source.get("headers", {})
     if not isinstance(headers, dict):
         msg = f"{source['id']}: headers in sources.toml must be a table"
         raise ValueError(msg)  # noqa: TRY004  # a manifest error: the CLI reports ValueError as one line
+    url = source.get("url")
+    # The same test as the schema's pattern, so the two accept the same manifests.
+    if source.get("headers") is not None and isinstance(url, str) and not url.lower().startswith("https:"):
+        msg = f"{source['id']}: headers in sources.toml need an https url, so the values are never sent in clear text"
+        raise ValueError(msg)
     for name, value in headers.items():
         if name.lower() in _RESERVED_HEADERS:
             msg = f"{source['id']}: sourceledger sets the {name} header itself"
@@ -330,8 +335,9 @@ class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
             raise urllib.error.HTTPError(newurl, code, reason, headers, fp)
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
         # urllib copies every header to the new request. A token meant for one host must not
-        # reach another, so a redirect off the host keeps only the harmless ones.
-        if new is not None and urlsplit(newurl).netloc != urlsplit(req.full_url).netloc:
+        # reach another, nor go out in clear text after https -> http, so a redirect that
+        # changes the scheme, host or port keeps only the harmless ones.
+        if new is not None and urlsplit(newurl)[:2] != urlsplit(req.full_url)[:2]:
             new.headers = {k: v for k, v in new.headers.items() if k.lower() in _SAFE_ON_REDIRECT}
         return new
 

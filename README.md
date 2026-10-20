@@ -91,7 +91,7 @@ Each `[[source]]` table takes these keys:
 | `max_bytes` | no | The largest download `fetch` accepts. 200 MiB unless set. |
 | `format` | no | `"csv"`, `"json"` (an array of objects) or `"xlsx"`. Otherwise from the URL's extension: `.json`, `.xlsx`, and CSV for anything else. A gzipped CSV or JSON file is decompressed, within `max_bytes`. |
 | `sheet` | no | The Excel sheet to read. The first unless set. |
-| `headers` | no | Extra request headers, such as an API key, each value naming an environment variable: `{ Authorization = "env:EIA_TOKEN" }`. A literal value is refused, so a secret never lands in the manifest. The record keeps the header names, not the values, and a redirect to another host drops them. |
+| `headers` | no | Extra request headers, such as an API key, each value naming an environment variable: `{ Authorization = "env:EIA_TOKEN" }`. A literal value is refused, so a secret never lands in the manifest, and so is a `url` that is not https, so a secret never crosses the network in clear text. The record keeps the header names, not the values, and a redirect to another scheme, host or port drops them. |
 | `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for http and https URLs. The archive's request does not send `headers`, so don't use it on a source that needs a login. |
 | `reason` | no | A note for people, such as why a source is unimplemented. sourceledger doesn't read it. |
 
