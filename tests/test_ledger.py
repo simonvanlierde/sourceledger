@@ -6,6 +6,7 @@ import http.client
 import http.server
 import io
 import json
+import re
 import sys
 import threading
 import time
@@ -1468,3 +1469,51 @@ def test_archive_must_be_true_or_false(upstream: Path, tmp_path: Path, capsys: p
     _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\narchive = "yes"')
     assert _run("fetch") == [1]
     assert "need archive to be true or false" in capsys.readouterr().err
+
+
+_SNAPSHOT_FORM = r"https://web\.archive\.org/web/\d{14}/(?P<url>.+)"
+
+
+class _SavePageNow:
+    """A fake of Save Page Now, standing in for `ledger._open`, as far as `_archive` relies on it.
+
+    It redirects to a snapshot, or answers 429 with no Retry-After, which the live archive sends
+    an anonymous client. `test_save_page_now_contract` checks it against the live service.
+    """
+
+    def __init__(self, *, rate_limited: bool = False) -> None:
+        self.rate_limited = rate_limited
+
+    def __call__(self, request: urllib.request.Request, timeout: float) -> _Response:
+        assert request.full_url.startswith(ledger._ARCHIVE)  # noqa: SLF001
+        assert timeout == ledger._ARCHIVE_TIMEOUT_S  # noqa: SLF001
+        if self.rate_limited:
+            raise urllib.error.HTTPError(request.full_url, 429, "TOO MANY REQUESTS", _headers(), None)
+        target = request.full_url.removeprefix(ledger._ARCHIVE)  # noqa: SLF001
+        return _Response(b"", url=f"{ledger._SNAPSHOT}20261019161808/{target}")  # noqa: SLF001
+
+
+@pytest.fixture(params=["fake", "fake-rate-limited", pytest.param("live", marks=pytest.mark.live)])
+def save_page_now(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Save Page Now: the fake on every run, the live service under `pytest -m live`."""
+    if request.param != "live":
+        monkeypatch.setattr(ledger, "_open", _SavePageNow(rate_limited=request.param == "fake-rate-limited"))
+    return request.param
+
+
+def test_save_page_now_contract(save_page_now: str, caplog: pytest.LogCaptureFixture) -> None:
+    """The archive either redirects to a snapshot of the URL that opens, or rate-limits with a 429."""
+    target = "https://example.com/"
+    snapshot = ledger._archive({"id": "contract", "url": target}, ledger.USER_AGENT)  # noqa: SLF001
+    if not snapshot:
+        assert "HTTP Error 429" in caplog.text
+        if save_page_now == "live":
+            pytest.skip("the live archive rate-limited this run, so only the 429 was checked")
+        return
+    match = re.fullmatch(_SNAPSHOT_FORM, snapshot)
+    assert match
+    assert match["url"].rstrip("/") == target.rstrip("/")
+    if save_page_now == "live":
+        request = urllib.request.Request(snapshot, headers={"User-Agent": ledger.USER_AGENT})  # noqa: S310
+        with ledger._open(request, timeout=60) as response:  # noqa: SLF001
+            assert response.status == 200

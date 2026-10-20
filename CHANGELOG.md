@@ -8,6 +8,12 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+### Added
+
+- A weekly CI job runs the Save Page Now contract test against the live archive, so the
+  stand-in the other tests use is checked against the real service. Run it locally with
+  `uv run pytest -m live`.
+
 ## [0.2.0] - 2026-10-18
 
 Upgrade steps:
