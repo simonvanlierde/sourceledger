@@ -1478,7 +1478,8 @@ class _SavePageNow:
     """A fake of Save Page Now, standing in for `ledger._open`, as far as `_archive` relies on it.
 
     It redirects to a snapshot, or answers 429 with no Retry-After, which the live archive sends
-    an anonymous client. `test_save_page_now_contract` checks it against the live service.
+    once a URL has had its 5 captures of the day. `test_save_page_now_contract` checks it against
+    the live service.
     """
 
     def __init__(self, *, rate_limited: bool = False) -> None:
@@ -1503,12 +1504,13 @@ def save_page_now(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
 
 def test_save_page_now_contract(save_page_now: str, caplog: pytest.LogCaptureFixture) -> None:
     """The archive either redirects to a snapshot of the URL that opens, or rate-limits with a 429."""
-    target = "https://example.com/"
+    # A page few others save: example.com reaches the archive's 5 captures a day by morning.
+    target = "https://github.com/simonvanlierde/sourceledger/blob/main/README.md"
     snapshot = ledger._archive({"id": "contract", "url": target}, ledger.USER_AGENT)  # noqa: SLF001
     if not snapshot:
         assert "HTTP Error 429" in caplog.text
         if save_page_now == "live":
-            pytest.skip("the live archive rate-limited this run, so only the 429 was checked")
+            pytest.skip("the live archive had captured this URL 5 times today, so only the 429 was checked")
         return
     match = re.fullmatch(_SNAPSHOT_FORM, snapshot)
     assert match

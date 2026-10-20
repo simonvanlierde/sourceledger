@@ -107,8 +107,9 @@ _SAFE_ON_REDIRECT = frozenset({"user-agent", "accept-encoding"})
 # The Internet Archive's Save Page Now: a GET of this plus a URL asks it to snapshot that URL.
 _ARCHIVE = "https://web.archive.org/save/"
 _SNAPSHOT = "https://web.archive.org/web/"
-# A snapshot can take the archive a while; a fetch never waits on it longer than this.
-_ARCHIVE_TIMEOUT_S = 15
+# Save Page Now answers only once the snapshot is taken, 49 s for a GitHub page on 2026-10-20, so
+# this bounds each connect and read of that request.
+_ARCHIVE_TIMEOUT_S = 120
 
 # Sent with every request, so a publisher can tell who is fetching. `main` takes the project's own.
 USER_AGENT = f"sourceledger/{version('sourceledger')}"

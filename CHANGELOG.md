@@ -14,6 +14,13 @@ a breaking change comes only in a minor version (see Stability in the README).
   stand-in the other tests use is checked against the real service. Run it locally with
   `uv run pytest -m live`.
 
+### Fixed
+
+- `archive = true` now waits up to 120 s for Save Page Now, up from 15 s. The archive
+  answers only once the snapshot is taken, 49 s for a GitHub page in one test, so a fetch
+  whose snapshot took longer than 15 s recorded an empty `archive_url` although the
+  archive had the page.
+
 ## [0.2.0] - 2026-10-18
 
 Upgrade steps:
