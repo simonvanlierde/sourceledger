@@ -127,10 +127,11 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   `data/raw/.lock`, Linux and macOS only).
 - Each line it prints says `new` or `unchanged`, against the last version in the log.
 - For a source with `archive = true`, each connect and read of the Internet Archive
-  request times out after 15 s. When it fails, fetch prints a warning, leaves
-  `archive_url` empty, and still succeeds. Archiving is best effort: Save Page Now
-  rate-limits anonymous clients. On 2026-10-19 a request from a home connection got
-  HTTP 429 (no `Retry-After`) back in about 1 s, so that fetch recorded no snapshot.
+  request times out after 120 s. When it fails, fetch prints a warning, leaves
+  `archive_url` empty, and still succeeds. Archiving is best effort. Save Page Now
+  answers only once the snapshot is taken (49 s for a GitHub page on 2026-10-20), and it
+  captures one URL at most 5 times a day across all its users. Past that it answers
+  HTTP 429 with no `Retry-After`, and that fetch records no snapshot.
 
 ## Other commands
 
