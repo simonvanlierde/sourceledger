@@ -64,7 +64,7 @@
         "sheet": { "type": "string", "description": "The Excel sheet to read. The first unless set." },
         "headers": {
           "type": "object",
-          "description": "Extra request headers, each value an environment variable: \"env:NAME\".",
+          "description": "Extra request headers, each value an environment variable: \"env:NAME\". Needs an https url.",
           "propertyNames": {
             "not": {
               "enum": ["User-Agent", "Accept-Encoding", "If-None-Match", "If-Modified-Since"]
@@ -82,7 +82,10 @@
         "reason": { "type": "string", "description": "A note for people. Not read." }
       },
       "if": { "properties": { "status": { "const": "implemented" } } },
-      "then": { "required": ["url", "terms", "terms_url", "license", "redistribute"] }
+      "then": { "required": ["url", "terms", "terms_url", "license", "redistribute"] },
+      "dependentSchemas": {
+        "headers": { "properties": { "url": { "pattern": "^[Hh][Tt][Tt][Pp][Ss]:" } } }
+      }
     }
   }
 }

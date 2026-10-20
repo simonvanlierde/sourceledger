@@ -8,6 +8,11 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+Upgrade steps:
+
+- A source with `headers` needs an https `url` now (see Security below). Switch an
+  `http://` URL to `https://`, which most APIs serve.
+
 ### Added
 
 - A weekly CI job runs the Save Page Now contract test against the live archive, so the
@@ -20,6 +25,14 @@ a breaking change comes only in a minor version (see Stability in the README).
   answers only once the snapshot is taken, 49 s for a GitHub page in one test, so a fetch
   whose snapshot took longer than 15 s recorded an empty `archive_url` although the
   archive had the page.
+
+### Security
+
+- **Breaking:** `headers` on a source whose `url` is not https is a manifest error, since
+  the API key would cross the network in clear text.
+- A redirect that changes the scheme, such as https to http on the same host, now drops
+  the `headers` too, as a redirect to another host already did. Before, the key went out
+  in clear text after the downgrade.
 
 ## [0.2.0] - 2026-10-18
 
