@@ -86,7 +86,7 @@ Each `[[source]]` table takes these keys:
 | `terms`, `terms_url` | for implemented sources | The publisher's reuse terms in their words, and where they are stated. |
 | `license` | for implemented sources | The same terms as an [SPDX id](https://spdx.org/licenses/), such as `"CC-BY-4.0"`, or `"LicenseRef-<name>"` for terms with none. |
 | `redistribute` | for implemented sources | `true` if the terms let you republish the raw file, `false` if not. |
-| `vintage` | no | The edition you expect, such as `"2024 release"` or a TOML date. Recorded with each fetch and stamped on each row. `"not stated"` when absent. The old key `release` still works, with a warning. |
+| `vintage` | no | The edition you expect, such as `"2024 release"` or a TOML date. Recorded with each fetch and stamped on each row. `"not stated"` when absent. The old name `release` is refused. |
 | `sha256` | no | The SHA-256 the download must have. Pin it for a fixed release, and `fetch` refuses bytes that changed upstream. |
 | `max_bytes` | no | The largest download `fetch` accepts. 200 MiB unless set. |
 | `format` | no | `"csv"`, `"json"` (an array of objects) or `"xlsx"`. Otherwise from the URL's extension: `.json`, `.xlsx`, and CSV for anything else. A gzipped CSV or JSON file is decompressed, within `max_bytes`. |

@@ -10,6 +10,8 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 Upgrade steps:
 
+- Rename `release` to `vintage` in `sources.toml`. The old key is now refused, with a
+  message naming the new one (see Removed below).
 - A source with `headers` needs an https `url` now (see Security below). Switch an
   `http://` URL to `https://`, which most APIs serve.
 
@@ -18,6 +20,12 @@ Upgrade steps:
 - A weekly CI job runs the Save Page Now contract test against the live archive, so the
   stand-in the other tests use is checked against the real service. Run it locally with
   `uv run pytest -m live`.
+
+### Removed
+
+- **Breaking:** the old key `release` is no longer read as `vintage`. A manifest that
+  still uses it fails to load and names the new key, rather than being kept as an unknown
+  key and leaving the vintage "not stated".
 
 ### Fixed
 

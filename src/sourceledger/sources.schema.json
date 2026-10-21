@@ -43,9 +43,8 @@
           "description": "The edition you expect: text or a TOML date."
         },
         "release": {
-          "type": "string",
-          "deprecated": true,
-          "description": "Old name for vintage. Still read, with a warning."
+          "not": {},
+          "description": "Renamed to vintage."
         },
         "sha256": {
           "type": "string",
