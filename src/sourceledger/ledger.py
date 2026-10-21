@@ -259,19 +259,15 @@ def _check_pin(source: Source) -> None:
 
 
 def _check_vintage(source: Source) -> None:
-    """Accept the old key `release` for `vintage`, with a warning."""
-    if (release := source.pop("release", None)) is None:
-        return
-    if source.get("vintage") is not None:
-        msg = f"{source['id']}: give vintage or release in sources.toml, not both"
+    """Refuse the old key `release`: kept as an unknown key, it would leave the vintage "not stated"."""
+    if source.get("release") is not None:
+        msg = f"{source['id']}: `release` in sources.toml is now `vintage`; rename it"
         raise ValueError(msg)
-    _logger.warning("%s: `release` in sources.toml is now `vintage`; rename it", source["id"])
-    source["vintage"] = release
 
 
 def _vintage(source: Source) -> str:
     # str(): a TOML date (`vintage = 2024-06-01`) loads as a datetime.date.
-    return str(source.get("vintage", source.get("release", "not stated")))
+    return str(source.get("vintage", "not stated"))
 
 
 def implemented(sources: list[Source]) -> list[Source]:

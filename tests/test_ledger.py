@@ -135,9 +135,9 @@ def test_the_whole_pipeline_runs_from_a_local_file(upstream: Path) -> None:
     assert {(r["source_url"], r["raw_sha256"]) for r in rows} == {(record["url"], record["sha256"])}
 
 
-def test_a_toml_date_release_is_recorded_as_a_string(upstream: Path, tmp_path: Path) -> None:
-    """An unquoted `release = 2024-06-01` loads as a date; the fetch record still holds text."""
-    _manifest(tmp_path, upstream.as_uri(), terms="release = 2024-06-01")
+def test_a_toml_date_vintage_is_recorded_as_a_string(upstream: Path, tmp_path: Path) -> None:
+    """An unquoted `vintage = 2024-06-01` loads as a date; the fetch record still holds text."""
+    _manifest(tmp_path, upstream.as_uri(), terms="vintage = 2024-06-01")
     assert _run("fetch") == [0]
     record = json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
     assert record["vintage"] == "2024-06-01"
@@ -692,16 +692,13 @@ def test_a_new_vintage_needs_a_new_fetch(upstream: Path, tmp_path: Path, monkeyp
     assert {r["vintage"] for r in ledger.read_output(OUT)} == {"2025"}
 
 
-def test_release_is_read_as_vintage_with_a_warning(
-    upstream: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
+def test_the_old_key_release_is_refused_with_its_new_name(
+    upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Manifests written before the rename keep working."""
+    """Kept as an unknown key, `release` would silently leave the vintage "not stated"."""
     _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nrelease = "2024"')
-    assert _run("fetch") == [0]
-    assert json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))["vintage"] == "2024"
-    assert "is now `vintage`" in caplog.text
-    _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nrelease = "2024"\nvintage = "2024"')
     assert _run("fetch") == [1]
+    assert "`release` in sources.toml is now `vintage`" in capsys.readouterr().err
 
 
 @pytest.mark.usefixtures("upstream")
@@ -1093,6 +1090,7 @@ _GOOD = f'[[source]]\nid = "a"\nstatus = "implemented"\nurl = "https://example.o
         _GOOD.replace("https://", "http://") + 'headers = { Authorization = "env:TOKEN" }\n',
         _GOOD.replace("https://", "HTTPS://") + 'headers = { Authorization = "env:TOKEN" }\n',
         _GOOD.replace('url = "https://example.org/a.csv"\n', ""),
+        _GOOD + 'release = "2024"\n',
     ],
 )
 def test_the_schema_and_the_loader_agree(tmp_path: Path, text: str) -> None:
