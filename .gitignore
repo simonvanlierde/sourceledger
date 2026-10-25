@@ -25,6 +25,7 @@ dist/
 htmlcov/
 .coverage
 coverage.xml
+.hypothesis/
 
 # Node
 node_modules/

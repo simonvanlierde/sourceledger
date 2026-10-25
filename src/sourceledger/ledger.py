@@ -527,7 +527,8 @@ def _last_records(log: Path) -> dict[str, dict[str, Any]]:
     """
     if not log.exists():
         return {}
-    text = log.read_text(encoding="utf-8")
+    # Bytes that are not UTF-8 become U+FFFD, so a damaged line is reported by its number below.
+    text = log.read_bytes().decode("utf-8", errors="replace")
     lines = text.splitlines()
     records: dict[str, dict[str, Any]] = {}
     for number, line in enumerate(lines, start=1):
