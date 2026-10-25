@@ -8,7 +8,7 @@ import tempfile
 from email.message import Message
 from pathlib import Path
 
-from hypothesis import example, given
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from sourceledger import ledger
@@ -35,6 +35,8 @@ def _last_by_id(written: list[ledger.FetchRecord]) -> dict[str, dict[str, object
     return {record.source_id: dataclasses.asdict(record) for record in written}
 
 
+# No deadline where an example writes and fsyncs files: a slow CI disk is not a failure.
+@settings(deadline=None)
 @given(st.lists(_records, max_size=5), st.data())
 def test_the_log_reads_back_what_was_appended_even_after_a_torn_line(
     written: list[ledger.FetchRecord], data: st.DataObject
@@ -115,6 +117,7 @@ def _built(name: str, payload: bytes, parse: ledger.Parser) -> tuple[list[dict[s
         return parsed, read
 
 
+@settings(deadline=None)
 @given(
     _columns.flatmap(
         lambda cols: st.tuples(
@@ -140,6 +143,7 @@ _json_values = st.recursive(
 )
 
 
+@settings(deadline=None)
 @given(
     st.lists(
         st.dictionaries(st.text(max_size=8).filter(lambda c: c not in _provenance), _json_values, max_size=4),

@@ -29,8 +29,9 @@ Upgrade steps:
 
 ### Fixed
 
-- A fetch log line that is not UTF-8 is now reported by its line number, as any other
-  damaged line is. Before, fetch, status and revisions failed with a bare decoding error.
+- Bytes in the fetch log that are not UTF-8 no longer stop fetch, status and revisions
+  with a bare decoding error. They read as U+FFFD, so a line they break is reported by
+  its number, as any other damaged line is.
 - `archive = true` now waits up to 120 s for Save Page Now, up from 15 s. The archive
   answers only once the snapshot is taken, 49 s for a GitHub page in one test, so a fetch
   whose snapshot took longer than 15 s recorded an empty `archive_url` although the
