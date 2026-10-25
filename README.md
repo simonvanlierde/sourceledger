@@ -250,16 +250,16 @@ prek install           # git hooks
 just check             # lint, types and tests, as CI runs them
 ```
 
-By default the tests never touch the network. Where they stand in for a web service (Save Page
-Now), a contract test runs against both the stand-in and the real service, the second
-only under `uv run pytest -m live`. CI runs that weekly, so the stand-in cannot drift
-from the service unnoticed.
-
 [CONTRIBUTING.md](.github/CONTRIBUTING.md) has the coding standard, the test policy and
 how dependencies are chosen. [GOVERNANCE.md](GOVERNANCE.md) says who decides what.
 [docs/architecture.md](docs/architecture.md) explains how the stages fit together, and
 [docs/secure-use.md](docs/secure-use.md) what sourceledger checks for you. Report a
 vulnerability as [SECURITY.md](.github/SECURITY.md) describes.
+
+By default the tests never touch the network. Where they stand in for a web service (Save Page
+Now), a contract test runs against both the stand-in and the real service, the second
+only under `uv run pytest -m live`. CI runs that weekly, so the stand-in cannot drift
+from the service unnoticed.
 
 ## License
 
