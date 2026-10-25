@@ -1412,12 +1412,16 @@ def test_verify_needs_a_readable_package(
 def test_a_fetch_record_is_written_exactly(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every field of a plain fetch, in UTC, and the record file as indented JSON."""
     calls = _serve(monkeypatch, _Response(FIXTURE.encode()))
-    monkeypatch.setenv("TZ", "Etc/GMT-14")  # far from UTC, so a local timestamp shows
+    zone = os.environ.get("TZ")
+    os.environ["TZ"] = "Etc/GMT-14"  # far from UTC, so a local timestamp shows
     time.tzset()
     try:
         assert main(["fetch"], user_agent="my-dataset") == 0
     finally:
-        monkeypatch.delenv("TZ")
+        if zone is None:
+            del os.environ["TZ"]
+        else:
+            os.environ["TZ"] = zone
         time.tzset()
     text = Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8")
     record = json.loads(text)
@@ -1519,9 +1523,7 @@ def test_the_package_name_comes_from_the_folder(
     assert ledger._package_name() == name  # noqa: SLF001
 
 
-def test_build_only_a_later_source_builds_it(
-    upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_build_only_a_later_source_builds_it(upstream: Path, tmp_path: Path) -> None:
     """Skipping an unselected source moves on to the next one."""
     other = upstream.with_name("b.csv")
     other.write_text(FIXTURE, encoding="utf-8")
@@ -1529,10 +1531,10 @@ def test_build_only_a_later_source_builds_it(
     assert main(["fetch"]) == 0
     assert main(["build", "--only", "b"]) == 0
     assert Path("data/processed/b.csv").exists()
-    capsys.readouterr()
 
 
-def test_the_stages_take_their_folders_as_arguments(upstream: Path, tmp_path: Path) -> None:
+@pytest.mark.usefixtures("upstream")
+def test_the_stages_take_their_folders_as_arguments(tmp_path: Path) -> None:
     """A library caller can keep raw files elsewhere; build and validate then read them there."""
     sources = ledger.load_manifest()
     raw, processed, log = tmp_path / "elsewhere", tmp_path / "out", tmp_path / "logs" / "deep" / "log.jsonl"
@@ -1542,7 +1544,6 @@ def test_the_stages_take_their_folders_as_arguments(upstream: Path, tmp_path: Pa
     assert ledger.validate(sources, raw=raw, processed=processed) == []
     assert not RAW.exists()
     assert len(log.read_text(encoding="utf-8").splitlines()) == 1
-    assert upstream.exists()
 
 
 @pytest.mark.usefixtures("upstream")
@@ -1655,7 +1656,7 @@ def test_a_gzip_exactly_at_max_bytes_is_read() -> None:
     assert rows == [{"a": "1"}]
 
 
-def test_a_csv_field_keeps_its_line_break_through_build() -> None:
+def test_a_csv_field_keeps_its_line_break() -> None:
     """A quoted field with CR LF inside is data, not a line ending to translate."""
     _, rows = ledger.parse_csv({"id": "c"}, b'a,b\r\n"one\r\ntwo",2\r\n')
     assert rows == [{"a": "one\r\ntwo", "b": "2"}]
