@@ -77,7 +77,7 @@ def main(
         "--only", action="append", metavar="ID", help="fetch, build and validate: only this source (repeatable)"
     )
     parser.add_argument(
-        "--manifest", type=Path, default=manifest, metavar="PATH", help=f"the manifest to read (default: {manifest})"
+        "--manifest", type=Path, default=manifest, metavar="PATH", help="the manifest to read (default: %(default)s)"
     )
     args = parser.parse_args(argv)
     if args.only is not None and args.stage not in _SELECTABLE:
