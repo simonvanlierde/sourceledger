@@ -53,6 +53,7 @@ def main(
     parse: Parser = parse_source,
     prog: str = "sourceledger",
     user_agent: str = USER_AGENT,
+    manifest: Path = MANIFEST,
 ) -> int:
     """Run one stage: init, fetch, build, validate, status, attribution, revisions or verify.
 
@@ -60,7 +61,9 @@ def main(
     dataset. `--only ID`, repeatable, restricts fetch, build and validate to those sources.
 
     A project's own entry point calls this with its `parse`, its name as `prog`, and that name
-    as `user_agent`. Returns the exit code: 0, or 1 for any failure or validation problem.
+    as `user_agent`. `manifest` is the sources.toml to read, `./sources.toml` by default; a
+    project that ships it inside its package passes that path, and `--manifest PATH` overrides
+    both. Returns the exit code: 0, or 1 for any failure or validation problem.
     """
     parser = argparse.ArgumentParser(prog=prog, description="Fetch, build and validate the sources in sources.toml.")
     parser.add_argument("stage", choices=_STAGES)
@@ -73,6 +76,9 @@ def main(
     parser.add_argument(
         "--only", action="append", metavar="ID", help="fetch, build and validate: only this source (repeatable)"
     )
+    parser.add_argument(
+        "--manifest", type=Path, default=manifest, metavar="PATH", help=f"the manifest to read (default: {manifest})"
+    )
     args = parser.parse_args(argv)
     if args.only is not None and args.stage not in _SELECTABLE:
         parser.error(f"--only works with {', '.join(_SELECTABLE)}, not {args.stage}")
@@ -83,7 +89,7 @@ def main(
     # Filled by fetch, for the lines of a run that fails.
     before: dict[str, str] = {}
     try:
-        problems = _run(args.stage, args.path, args.only, parse, user_agent, before)
+        problems = _run(args.stage, args.path, args.only, parse, user_agent, before, args.manifest)
     except FetchError as error:
         for record in error.records:
             print(_fetch_line(record, before))
@@ -107,6 +113,7 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
     parse: Parser,
     user_agent: str,
     logged: dict[str, str],
+    manifest: Path,
 ) -> list[str]:
     """Run `stage`, print its report, and return its problems: only validate and verify have any.
 
@@ -115,8 +122,8 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
     """
     match stage, path:
         case "init", _:
-            init()
-            print(f"wrote {MANIFEST}")
+            init(manifest)
+            print(f"wrote {manifest}")
         case "revisions", Path():
             # Not a failure: a revised source is news, and the tripwire test decides whether it breaks anything.
             for line in revisions(path):
@@ -127,20 +134,20 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
             return problems
         case "fetch", _:
             logged.update(logged_versions(FETCH_LOG))
-            for record in fetch(load_manifest(), user_agent=user_agent, only=only):
+            for record in fetch(load_manifest(manifest), user_agent=user_agent, only=only):
                 print(_fetch_line(record, logged))
         case "build", _:
-            for out in build(load_manifest(), parse=parse, only=only):
+            for out in build(load_manifest(manifest), parse=parse, only=only):
                 print(f"{len(read_output(out))} rows -> {out}")
             print(f"package -> {PROCESSED / DATAPACKAGE}")
         case "status", _:
-            for line in status(load_manifest()):
+            for line in status(load_manifest(manifest)):
                 print(line)
         case "attribution", _:
-            for line in attribution(load_manifest()):
+            for line in attribution(load_manifest(manifest)):
                 print(line)
         case _:
-            problems = validate(load_manifest(), only=only)
+            problems = validate(load_manifest(manifest), only=only)
             print(f"{len(problems)} problems")
             return problems
     return []

@@ -154,6 +154,9 @@ sources. An id that is not in `sources.toml` is an error. `build --only` keeps t
 sources' entries in `datapackage.json` as the last build wrote them, and
 `validate --only` skips the checks that cover the whole output.
 
+Every command reads `./sources.toml` unless given `--manifest PATH`. The data folder stays
+`data/` in the current directory either way.
+
 ## Your own readers
 
 `sourceledger` reads every source with `parse_source`, which hands it to `parse_csv`,
@@ -183,7 +186,9 @@ my-dataset = "my_dataset.pipeline:main"
 ```
 
 `my-dataset fetch`, `build` and `validate` then use that reader, and publishers see
-`my-dataset` as the User-Agent. The
+`my-dataset` as the User-Agent. A project that ships its `sources.toml` inside its package
+passes that path as `manifest=`, for example
+`manifest=Path(__file__).with_name("sources.toml")`. The
 [project-templates](https://github.com/simonvanlierde/project-templates) `data-pipeline`
 kind sets this up for you, with CI and a weekly revision report. The stages are also
 functions: `load_manifest`, `fetch`, `build`, `validate`, `revisions`, `status`,

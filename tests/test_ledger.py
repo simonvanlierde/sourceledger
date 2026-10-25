@@ -1540,3 +1540,23 @@ def test_save_page_now_contract(save_page_now: str, caplog: pytest.LogCaptureFix
         request = urllib.request.Request(snapshot, headers={"User-Agent": ledger.USER_AGENT})  # noqa: S310
         with ledger._open(request, timeout=60) as response:  # noqa: SLF001
             assert response.status == 200
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_manifest_outside_the_project_is_read_from_the_option_or_the_keyword(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A package that ships sources.toml passes its path; the data still lands in the working directory."""
+    packaged = tmp_path / "package" / "sources.toml"
+    packaged.parent.mkdir()
+    Path("sources.toml").rename(packaged)
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    assert main(["fetch", "--manifest", str(packaged)]) == 0
+    assert main(["build", "--manifest", str(packaged)]) == 0
+    assert main(["validate", "--manifest", str(packaged)]) == 0
+    assert [row["value"] for row in ledger.read_output(project / OUT)] == ["1.5", "2.5"]
+    assert main(["validate"], manifest=packaged) == 0
+    assert main(["validate"]) == 1  # no ./sources.toml here
+    assert not packaged.with_name("data").exists()

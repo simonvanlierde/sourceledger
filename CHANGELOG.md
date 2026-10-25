@@ -17,6 +17,9 @@ Upgrade steps:
 
 ### Added
 
+- `--manifest PATH` on every command, and `manifest=` on `main`, read a `sources.toml`
+  other than the one in the current directory, such as one a project ships inside its
+  package. The data still goes to `data/` in the current directory.
 - A weekly CI job runs the Save Page Now contract test against the live archive, so the
   stand-in the other tests use is checked against the real service. Run it locally with
   `uv run pytest -m live`.
