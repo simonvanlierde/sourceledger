@@ -17,6 +17,9 @@ Upgrade steps:
 
 ### Added
 
+- Two docs pages: [How sourceledger works](docs/architecture.md), on the stages and the
+  files each one writes, and [Use sourceledger safely](docs/secure-use.md). The README
+  shows how to verify a release with `gh attestation verify` or `pypi-attestations`.
 - A weekly CI job runs the Save Page Now contract test against the live archive, so the
   stand-in the other tests use is checked against the real service. Run it locally with
   `uv run pytest -m live`.

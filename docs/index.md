@@ -21,7 +21,9 @@ turn other people's published data into a dataset of their own. It keeps four pr
 
 [Install and reference](https://github.com/simonvanlierde/sourceledger#readme) ·
 [PyPI](https://pypi.org/project/sourceledger/) ·
-[Changelog](https://github.com/simonvanlierde/sourceledger/blob/main/CHANGELOG.md)
+[Changelog](https://github.com/simonvanlierde/sourceledger/blob/main/CHANGELOG.md) ·
+[How it works](architecture.md) ·
+[Use it safely](secure-use.md)
 
 ### A worked example
 
