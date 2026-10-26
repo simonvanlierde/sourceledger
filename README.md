@@ -3,6 +3,7 @@
 [![python](https://github.com/simonvanlierde/sourceledger/actions/workflows/python.yml/badge.svg)](https://github.com/simonvanlierde/sourceledger/actions/workflows/python.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23460694.svg)](https://doi.org/10.5281/zenodo.23460694)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/simonvanlierde/sourceledger/badge)](https://scorecard.dev/viewer/?uri=github.com/simonvanlierde/sourceledger)
 [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/simonvanlierde/sourceledger?utm_source=badge)
 
 Build a dataset from public sources where every row says which download it came from.
@@ -36,6 +37,26 @@ publisher's silent revision.
 ```sh
 uv add sourceledger            # or 'sourceledger[xlsx]' to read Excel files
 ```
+
+### Verify a release
+
+Each release is built and published by the
+[release workflow](.github/workflows/python-release.yml), with no API token. PyPI keeps a
+signed record of the workflow run that built each file. To check a wheel you downloaded,
+pass its path:
+
+```sh
+uvx pypi-attestations verify pypi --repository https://github.com/simonvanlierde/sourceledger \
+  sourceledger-0.2.0-py3-none-any.whl
+```
+
+From 0.2.0, GitHub also keeps a signed build-provenance attestation for each file:
+
+```sh
+gh attestation verify sourceledger-0.2.0-py3-none-any.whl --repo simonvanlierde/sourceledger
+```
+
+Both fail unless the file is byte for byte the one this repository's workflow built.
 
 ## Quick start
 
@@ -154,6 +175,9 @@ sources. An id that is not in `sources.toml` is an error. `build --only` keeps t
 sources' entries in `datapackage.json` as the last build wrote them, and
 `validate --only` skips the checks that cover the whole output.
 
+Every command reads `./sources.toml` unless given `--manifest PATH`. The data folder stays
+`data/` in the current directory either way.
+
 ## Your own readers
 
 `sourceledger` reads every source with `parse_source`, which hands it to `parse_csv`,
@@ -183,7 +207,9 @@ my-dataset = "my_dataset.pipeline:main"
 ```
 
 `my-dataset fetch`, `build` and `validate` then use that reader, and publishers see
-`my-dataset` as the User-Agent. The
+`my-dataset` as the User-Agent. A project that ships its `sources.toml` inside its package
+passes that path as `manifest=`, for example
+`manifest=Path(__file__).with_name("sources.toml")`. The
 [project-templates](https://github.com/simonvanlierde/project-templates) `data-pipeline`
 kind sets this up for you, with CI and a weekly revision report. The stages are also
 functions: `load_manifest`, `fetch`, `build`, `validate`, `revisions`, `status`,
@@ -209,6 +235,18 @@ the format of fetch records and the log. A breaking change to any of them comes 
 minor version, listed in [CHANGELOG.md](CHANGELOG.md), with a warning first where that's
 cheap. Older fetch logs stay readable.
 
+## Roadmap
+
+- A `release` stage that writes the metadata for a dataset release (RO-Crate, Croissant,
+  CodeMeta, Zenodo and a `SHA256SUMS` file), checks each with its official validator, and
+  keeps the data of `redistribute = false` sources out of the release.
+- An error class per kind of failure, under `ValueError` and `OSError`, once the release
+  stage needs to tell them apart. This will not break code that catches the base classes.
+- A review by [pyOpenSci](https://www.pyopensci.org) once the project has users besides
+  its own template.
+
+Ideas and requests are welcome as [issues](https://github.com/simonvanlierde/sourceledger/issues).
+
 ## Development
 
 ```sh
@@ -218,10 +256,22 @@ prek install           # git hooks
 just check             # lint, types and tests, as CI runs them
 ```
 
+[CONTRIBUTING.md](.github/CONTRIBUTING.md) has the coding standard, the test policy and
+how dependencies are chosen. [GOVERNANCE.md](GOVERNANCE.md) says who decides what.
+[docs/architecture.md](docs/architecture.md) explains how the stages fit together, and
+[docs/secure-use.md](docs/secure-use.md) what sourceledger checks for you. Report a
+vulnerability as [SECURITY.md](.github/SECURITY.md) describes.
+
 By default the tests never touch the network. Where they stand in for a web service (Save Page
 Now), a contract test runs against both the stand-in and the real service, the second
 only under `uv run pytest -m live`. CI runs that weekly, so the stand-in cannot drift
 from the service unnoticed.
+
+`just py-mutation` runs mutation testing: it changes the code one small step at a time
+and checks that some test fails. It takes about 2 minutes. A change no test notices is a
+survivor. `tests/mutation-baseline.txt` lists how many each function may have, all of them
+changes that do not alter behaviour, such as the case of a header name. The run fails when
+a function has more. After adding a test that kills one, run `just py-mutation-baseline`.
 
 ## License
 

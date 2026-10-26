@@ -38,6 +38,7 @@ xlsx = [
 [dependency-groups]
 dev = [
   "frictionless>=5.20",
+  "hypothesis>=6.170.1",
   "jsonschema>=4.26",
   "openpyxl>=3.1",
   "pytest>=9.1.1",
@@ -46,14 +47,17 @@ dev = [
   "ruff>=0.16.10",
   "ty>=0.0.84",
 ]
+mutation = [
+  "mutmut>=3.8.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.19,<0.14.0"]
 build-backend = "uv_build"
 
 # Resolve only releases at least a week old: a compromised release is usually
-# caught and yanked within that window. Dependabot's cooldown waits the same. Set here,
-# not user-wide, so every machine writes the same uv.lock.
+# caught and yanked within that window. Renovate's minimumReleaseAge waits the same.
+# Set here, not user-wide, so every machine writes the same uv.lock.
 [tool.uv]
 exclude-newer = "1 week"
 # TODO(2026-10-27): delete. certifi 2026.10.19 fixes GHSA-6q48-6c7w-9gw2 (through
@@ -117,3 +121,10 @@ show_missing = true
 # workflow tests the installed wheel, where src/ is not what runs.
 fail_under = 95
 exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
+
+# `just py-mutation` runs it. The docs tests read the README and docs/ from the copy.
+[tool.mutmut]
+source_paths = ["src"]
+also_copy = ["README.md", "docs"]
+# Log calls only change diagnostics; their mutants would all survive.
+do_not_mutate_patterns = ['^\s*_logger\.\w+\(']

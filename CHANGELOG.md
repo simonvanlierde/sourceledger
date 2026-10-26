@@ -17,9 +17,15 @@ Upgrade steps:
 
 ### Added
 
+- `--manifest PATH` on every command, and `manifest=` on `main`, read a `sources.toml`
+  other than the one in the current directory, such as one a project ships inside its
+  package. The data still goes to `data/` in the current directory.
 - A weekly CI job runs the Save Page Now contract test against the live archive, so the
   stand-in the other tests use is checked against the real service. Run it locally with
   `uv run pytest -m live`.
+- Two docs pages: [How sourceledger works](docs/architecture.md), on the stages and the
+  files each one writes, and [Use sourceledger safely](docs/secure-use.md). The README
+  shows how to verify a release with `gh attestation verify` or `pypi-attestations`.
 
 ### Removed
 
@@ -29,6 +35,9 @@ Upgrade steps:
 
 ### Fixed
 
+- Bytes in the fetch log that are not UTF-8 no longer stop fetch, status and revisions
+  with a bare decoding error. They read as U+FFFD, so a line they break is reported by
+  its number, as any other damaged line is.
 - `archive = true` now waits up to 120 s for Save Page Now, up from 15 s. The archive
   answers only once the snapshot is taken, 49 s for a GitHub page in one test, so a fetch
   whose snapshot took longer than 15 s recorded an empty `archive_url` although the

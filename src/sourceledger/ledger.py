@@ -527,7 +527,8 @@ def _last_records(log: Path) -> dict[str, dict[str, Any]]:
     """
     if not log.exists():
         return {}
-    text = log.read_text(encoding="utf-8")
+    # Bytes that are not UTF-8 become U+FFFD, so a damaged line is reported by its number below.
+    text = log.read_bytes().decode("utf-8", errors="replace")
     lines = text.splitlines()
     records: dict[str, dict[str, Any]] = {}
     for number, line in enumerate(lines, start=1):
@@ -799,15 +800,11 @@ def _cell(value: object) -> str:
     match value:
         case None:
             return ""
-        case bool():
-            return "true" if value else "false"
         case str():
             return value
         case datetime() | date():
             return value.isoformat()
-        case int() | float():
-            return json.dumps(value)
-        case _:
+        case _:  # JSON writes booleans as true/false and numbers as written
             return json.dumps(value, ensure_ascii=False, default=str)
 
 
