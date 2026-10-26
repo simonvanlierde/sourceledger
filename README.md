@@ -37,6 +37,26 @@ publisher's silent revision.
 uv add sourceledger            # or 'sourceledger[xlsx]' to read Excel files
 ```
 
+### Verify a release
+
+Each release is built and published by the
+[release workflow](.github/workflows/python-release.yml), with no API token. PyPI keeps a
+signed record of the workflow run that built each file. To check a wheel you downloaded,
+pass its path:
+
+```sh
+uvx pypi-attestations verify pypi --repository https://github.com/simonvanlierde/sourceledger \
+  sourceledger-0.2.0-py3-none-any.whl
+```
+
+From 0.2.0, GitHub also keeps a signed build-provenance attestation for each file:
+
+```sh
+gh attestation verify sourceledger-0.2.0-py3-none-any.whl --repo simonvanlierde/sourceledger
+```
+
+Both fail unless the file is byte for byte the one this repository's workflow built.
+
 ## Quick start
 
 Write a `sources.toml` in the project root. `sourceledger init` writes one to start from,
@@ -214,6 +234,18 @@ the format of fetch records and the log. A breaking change to any of them comes 
 minor version, listed in [CHANGELOG.md](CHANGELOG.md), with a warning first where that's
 cheap. Older fetch logs stay readable.
 
+## Roadmap
+
+- A `release` stage that writes the metadata for a dataset release (RO-Crate, Croissant,
+  CodeMeta, Zenodo and a `SHA256SUMS` file), checks each with its official validator, and
+  keeps the data of `redistribute = false` sources out of the release.
+- An error class per kind of failure, under `ValueError` and `OSError`, once the release
+  stage needs to tell them apart. This will not break code that catches the base classes.
+- A review by [pyOpenSci](https://www.pyopensci.org) once the project has users besides
+  its own template.
+
+Ideas and requests are welcome as [issues](https://github.com/simonvanlierde/sourceledger/issues).
+
 ## Development
 
 ```sh
@@ -222,6 +254,12 @@ uv tool install prek   # once per machine
 prek install           # git hooks
 just check             # lint, types and tests, as CI runs them
 ```
+
+[CONTRIBUTING.md](.github/CONTRIBUTING.md) has the coding standard, the test policy and
+how dependencies are chosen. [GOVERNANCE.md](GOVERNANCE.md) says who decides what.
+[docs/architecture.md](docs/architecture.md) explains how the stages fit together, and
+[docs/secure-use.md](docs/secure-use.md) what sourceledger checks for you. Report a
+vulnerability as [SECURITY.md](.github/SECURITY.md) describes.
 
 By default the tests never touch the network. Where they stand in for a web service (Save Page
 Now), a contract test runs against both the stand-in and the real service, the second
