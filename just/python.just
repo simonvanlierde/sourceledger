@@ -47,3 +47,7 @@ py-mutation *mutants:
 # file, so a narrowed run would drop every other function.
 py-mutation-baseline:
     sed 's/__mutmut_[0-9]*$//' reports/mutation/survivors.txt | LC_ALL=C sort | uniq -c | awk '{ print $1, $2 }' > tests/mutation-baseline.txt
+
+# Benchmarks, measured as CodSpeed's CI does (needs the codspeed CLI).
+py-bench:
+    codspeed run --mode simulation -- uv run pytest tests/test_benchmarks.py --codspeed

@@ -1,0 +1,53 @@
+name: codspeed
+
+# Runs tests/test_benchmarks.py under CodSpeed's CPU simulation, which reports each
+# benchmark's change on a pull request against the base branch.
+
+on:
+  push:
+    branches: [main]
+  # Required for the performance report on a pull request.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  # Lets CodSpeed backtest earlier commits for initial data.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # See python.yml.
+  UV_MALWARE_CHECK: "1"
+  UV_PREVIEW_FEATURES: malware-check
+
+jobs:
+  benchmarks:
+    name: benchmarks
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # OpenID Connect authentication with CodSpeed, instead of a stored token.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+          version: "0.12.23"
+
+      # The interpreter is the one .python-version names.
+      - run: uv sync --locked
+
+      - uses: CodSpeedHQ/action@821a40cd6c80e3cfe387caf55668287addd808da # v5.5.0
+        with:
+          mode: simulation
+          run: uv run pytest tests/test_benchmarks.py --codspeed

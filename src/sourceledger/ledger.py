@@ -35,6 +35,7 @@ import tomllib
 import urllib.error
 import urllib.request
 import urllib.response
+from collections import Counter
 from collections.abc import Callable, Collection, Generator
 from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
@@ -168,7 +169,7 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
     if bad := [i for i in ids if not re.fullmatch(r"[\w-]+", i, re.ASCII)]:
         msg = f"ids {bad} in sources.toml may hold only ASCII letters, digits, _ and -"
         raise ValueError(msg)
-    if dupes := sorted({i for i in ids if ids.count(i) > 1}):
+    if dupes := sorted(i for i, n in Counter(ids).items() if n > 1):
         msg = f"ids {dupes} appear more than once in sources.toml"
         raise ValueError(msg)
     if no_url := [s["id"] for s in implemented(sources) if not isinstance(s.get("url"), str)]:
@@ -790,7 +791,7 @@ def _gunzip(source: Source, payload: bytes) -> bytes:
 
 def _check_columns(source: Source, columns: list[str]) -> None:
     # A dict keeps only the last of two same-named columns, silently dropping the other.
-    if dupes := sorted({c for c in columns if columns.count(c) > 1}):
+    if dupes := sorted(c for c, n in Counter(columns).items() if n > 1):
         msg = f"{source['id']}: columns {dupes} appear more than once in the header"
         raise ValueError(msg)
 
