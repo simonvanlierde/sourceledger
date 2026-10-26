@@ -49,7 +49,7 @@ the standard library cannot do the job.
 
 Development tools are in the `dev` dependency group. All versions are locked in
 `uv.lock`, and CI installs with `uv sync --locked`. uv only resolves releases that are at
-least a week old (`exclude-newer` in `pyproject.toml`), and Dependabot waits the same week
+least a week old (`exclude-newer` in `pyproject.toml`), and Renovate waits the same week
 before it proposes an update. A compromised release is usually caught and yanked in that
 time. `uv audit` checks every locked package against the OSV vulnerability database in CI,
 and a pull request that adds a dependency with a known advisory fails the dependency

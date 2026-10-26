@@ -6,7 +6,7 @@ author_name: Simon van Lierde
 author_orcid: 0009-0006-6953-909X
 codecov: false
 copyright_year: '2026'
-dependency_bot: dependabot
+dependency_bot: renovate
 github_user: simonvanlierde
 kind: library
 license: MIT
