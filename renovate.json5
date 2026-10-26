@@ -1,0 +1,51 @@
+// Renovate, the `dependency_bot` answer: it needs the Renovate GitHub App on this repo.
+// It follows the same rules as the template's Dependabot config, except that it merges
+// non-major updates itself once every check on the branch passes. Majors and template
+// updates stay manual. Renovate merges through its own app, which is on main's ruleset
+// bypass list, so these PRs need no approval.
+//
+// `minimumReleaseAge` holds a version update back until the release has been public for
+// a week, long enough for a compromised release to be caught and yanked. Security
+// updates ignore it.
+//
+// No Dockerfile or compose updates: the FROM tags are copier answers, so those PRs
+// would fight the next `copier update`.
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: ['config:recommended'],
+  schedule: ['before 9am on monday'],
+  minimumReleaseAge: '7 days',
+  // GitHub's auto-merge would wait for the approval main requires. Renovate merging the
+  // PR itself uses its bypass instead.
+  platformAutomerge: false,
+  // Off by default in Renovate. The hook revs are commit SHAs with a `# frozen:` tag
+  // comment; check that the first hooks PR keeps that form.
+  'pre-commit': { enabled: true },
+  dockerfile: { enabled: false },
+  'docker-compose': { enabled: false },
+  packageRules: [
+    { matchManagers: ['github-actions'], groupName: 'actions' },
+    { matchManagers: ['pre-commit'], groupName: 'hooks' },
+    // Dev tooling lands as one PR. A runtime dependency gets its own, so a risky bump
+    // is not buried in lint-tool churn.
+    {
+      matchManagers: ['pep621', 'npm', 'cargo'],
+      matchDepTypes: ['dependency-groups', 'devDependencies', 'dev-dependencies'],
+      matchUpdateTypes: ['minor', 'patch'],
+      groupName: 'dev tooling',
+    },
+    {
+      matchManagers: ['pep621', 'npm', 'cargo', 'gomod'],
+      matchUpdateTypes: ['major'],
+      minimumReleaseAge: '30 days',
+    },
+    // Template releases, from .copier-answers.yml. Their tags carry no release date,
+    // so the week's wait above would hold them back for good.
+    { matchManagers: ['copier'], minimumReleaseAge: null },
+    {
+      matchManagers: ['github-actions', 'pre-commit', 'pep621'],
+      matchUpdateTypes: ['minor', 'patch', 'pin', 'digest', 'pinDigest'],
+      automerge: true,
+    },
+  ],
+}
