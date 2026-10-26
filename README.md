@@ -228,6 +228,12 @@ Now), a contract test runs against both the stand-in and the real service, the s
 only under `uv run pytest -m live`. CI runs that weekly, so the stand-in cannot drift
 from the service unnoticed.
 
+`just py-mutation` runs mutation testing: it changes the code one small step at a time
+and checks that some test fails. It takes about 2 minutes. A change no test notices is a
+survivor. `tests/mutation-baseline.txt` lists how many each function may have, all of them
+changes that do not alter behaviour, such as the case of a header name. The run fails when
+a function has more. After adding a test that kills one, run `just py-mutation-baseline`.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

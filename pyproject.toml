@@ -46,6 +46,9 @@ dev = [
   "ruff>=0.16.10",
   "ty>=0.0.84",
 ]
+mutation = [
+  "mutmut>=3.8.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.19,<0.14.0"]
@@ -117,3 +120,10 @@ show_missing = true
 # workflow tests the installed wheel, where src/ is not what runs.
 fail_under = 95
 exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
+
+# `just py-mutation` runs it. The docs tests read the README and docs/ from the copy.
+[tool.mutmut]
+source_paths = ["src"]
+also_copy = ["README.md", "docs"]
+# Log calls only change diagnostics; their mutants would all survive.
+do_not_mutate_patterns = ['^\s*_logger\.\w+\(']

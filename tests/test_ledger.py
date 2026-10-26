@@ -1,20 +1,26 @@
 """The whole pipeline against a fixture served from a local file: no network."""
 
+import errno
 import gzip
 import hashlib
 import http.client
 import http.server
 import io
 import json
+import logging
+import os
 import re
+import socket
 import sys
+import tempfile
 import threading
 import time
 import tomllib
 import urllib.error
 import urllib.request
-from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from collections.abc import Callable, Iterator
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as dt_time
 from email.message import Message
 from email.utils import format_datetime
 from pathlib import Path
@@ -1402,6 +1408,505 @@ def test_verify_needs_a_readable_package(
     assert capsys.readouterr().err.startswith("verify: Expecting value")
 
 
+@pytest.mark.usefixtures("upstream")
+def test_a_fetch_record_is_written_exactly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every field of a plain fetch, in UTC, and the record file as indented JSON."""
+    calls = _serve(monkeypatch, _Response(FIXTURE.encode()))
+    zone = os.environ.get("TZ")
+    os.environ["TZ"] = "Etc/GMT-14"  # far from UTC, so a local timestamp shows
+    time.tzset()
+    try:
+        assert main(["fetch"], user_agent="my-dataset") == 0
+    finally:
+        if zone is None:
+            del os.environ["TZ"]
+        else:
+            os.environ["TZ"] = zone
+        time.tzset()
+    text = Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8")
+    record = json.loads(text)
+    assert text == json.dumps(record, indent=2) + "\n"
+    retrieved = datetime.strptime(record.pop("retrieved_at"), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    assert abs(datetime.now(UTC) - retrieved) < timedelta(minutes=1)
+    assert record == {
+        "source_id": "example",
+        "url": ledger.load_manifest()[0]["url"],
+        "sha256": hashlib.sha256(FIXTURE.encode()).hexdigest(),
+        "bytes": len(FIXTURE),
+        "vintage": "not stated",
+        "last_modified": "",
+        "etag": "",
+        "final_url": "",
+        "env_headers": [],
+        "archive_url": "",
+    }
+    assert (calls[0].get_header("User-agent"), calls[0].get_header("Accept-encoding")) == ("my-dataset", "identity")
+
+
+@pytest.mark.usefixtures("upstream")
+def test_the_fetch_build_and_init_lines_are_exact(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What each stage prints is part of the command line's contract."""
+    assert _run("fetch", "build") == [0, 0]
+    sha = hashlib.sha256(FIXTURE.encode()).hexdigest()
+    url = ledger.load_manifest()[0]["url"]
+    assert capsys.readouterr().out.splitlines() == [
+        f"example  new               29 B  {sha[:12]}  not stated  {url}",
+        "2 rows -> data/processed/example.csv",
+        "package -> data/processed/datapackage.json",
+    ]
+    (tmp_path / "fresh").mkdir()
+    monkeypatch.chdir(tmp_path / "fresh")
+    assert main(["init"]) == 0
+    assert capsys.readouterr().out == "wrote sources.toml\n"
+
+
+def test_an_unknown_stage_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
+    """Not a silent validate: argparse names the program and the choices."""
+    with pytest.raises(SystemExit) as exit_:
+        main(["publish"])
+    assert exit_.value.code == 2
+    assert capsys.readouterr().err.startswith("usage: sourceledger ")
+
+
+def test_fetch_error_reads_as_its_failures() -> None:
+    """A library caller that prints the error sees one line per failed source."""
+    assert str(ledger.FetchError([], ["a: down", "b: gone"])) == "a: down\nb: gone"
+
+
+def test_the_package_is_written_exactly(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """datapackage.json byte for byte: the keys, the field types, the name, non-ASCII text kept as it is."""
+    upstream = tmp_path / "upstream" / "example.csv"
+    upstream.parent.mkdir()
+    upstream.write_text(FIXTURE, encoding="utf-8")
+    project = tmp_path / "My Data Set!"
+    project.mkdir()
+    _manifest(project, upstream.as_uri(), terms=f'{TERMS}\nname = "Données"')
+    monkeypatch.chdir(project)
+    assert _run("fetch", "build") == [0, 0]
+    record = json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
+    data = OUT.read_bytes()
+    fields = ["source_id", "source_url", "retrieved_at", "vintage", "raw_sha256", "year", "value"]
+    resource = {
+        "name": "example",
+        "type": "table",
+        "path": "example.csv",
+        "format": "csv",
+        "mediatype": "text/csv",
+        "encoding": "utf-8",
+        "bytes": len(data),
+        "hash": f"sha256:{hashlib.sha256(data).hexdigest()}",
+        "schema": {"fields": [{"name": field, "type": "string"} for field in fields]},
+        "sources": [{"title": "Données", "path": upstream.as_uri()}],
+        "licenses": [{"name": "CC0-1.0", "path": "https://example.org/terms", "title": "CC0-1.0"}],
+        "sourceledger": {
+            "retrieved_at": record["retrieved_at"],
+            "vintage": "not stated",
+            "raw_sha256": record["sha256"],
+            "final_url": "",
+            "redistribute": True,
+        },
+    }
+    package = {"$schema": ledger._DATAPACKAGE_PROFILE, "name": "my-data-set", "resources": [resource]}  # noqa: SLF001
+    expected = json.dumps(package, indent=2, ensure_ascii=False) + "\n"
+    assert Path("data/processed/datapackage.json").read_text(encoding="utf-8") == expected
+
+
+@pytest.mark.parametrize(("folder", "name"), [("Data.Set_2", "data.set_2"), ("--x--", "x"), ("!!!", "dataset")])
+def test_the_package_name_comes_from_the_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, folder: str, name: str
+) -> None:
+    """Lower case, runs of other characters as one dash, and a fallback when nothing is left."""
+    (tmp_path / folder).mkdir()
+    monkeypatch.chdir(tmp_path / folder)
+    assert ledger._package_name() == name  # noqa: SLF001
+
+
+def test_build_only_a_later_source_builds_it(upstream: Path, tmp_path: Path) -> None:
+    """Skipping an unselected source moves on to the next one."""
+    other = upstream.with_name("b.csv")
+    other.write_text(FIXTURE, encoding="utf-8")
+    _two_sources(tmp_path, upstream.as_uri(), other.as_uri())
+    assert main(["fetch"]) == 0
+    assert main(["build", "--only", "b"]) == 0
+    assert Path("data/processed/b.csv").exists()
+
+
+@pytest.mark.usefixtures("upstream")
+def test_the_stages_take_their_folders_as_arguments(tmp_path: Path) -> None:
+    """A library caller can keep raw files elsewhere; build and validate then read them there."""
+    sources = ledger.load_manifest()
+    raw, processed, log = tmp_path / "elsewhere", tmp_path / "out", tmp_path / "logs" / "deep" / "log.jsonl"
+    ledger.fetch(sources, raw=raw, log=log)
+    ledger.fetch(sources, raw=raw, log=log)  # the second asks conditionally, from the record in `raw`
+    ledger.build(sources, raw=raw, processed=processed)
+    assert ledger.validate(sources, raw=raw, processed=processed) == []
+    assert not RAW.exists()
+    assert len(log.read_text(encoding="utf-8").splitlines()) == 1
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_cut_off_line_after_several_records_drops_only_itself(caplog: pytest.LogCaptureFixture) -> None:
+    """The log is truncated at its last newline, so every complete record before it stays."""
+    LOG.parent.mkdir(parents=True)
+    old = [json.dumps({"source_id": s, "sha256": "0"}) for s in ("x", "y")]
+    LOG.write_text("\n".join(old) + '\n{"source_id": "exa', encoding="utf-8")
+    assert _run("fetch") == [0]
+    lines = LOG.read_text(encoding="utf-8").splitlines()
+    assert lines[:2] == old
+    assert len(lines) == 3
+    assert "dropping a last line" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('{"source_id": "a", "sha256": "1"}\n\n{"source_id": "b", "sha256": "2"}\n', {"a": "1", "b": "2"}),
+        ('{"source_id": "a", "sha256": "1"}\n{"source_id": "a"', {"a": "1"}),
+        ('not json\n{"source_id": "a", "sha256": "1"}', "log.jsonl:1 is not a fetch record"),
+        ('{"source_id": "a", "sha256": "1"}\nnot json\n', "log.jsonl:2 is not a fetch record"),
+    ],
+)
+def test_the_log_reader_skips_blank_lines_and_forgives_only_a_cut_off_end(
+    tmp_path: Path, text: str, expected: dict[str, str] | str
+) -> None:
+    """A blank line is skipped, a cut-off last line is dropped, and junk anywhere else is an error."""
+    log = tmp_path / "log.jsonl"
+    log.write_text(text, encoding="utf-8")
+    if isinstance(expected, dict):
+        assert ledger.logged_versions(log) == expected
+    else:
+        with pytest.raises(ValueError, match=expected):
+            ledger.logged_versions(log)
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        (None, 0.0),
+        (_headers(), 0.0),
+        (_headers(ETag="x"), 0.0),
+        (_headers(Retry_After="junk"), 0.0),
+        (_headers(Retry_After="Wed, 21 Oct 2015 07:28:00 GMT"), 0.0),
+        (_headers(Retry_After="7"), 7.0),
+    ],
+)
+def test_retry_after_reads_seconds_dates_and_nothing(headers: Message | None, expected: float) -> None:
+    """No header, junk and a date in the past all mean no wait of the server's own."""
+    assert ledger._retry_after(headers) == expected  # noqa: SLF001
+
+
+def test_content_length_is_none_when_absent() -> None:
+    assert ledger._content_length(_headers(ETag="x")) is None  # noqa: SLF001
+    assert ledger._content_length(_headers(Content_Length=" 12 ")) == 12  # noqa: SLF001
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_failed_conditional_request_is_not_a_304(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only a 304 keeps the earlier record; a 404 to a conditional request fails the fetch."""
+    _serve(monkeypatch, _Response(FIXTURE.encode(), ETag='"abc"'), _http_error(404))
+    assert _run("fetch", "fetch") == [0, 1]
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_retry_after_past_the_budget_fails_with_the_status(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When the wait would outlast the fetch, the run stops with the server's own error."""
+    monkeypatch.setattr(ledger, "_BUDGET_S", 60)
+    _serve(monkeypatch, _http_error(503, Retry_After="90"))
+    assert _run("fetch") == [1]
+    assert "HTTP Error 503" in capsys.readouterr().err
+
+
+def test_the_opener_gets_the_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[float] = []
+    monkeypatch.setattr(ledger._OPENER, "open", lambda _request, timeout: seen.append(timeout))  # noqa: SLF001
+    ledger._open(urllib.request.Request("https://example.invalid/"), timeout=7)  # noqa: SLF001
+    assert seen == [7]
+
+
+def test_an_unresolvable_host_counts_as_public(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The redirect check leaves it to the request, which fails on its own."""
+
+    def fail(*_args: object) -> None:
+        raise socket.gaierror
+
+    monkeypatch.setattr(socket, "getaddrinfo", fail)
+    assert ledger._is_public("no-such-host.invalid")  # noqa: SLF001
+
+
+def test_a_refused_redirect_keeps_the_status_and_target() -> None:
+    handler = ledger._NoRedirectInward()  # noqa: SLF001
+    public = urllib.request.Request("http://93.184.215.14/data.csv")
+    with pytest.raises(urllib.error.HTTPError) as error:
+        handler.redirect_request(public, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://127.0.0.1/s")
+    assert (error.value.code, error.value.url) == (302, "http://127.0.0.1/s")
+    assert error.value.headers is not None
+    assert error.value.fp is not None
+
+
+def test_a_gzip_exactly_at_max_bytes_is_read() -> None:
+    """The cap is the most a file may expand to, not one byte less."""
+    body = FIXTURE.encode()
+    columns, _ = ledger.parse_csv({"id": "g", "max_bytes": len(body)}, gzip.compress(body))
+    assert columns == ["year", "value"]
+    _, rows = ledger.parse_json({"id": "g"}, gzip.compress(b'[{"a": 1}]'))
+    assert rows == [{"a": "1"}]
+
+
+def test_a_csv_field_keeps_its_line_break() -> None:
+    """A quoted field with CR LF inside is data, not a line ending to translate."""
+    _, rows = ledger.parse_csv({"id": "c"}, b'a,b\r\n"one\r\ntwo",2\r\n')
+    assert rows == [{"a": "one\r\ntwo", "b": "2"}]
+
+
+def test_a_quoted_line_break_survives_read_output(tmp_path: Path) -> None:
+    out = tmp_path / "o.csv"
+    out.write_bytes(b'a\r\n"one\r\ntwo"\r\n')
+    assert ledger.read_output(out) == [{"a": "one\r\ntwo"}]
+
+
+@pytest.mark.parametrize("payload", [b"[1]", b"{}", b'"x"'])
+def test_json_that_is_not_an_array_of_objects_is_refused(payload: bytes) -> None:
+    with pytest.raises(ValueError, match=r"^j: expected a JSON array of objects$"):
+        ledger.parse_json({"id": "j"}, payload)
+
+
+def test_cells_keep_false_dates_times_and_non_ascii_text() -> None:
+    naive = datetime(2020, 1, 2, 3, 4)  # noqa: DTZ001  # what openpyxl returns for a date cell
+    assert [
+        ledger._cell(value)  # noqa: SLF001
+        for value in (False, True, 3, 1.5, naive, date(2020, 1, 2), dt_time(1, 2), ["é"])
+    ] == ["false", "true", "3", "1.5", "2020-01-02T03:04:00", "2020-01-02", '"01:02:00"', '["é"]']
+
+
+def test_the_reader_needs_no_url_when_the_format_is_given() -> None:
+    assert ledger.parse_source({"id": "j", "format": "json"}, b"[]") == ([], [])
+
+
+def test_an_excel_workbook_reads_its_first_sheet_and_cached_values(tmp_path: Path) -> None:
+    """Without `sheet` the first sheet is read; a formula is its saved value, never its text."""
+    openpyxl = pytest.importorskip("openpyxl")
+    book = openpyxl.Workbook()
+    book.active.append(("year", "total"))
+    book.active.append((2020, "=1+1"))
+    book.create_sheet("other").append(("x",))
+    path = tmp_path / "b.xlsx"
+    book.save(path)
+    # openpyxl saves no computed values, so the formula cell is empty when read as data.
+    assert ledger.parse_xlsx({"id": "x"}, path.read_bytes()) == (["year", "total"], [{"year": "2020", "total": ""}])
+
+
+def test_excel_errors_name_the_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    openpyxl = pytest.importorskip("openpyxl")
+    book = openpyxl.Workbook()
+    book.active.append(("a", "a"))
+    path = tmp_path / "b.xlsx"
+    book.save(path)
+    with pytest.raises(ValueError, match=r"^x: columns \['a'\] appear more than once in the header$"):
+        ledger.parse_xlsx({"id": "x"}, path.read_bytes())
+    with pytest.raises(ValueError, match=r"^x: no sheet 'nope'; the workbook has \['Sheet'\]$"):
+        ledger.parse_xlsx({"id": "x", "sheet": "nope"}, path.read_bytes())
+    monkeypatch.setitem(sys.modules, "openpyxl", None)
+    with pytest.raises(ValueError, match=r"^x: reading .xlsx needs the xlsx extra: uv add 'sourceledger\[xlsx\]'$"):
+        ledger.parse_xlsx({"id": "x"}, path.read_bytes())
+
+
+@pytest.mark.parametrize(
+    ("extra", "expected"),
+    [
+        ('format = "parquet"', "example: format in sources.toml must be one of ['csv', 'json', 'xlsx'], not 'parquet'"),
+        ('headers = "x"', "example: headers in sources.toml must be a table"),
+        (
+            'headers = { Authorization = "Bearer x" }',
+            (
+                'example: header Authorization must name an environment variable, as "env:NAME"; '
+                "never write a secret into sources.toml"
+            ),
+        ),
+    ],
+)
+def test_manifest_errors_are_exact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra: str, expected: str) -> None:
+    _manifest(tmp_path, "https://example.org/a.csv", terms=f"{TERMS}\n{extra}")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match=f"^{re.escape(expected)}$"):
+        ledger.load_manifest()
+
+
+def test_a_source_without_a_string_id_is_named_exactly(tmp_path: Path) -> None:
+    manifest = tmp_path / "sources.toml"
+    manifest.write_text("[[source]]\nid = 1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"^sources.toml: every \[\[source\]\] needs a string id$"):
+        ledger.load_manifest(manifest)
+
+
+def test_max_bytes_of_one_is_allowed(tmp_path: Path) -> None:
+    manifest = tmp_path / "sources.toml"
+    manifest.write_text('[[source]]\nid = "a"\nstatus = "unimplemented"\nmax_bytes = 1\n', encoding="utf-8")
+    assert ledger.load_manifest(manifest)[0]["max_bytes"] == 1
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_new_vintage_error_is_exact(tmp_path: Path) -> None:
+    _run("fetch")
+    _manifest(tmp_path, ledger.load_manifest()[0]["url"], terms=f'{TERMS}\nvintage = "2025"')
+    with pytest.raises(
+        ValueError, match=r"^example\.csv was fetched as vintage 'not stated', not '2025'; re-run fetch$"
+    ):
+        ledger.verified(ledger.load_manifest()[0])
+
+
+def test_status_of_no_sources_is_no_lines(tmp_path: Path) -> None:
+    assert ledger.status([], log=tmp_path / "none.jsonl") == []
+
+
+def test_terms_need_both_the_words_and_the_url() -> None:
+    source = {"id": "a", "terms": "CC0", "license": "CC0-1.0", "redistribute": True}
+    assert ledger._terms_problems(source) == ["a: no terms or terms_url; record the publisher's reuse terms"]  # noqa: SLF001
+
+
+def test_validate_checks_sources_after_an_unimplemented_or_unknown_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One source needing no checks does not end the checks of the ones after it."""
+    sources = [
+        {"id": "later", "status": "unimplemented"},
+        {"id": "odd", "status": "maybe"},
+        {"id": "x", "status": "implemented", "url": "https://example.org/x.csv"},
+    ]
+    monkeypatch.chdir(tmp_path)
+    problems = ledger.validate(sources)
+    assert any(p.startswith("x: no terms") for p in problems)
+
+
+def test_attribution_leaves_missing_terms_empty() -> None:
+    source = {"id": "a", "status": "implemented", "url": "https://example.org/a.csv"}
+    assert ledger.attribution([source])[2] == "| a |  |  |  | ? |"
+
+
+def test_verify_shows_a_large_listed_size_with_separators(tmp_path: Path) -> None:
+    (tmp_path / "a.csv").write_text("x\n", encoding="utf-8")
+    package = {"resources": [{"path": "a.csv", "bytes": 1234, "hash": _X_HASH}]}
+    (tmp_path / "datapackage.json").write_text(json.dumps(package), encoding="utf-8")
+    assert ledger.verify(tmp_path) == [f"{tmp_path}/a.csv is 2 bytes, not the 1,234 the package lists"]
+    (tmp_path / "datapackage.json").write_text("[]", encoding="utf-8")
+    assert ledger.verify(tmp_path) == [f"{tmp_path}/datapackage.json has no list of resources"]
+
+
+def test_verify_names_the_hash_it_found(tmp_path: Path) -> None:
+    (tmp_path / "a.csv").write_text("y\n", encoding="utf-8")
+    package = {"resources": [{"path": "a.csv", "hash": _X_HASH}]}
+    (tmp_path / "datapackage.json").write_text(json.dumps(package), encoding="utf-8")
+    digest = hashlib.sha256(b"y\n").hexdigest()
+    assert ledger.verify(tmp_path) == [
+        f"{tmp_path}/a.csv hashes to sha256:{digest[:12]}, not the hash the package lists"
+    ]
+
+
+class _Spy(_Response):
+    """A response that records how much each read asks for."""
+
+    def __init__(self, body: bytes) -> None:
+        super().__init__(body)
+        self.asks: list[int | None] = []
+
+    def read(self, size: int | None = -1, /) -> bytes:
+        self.asks.append(size)
+        return super().read(size)
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_download_reads_one_chunk_at_a_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Memory stays at one chunk: no read asks for the whole body."""
+    monkeypatch.setattr(ledger, "_CHUNK_BYTES", 4)
+    response = _Spy(FIXTURE.encode())
+    _serve(monkeypatch, response)
+    assert _run("fetch") == [0]
+    assert set(response.asks) == {4}
+
+
+def test_a_gzip_is_read_no_further_than_one_byte_past_the_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A decompression bomb is stopped after max_bytes + 1 bytes, not read to its end first."""
+    asks: list[int] = []
+    read = gzip.GzipFile.read
+
+    def spy(self: gzip.GzipFile, size: int = -1) -> bytes:
+        asks.append(size)
+        return read(self, size)
+
+    monkeypatch.setattr(gzip.GzipFile, "read", spy)
+    ledger.parse_csv({"id": "g", "max_bytes": 100}, gzip.compress(FIXTURE.encode()))
+    assert asks == [101]
+
+
+@pytest.mark.usefixtures("upstream")
+def test_temp_files_go_beside_their_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never in the system temp folder: a rename from another disk is not atomic, or fails."""
+    monkeypatch.setattr(tempfile, "tempdir", "/nonexistent-temp-folder")
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+
+
+def test_a_failed_write_raises_its_own_error_and_leaves_no_temp_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def full(_fd: int) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(os, "fsync", full)
+    with pytest.raises(OSError, match="No space left"):
+        ledger._write_atomic(tmp_path / "out.csv", b"x")  # noqa: SLF001
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.usefixtures("upstream")
+def test_an_empty_content_encoding_is_no_encoding(monkeypatch: pytest.MonkeyPatch) -> None:
+    _serve(monkeypatch, _Response(FIXTURE.encode(), Content_Encoding=""))
+    assert _run("fetch") == [0]
+
+
+def test_archive_asks_for_http_urls_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    url = "http://example.org/data.csv"
+    _manifest(tmp_path, url, terms=f"{TERMS}\narchive = true")
+    monkeypatch.chdir(tmp_path)
+    snapshot = f"https://web.archive.org/web/20261018033833/{url}"
+    _serve(monkeypatch, _Response(FIXTURE.encode()), _Response(b"", url=snapshot))
+    assert _run("fetch") == [0]
+    assert json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))["archive_url"] == snapshot
+
+
+def test_a_log_line_from_before_archive_url_reads_as_no_snapshot(upstream: Path, tmp_path: Path) -> None:
+    """The same bytes again take the snapshot from their log line, and an old line without one gives none."""
+    _manifest(tmp_path, upstream.as_uri(), terms=f"{TERMS}\narchive = true")
+    assert _run("fetch") == [0]
+    line = json.loads(LOG.read_text(encoding="utf-8"))
+    del line["archive_url"]
+    LOG.write_text(json.dumps(line) + "\n", encoding="utf-8")
+    RAW.write_text("edited\n", encoding="utf-8")  # forces a full fetch of the same bytes
+    assert _run("fetch") == [0]
+    assert json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))["archive_url"] == ""
+
+
+def test_revisions_raises_a_standard_file_not_found(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError) as error:
+        ledger.revisions(tmp_path / "missing.jsonl")
+    assert (error.value.errno, error.value.strerror) == (errno.ENOENT, os.strerror(errno.ENOENT))
+
+
+@pytest.mark.usefixtures("upstream")
+def test_warnings_name_the_program(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """A retry warning on stderr starts with the program's name, as the CLI's other messages do."""
+    monkeypatch.setattr(logging.root, "handlers", [])
+    _serve(monkeypatch, _http_error(503), _Response(FIXTURE.encode()))
+    try:
+        assert main(["fetch"], prog="my-dataset") == 0
+    finally:
+        for handler in logging.root.handlers:
+            handler.close()
+    assert capsys.readouterr().err.startswith("my-dataset: example: attempt 1 of 4 failed")
+
+
 _DATA = "https://example.org/data.csv"
 _SNAPSHOT = f"https://web.archive.org/web/20261018033833/{_DATA}"
 
@@ -1444,17 +1949,18 @@ def test_archive_asks_for_a_snapshot_of_new_bytes_only(tmp_path: Path, monkeypat
 @pytest.mark.parametrize(
     ("answer", "snapshot"),
     [
+        # Factories, not responses: a response is closed after one run, and pytest may run a test twice.
         (
-            _Response(
+            lambda: _Response(
                 b"", url=f"https://web.archive.org/save/{_DATA}", Content_Location=f"/web/20261018033833/{_DATA}"
             ),
             _SNAPSHOT,
         ),
-        (_Response(b"", url=f"https://web.archive.org/save/{_DATA}"), ""),
-        (_http_error(503), ""),
-        (TimeoutError("timed out"), ""),
-        (urllib.error.URLError("x"), ""),
-        (ValueError("bad"), ""),
+        (lambda: _Response(b"", url=f"https://web.archive.org/save/{_DATA}"), ""),
+        (lambda: _http_error(503), ""),
+        (lambda: TimeoutError("timed out"), ""),
+        (lambda: urllib.error.URLError("x"), ""),
+        (lambda: ValueError("bad"), ""),
     ],
 )
 @pytest.mark.usefixtures("upstream")
@@ -1462,12 +1968,12 @@ def test_archive_never_fails_the_fetch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
-    answer: _Response | Exception,
+    answer: Callable[[], _Response | Exception],
     snapshot: str,
 ) -> None:
     """A snapshot named in Content-Location is kept; no snapshot, an error or a timeout is a warning."""
     _manifest(tmp_path, _DATA, terms=f"{TERMS}\narchive = true")
-    _serve(monkeypatch, _Response(FIXTURE.encode()), answer)
+    _serve(monkeypatch, _Response(FIXTURE.encode()), answer())
     assert _run("fetch", "build", "validate") == [0, 0, 0]
     record = json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
     assert record["archive_url"] == snapshot
@@ -1483,6 +1989,7 @@ def test_archive_skips_a_url_that_is_not_http(
     assert _run("fetch") == [0]
     assert len(calls) == 1
     assert "archive needs an http or https URL" in caplog.text
+    assert json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))["archive_url"] == ""
 
 
 def test_archive_must_be_true_or_false(upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

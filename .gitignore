@@ -35,3 +35,5 @@ coverage/
 
 # Rust
 target/
+mutants/
+reports/mutation/

@@ -800,15 +800,11 @@ def _cell(value: object) -> str:
     match value:
         case None:
             return ""
-        case bool():
-            return "true" if value else "false"
         case str():
             return value
         case datetime() | date():
             return value.isoformat()
-        case int() | float():
-            return json.dumps(value)
-        case _:
+        case _:  # JSON writes booleans as true/false and numbers as written
             return json.dumps(value, ensure_ascii=False, default=str)
 
 
