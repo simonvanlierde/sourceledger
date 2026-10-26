@@ -27,6 +27,11 @@ Upgrade steps:
   files each one writes, and [Use sourceledger safely](docs/secure-use.md). The README
   shows how to verify a release with `gh attestation verify` or `pypi-attestations`.
 
+### Changed
+
+- Reading a table with thousands of columns, or a `sources.toml` with thousands of sources,
+  is faster: the check for repeated names no longer grows with the square of their number.
+
 ### Removed
 
 - **Breaking:** the old key `release` is no longer read as `vintage`. A manifest that

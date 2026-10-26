@@ -122,7 +122,7 @@ def test_parse_csv(benchmark: BenchmarkFixture) -> None:
 
 
 def test_parse_csv_wide(benchmark: BenchmarkFixture) -> None:
-    # The header check compares every column with every other, so width costs more than length.
+    # Tables with years as columns get wide: every per-column check runs once per row.
     columns, rows = benchmark(ledger.parse_csv, SOURCE, _wide_csv(1_000, 100))
     assert len(columns) == 1_000
     assert len(rows) == 100
@@ -143,7 +143,7 @@ def test_parse_xlsx(benchmark: BenchmarkFixture) -> None:
 
 
 def test_load_manifest(benchmark: BenchmarkFixture, tmp_path: Path) -> None:
-    # A large manifest: the id checks compare every id with every other.
+    # A large manifest: every check runs once per source.
     _write_manifest(tmp_path, count=500, rows=500)
     sources = benchmark(ledger.load_manifest, tmp_path / "sources.toml")
     assert len(sources) == 501
