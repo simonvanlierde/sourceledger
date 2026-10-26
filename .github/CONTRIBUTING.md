@@ -39,6 +39,15 @@ formats.
   them fails.
 - CI runs the suite on Python 3.12, 3.13, 3.14 and 3.15, and fails under 95% coverage
   of lines and branches. `just py-cov` shows the coverage locally.
+- Code that reads outside input (the fetch log, response headers, parsed rows) gets a
+  Hypothesis property test in `tests/test_properties.py` as well as examples.
+- `just py-mutation` fails when a function has more surviving mutants than
+  `tests/mutation-baseline.txt` lists. Kill a new survivor with a test, or, when the
+  change cannot alter behaviour, rerun `just py-mutation-baseline` after a full run.
+- CodSpeed runs `tests/test_benchmarks.py` on every pull request and reports how each
+  benchmark changed against `main`. A change to parsing, `build`, `validate` or the fetch
+  log should not slow them down unexplained. Without `--codspeed` each benchmark runs once
+  as a plain test.
 
 ## Dependencies
 
