@@ -56,6 +56,8 @@ gh attestation verify sourceledger-0.3.0-py3-none-any.whl --repo simonvanlierde/
 ```
 
 Both fail unless the file is byte for byte the one this repository's workflow built.
+From 0.3.1, the same provenance is also attached to each GitHub release as
+`sourceledger-<version>.sigstore.json`.
 
 ## Quick start
 
