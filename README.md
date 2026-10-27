@@ -46,13 +46,13 @@ pass its path:
 
 ```sh
 uvx pypi-attestations verify pypi --repository https://github.com/simonvanlierde/sourceledger \
-  sourceledger-0.3.0-py3-none-any.whl
+  sourceledger-0.3.1-py3-none-any.whl
 ```
 
 From 0.2.0, GitHub also keeps a signed build-provenance attestation for each file:
 
 ```sh
-gh attestation verify sourceledger-0.3.0-py3-none-any.whl --repo simonvanlierde/sourceledger
+gh attestation verify sourceledger-0.3.1-py3-none-any.whl --repo simonvanlierde/sourceledger
 ```
 
 Both fail unless the file is byte for byte the one this repository's workflow built.
@@ -60,13 +60,13 @@ From 0.3.1, the same provenance is also attached to each GitHub release as
 `sourceledger-<version>.sigstore.json`.
 
 You can also rebuild a release from its tag and compare. Built with the uv version the
-release workflow pins (0.13.1 for 0.3.0), the wheel and sdist match the ones on PyPI byte
+release workflow pins (0.13.1 for 0.3.1), the wheel and sdist match the ones on PyPI byte
 for byte:
 
 ```sh
 git clone https://github.com/simonvanlierde/sourceledger && cd sourceledger
-mkdir sl-0.3.0 && git archive v0.3.0 | tar -x -C sl-0.3.0
-uvx --from uv==0.13.1 uv build sl-0.3.0 -o dist
+mkdir sl-0.3.1 && git archive v0.3.1 | tar -x -C sl-0.3.1
+uvx --from uv==0.13.1 uv build sl-0.3.1 -o dist
 sha256sum dist/*
 ```
 
@@ -135,10 +135,10 @@ keys are checked when the manifest loads. Keys not listed here are kept for your
 
 For checks in an editor with a TOML language server (Tombi, Taplo), put this line at the
 top of `sources.toml`. `init` writes it, with the version you have installed in place of
-`v0.3.0`:
+`v0.3.1`:
 
 ```toml
-#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.3.0/src/sourceledger/sources.schema.json
+#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.3.1/src/sourceledger/sources.schema.json
 ```
 
 The schema accepts exactly what sourceledger accepts. A test keeps the two in step.
