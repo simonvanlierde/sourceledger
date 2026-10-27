@@ -25,7 +25,6 @@ from sourceledger.ledger import (
     logged_versions,
     one_line,
     parse_source,
-    read_output,
     revisions,
     status,
     validate,
@@ -118,7 +117,8 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
     """Run `stage`, print its report, and return its problems: only validate and verify have any.
 
     fetch first fills `logged` with what the log held before this run, so each fetch line can
-    say new or unchanged. No other stage reads the log, so a damaged one breaks only fetch.
+    say new or unchanged. Only fetch, status and revisions read the log, so a damaged one
+    breaks only those.
     """
     match stage, path:
         case "init", _:
@@ -138,7 +138,9 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
                 print(_fetch_line(record, logged))
         case "build", _:
             for out in build(load_manifest(manifest), parse=parse, only=only):
-                print(f"{len(read_output(out))} rows -> {out}")
+                with out.open(newline="", encoding="utf-8") as fh:
+                    rows = sum(1 for _ in csv.DictReader(fh))
+                print(f"{rows} rows -> {out}")
             print(f"package -> {PROCESSED / DATAPACKAGE}")
         case "status", _:
             for line in status(load_manifest(manifest)):

@@ -60,15 +60,18 @@ def _xlsx(rows: int = 2_000) -> bytes:
     return buffer.getvalue()
 
 
-def _write_manifest(root: Path, count: int = SOURCES, rows: int = ROWS) -> None:
-    """`count` implemented sources sharing `rows` rows, each a CSV under `root/upstream`, plus one unimplemented."""
+def _write_manifest(root: Path, count: int = SOURCES, rows: int = ROWS, extra: str = "") -> None:
+    """`count` implemented sources sharing `rows` rows, each a CSV under `root/upstream`, plus one unimplemented.
+
+    `extra` is added to each implemented source's table.
+    """
     upstream = root / "upstream"
     upstream.mkdir(exist_ok=True)
     tables = []
     for n in range(count):
         file = upstream / f"src{n}.csv"
         file.write_bytes(_csv(rows // count))
-        tables.append(f'[[source]]\nid = "src{n}"\nstatus = "implemented"\nurl = "{file.as_uri()}"\n{TERMS}\n')
+        tables.append(f'[[source]]\nid = "src{n}"\nstatus = "implemented"\nurl = "{file.as_uri()}"\n{TERMS}\n{extra}')
     tables.append('[[source]]\nid = "later"\nstatus = "unimplemented"\n')
     (root / "sources.toml").write_text("\n".join(tables), encoding="utf-8")
 
@@ -152,6 +155,21 @@ def test_load_manifest(benchmark: BenchmarkFixture, tmp_path: Path) -> None:
 def test_fetch(benchmark: BenchmarkFixture, project: Path) -> None:
     # After the first round each fetch re-downloads the same bytes: file:// has no 304.
     sources = ledger.load_manifest(project / "sources.toml")
+    records = benchmark(ledger.fetch, sources)
+    assert len(records) == SOURCES
+
+
+def test_fetch_archived(benchmark: BenchmarkFixture, project: Path, caplog: pytest.LogCaptureFixture) -> None:
+    # Each source comes back with the same bytes and no 304, so keeps the snapshot its last log line names,
+    # behind a long history of other versions.
+    _write_manifest(project, extra="archive = true\n")
+    sources = ledger.load_manifest(project / "sources.toml")
+    with caplog.at_level("ERROR"):  # file:// URLs are never archived, which warns once per source
+        ledger.fetch(sources)
+    log = Path("data/fetches.jsonl")
+    current = log.read_text(encoding="utf-8")
+    _log(log, SOURCES, 500)
+    log.write_text(log.read_text(encoding="utf-8") + current, encoding="utf-8")
     records = benchmark(ledger.fetch, sources)
     assert len(records) == SOURCES
 
