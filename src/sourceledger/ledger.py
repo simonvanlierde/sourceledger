@@ -62,8 +62,12 @@ FETCH_LOG = Path("data/fetches.jsonl")
 # Written by build beside the outputs.
 DATAPACKAGE = "datapackage.json"
 _DATAPACKAGE_PROFILE = "https://datapackage.org/profiles/2.0/datapackage.json"
-# The schema's $id. A manifest's first line names it, for an editor to check the file.
-_SCHEMA_URL = "https://raw.githubusercontent.com/simonvanlierde/sourceledger/main/src/sourceledger/sources.schema.json"
+# A manifest's first line names it, for an editor to check the file. The copy at this
+# version's tag, not the $id on main: main can accept or refuse keys this version doesn't.
+_SCHEMA_URL = (
+    f"https://raw.githubusercontent.com/simonvanlierde/sourceledger/v{version('sourceledger')}"
+    "/src/sourceledger/sources.schema.json"
+)
 _STARTER = f"""#:schema {_SCHEMA_URL}
 
 # One [[source]] table per input. Uncomment the example and point it at your own source.

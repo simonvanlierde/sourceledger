@@ -26,6 +26,7 @@ from datetime import UTC, date, datetime, timedelta
 from datetime import time as dt_time
 from email.message import Message
 from email.utils import format_datetime
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -1386,11 +1387,12 @@ def test_validate_reports_a_damaged_data_package(
 def test_init_writes_a_starter_manifest_and_never_overwrites_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The starter names the schema and loads as no sources. Its example is the README's, which test_docs runs."""
+    """The starter names this version's schema and loads as no sources. test_docs runs its example."""
     monkeypatch.chdir(tmp_path)
     assert main(["init"]) == 0
     manifest = Path("sources.toml").read_text(encoding="utf-8")
-    assert manifest.splitlines()[0] == f"#:schema {SCHEMA['$id']}"
+    tagged = SCHEMA["$id"].replace("/main/", f"/v{version('sourceledger')}/")
+    assert manifest.splitlines()[0] == f"#:schema {tagged}"
     assert ledger.load_manifest() == []
     capsys.readouterr()
     assert main(["init"]) == 1

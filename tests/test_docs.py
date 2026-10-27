@@ -3,6 +3,7 @@
 import json
 import re
 import runpy
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -56,11 +57,11 @@ def test_the_own_reader_example_runs(project: Path) -> None:
 
 
 def test_every_schema_line_names_the_published_schema() -> None:
-    """A `#:schema` URL in the docs that drifted from the schema's $id would check nothing."""
+    """The docs show the line `init` writes: the schema at this version's tag. A release bumps both."""
     docs = [README, (ROOT / "docs" / "index.md").read_text(encoding="utf-8")]
     urls = [url for text in docs for url in re.findall(r"^#:schema (\S+)$", text, re.MULTILINE)]
     assert urls
-    assert set(urls) == {SCHEMA["$id"]}
+    assert set(urls) == {SCHEMA["$id"].replace("/main/", f"/v{version('sourceledger')}/")}
 
 
 def test_the_starter_example_is_the_quick_start_one() -> None:

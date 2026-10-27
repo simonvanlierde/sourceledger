@@ -8,6 +8,13 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+### Changed
+
+- `init` writes a `#:schema` line that names the schema at your installed version's tag,
+  not the one on main. An editor then checks the manifest against the rules your version
+  applies, not against keys a later release adds or refuses. Update the line when you
+  upgrade. The schema's `$id`, and SchemaStore's entry, stay on main.
+
 ## [0.3.0] - 2026-10-27
 
 Upgrade steps:

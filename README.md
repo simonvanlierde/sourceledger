@@ -119,10 +119,11 @@ Each `[[source]]` table takes these keys:
 keys are checked when the manifest loads. Keys not listed here are kept for your own reader.
 
 For checks in an editor with a TOML language server (Tombi, Taplo), put this line at the
-top of `sources.toml`:
+top of `sources.toml`. `init` writes it, with the version you have installed in place of
+`v0.3.0`:
 
 ```toml
-#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/main/src/sourceledger/sources.schema.json
+#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.3.0/src/sourceledger/sources.schema.json
 ```
 
 The schema accepts exactly what sourceledger accepts. A test keeps the two in step.
