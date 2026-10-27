@@ -450,7 +450,8 @@ def _copy(response: _Response, fh: IO[bytes], source: Source, deadline: float) -
     cap = source.get("max_bytes", _MAX_BYTES)
     digest = hashlib.sha256()
     size = 0
-    while chunk := response.read(_CHUNK_BYTES):
+    # read1: one socket read at most, so a server trickling bytes can't hold a read past the deadline.
+    while chunk := response.read1(_CHUNK_BYTES):
         size += len(chunk)
         if size > cap:
             msg = f"{source['id']}: download exceeds {cap} bytes; raise max_bytes in sources.toml if expected"

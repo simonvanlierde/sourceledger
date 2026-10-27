@@ -1,5 +1,6 @@
 """The whole pipeline against a fixture served from a local file: no network."""
 
+import contextlib
 import errno
 import gzip
 import hashlib
@@ -813,6 +814,35 @@ def test_a_download_that_outlasts_its_budget_fails(
     _serve(monkeypatch, _Response(FIXTURE.encode()))
     assert _run("fetch") == [1]
     assert "unfinished after" in capsys.readouterr().err
+
+
+def test_a_server_trickling_bytes_is_stopped_near_the_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A byte every 0.2 s never trips the socket timeout, yet the fetch stops at the budget, not the body's end."""
+    monkeypatch.setattr(ledger, "_BUDGET_S", 0.5)
+    monkeypatch.setattr(ledger, "_SOCKET_TIMEOUT_S", 1)
+    listener = socket.create_server(("127.0.0.1", 0))
+
+    def trickle() -> None:
+        connection, _ = listener.accept()
+        with connection, contextlib.suppress(OSError):  # the client hangs up once it gives up
+            connection.recv(4096)
+            connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 30\r\n\r\n")
+            pause = threading.Event()  # time.sleep is stubbed out for the fetch's own waits
+            for _ in range(30):
+                pause.wait(0.2)
+                connection.sendall(b"x")
+
+    threading.Thread(target=trickle, daemon=True).start()
+    monkeypatch.chdir(tmp_path)
+    _manifest(tmp_path, f"http://127.0.0.1:{listener.getsockname()[1]}/data.csv")
+    start = time.monotonic()
+    assert _run("fetch") == [1]
+    # Within the budget plus one socket timeout; the whole body takes 6 s.
+    assert time.monotonic() - start < 1.5 + 0.5
+    assert "unfinished after 0.5 s" in capsys.readouterr().err
+    listener.close()
 
 
 def test_a_redirect_from_a_public_host_is_marked_public_only() -> None:
@@ -1874,9 +1904,9 @@ class _Spy(_Response):
         super().__init__(body)
         self.asks: list[int | None] = []
 
-    def read(self, size: int | None = -1, /) -> bytes:
+    def read1(self, size: int | None = -1, /) -> bytes:
         self.asks.append(size)
-        return super().read(size)
+        return super().read1(size)
 
 
 @pytest.mark.usefixtures("upstream")

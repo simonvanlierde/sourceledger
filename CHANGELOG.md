@@ -59,6 +59,9 @@ Upgrade steps:
   actually reached, not a separate lookup before it. A name that resolved to a public
   address for the check and to an internal one for the connection could get past it.
   Through a proxy the check is skipped, since the proxy resolves the name.
+- The 300 s limit on one source's fetch now holds against a server that sends a few
+  bytes at a time. Each read used to wait for a full 1 MiB, so a slow trickle kept a
+  fetch going far past the limit. It now stops within one 30 s socket timeout of it.
 
 ## [0.2.0] - 2026-10-18
 
