@@ -126,8 +126,8 @@ Each file the package lists must exist, with the size and SHA-256 it gives.
 
 For checks in an editor with a TOML language server (Tombi, Taplo), put this line at the
 top of `sources.toml`. `init` writes it, with the version you have installed in place of
-`v0.3.0`:
+`v0.3.1`:
 
 ```toml
-#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.3.0/src/sourceledger/sources.schema.json
+#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.3.1/src/sourceledger/sources.schema.json
 ```
