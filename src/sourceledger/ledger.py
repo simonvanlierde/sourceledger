@@ -24,6 +24,7 @@ import hashlib
 import http.client
 import io
 import ipaddress
+import itertools
 import json
 import logging
 import os
@@ -36,6 +37,8 @@ import tomllib
 import urllib.error
 import urllib.request
 import urllib.response
+import zipfile
+import zlib
 from collections import Counter
 from collections.abc import Callable, Collection, Generator
 from datetime import UTC, date, datetime
@@ -845,10 +848,9 @@ def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str,
     """One raw CSV file as its columns and rows. A gzipped file is decompressed first.
 
     Raises ValueError for a repeated column name, a row with more or fewer fields than the
-    header, or a gzipped file that decompresses past the source's `max_bytes`.
+    header, or a gzipped file that is damaged or decompresses past the source's `max_bytes`.
     """
-    if payload[:2] == _GZIP_MAGIC:
-        payload = _gunzip(source, payload)
+    payload = _maybe_gunzip(source, payload)
     # utf-8-sig drops the byte-order mark that spreadsheet exports start with. Plain UTF-8 reads the same.
     text = payload.decode("utf-8-sig")
     reader = csv.DictReader(io.StringIO(text, newline=""))
@@ -868,11 +870,21 @@ def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str,
     return columns, rows
 
 
-def _gunzip(source: Source, payload: bytes) -> bytes:
-    """The decompressed bytes, refused past the source's `max_bytes`: a small file can expand without limit."""
+def _maybe_gunzip(source: Source, payload: bytes) -> bytes:
+    """The payload decompressed when it is gzipped, else as it is.
+
+    Refused past the source's `max_bytes`, since a small file can expand without limit,
+    and when the gzip is cut off or damaged.
+    """
+    if payload[:2] != _GZIP_MAGIC:
+        return payload
     cap = source.get("max_bytes", _MAX_BYTES)
-    with gzip.GzipFile(fileobj=io.BytesIO(payload)) as fh:
-        data = fh.read(cap + 1)
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(payload)) as fh:
+            data = fh.read(cap + 1)
+    except (EOFError, zlib.error, gzip.BadGzipFile) as error:
+        msg = f"{source['id']}: not a readable gzip file ({error})"
+        raise ValueError(msg) from error
     if len(data) > cap:
         msg = f"{source['id']}: decompresses past {cap} bytes; raise max_bytes in sources.toml if expected"
         raise ValueError(msg)
@@ -886,8 +898,14 @@ def _check_columns(source: Source, columns: list[str]) -> None:
         raise ValueError(msg)
 
 
+class _Number(str):
+    """A JSON number kept as its text, so 1.10 stays 1.10 and 1e5 stays 1e5."""
+
+    __slots__ = ()
+
+
 def _cell(value: object) -> str:
-    """A JSON or spreadsheet value as output text: empty for none, `true`/`false`, numbers as written."""
+    """A JSON or spreadsheet value as output text: empty for none, `true`/`false`, JSON numbers as written."""
     match value:
         case None:
             return ""
@@ -895,19 +913,38 @@ def _cell(value: object) -> str:
             return value
         case datetime() | date():
             return value.isoformat()
-        case _:  # JSON writes booleans as true/false and numbers as written
+        case _:  # booleans as true/false, nested values as JSON text
+            return _json_text(value)
+
+
+def _json_text(value: object) -> str:
+    """`value` as JSON text, with each `_Number` written as it was read."""
+    match value:
+        case _Number():
+            return value
+        case dict():
+            return (
+                "{" + ", ".join(f"{json.dumps(k, ensure_ascii=False)}: {_json_text(v)}" for k, v in value.items()) + "}"
+            )
+        case list():
+            return "[" + ", ".join(_json_text(item) for item in value) + "]"
+        case _:
             return json.dumps(value, ensure_ascii=False, default=str)
 
 
 def parse_json(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
     """A JSON array of objects as columns and rows: one column per key, in the order keys first appear.
 
-    A key an object lacks is an empty cell. Nested values are kept as JSON text. Raises
-    ValueError for anything but an array of objects.
+    A key an object lacks is an empty cell. Numbers are kept as written, and nested values
+    as JSON text. Raises ValueError for anything but an array of objects, or for one
+    nested too deeply to read.
     """
-    if payload[:2] == _GZIP_MAGIC:
-        payload = _gunzip(source, payload)
-    data = json.loads(payload.decode("utf-8-sig"))
+    payload = _maybe_gunzip(source, payload)
+    try:
+        data = json.loads(payload.decode("utf-8-sig"), parse_float=_Number, parse_int=_Number)
+    except RecursionError as error:
+        msg = f"{source['id']}: JSON nested too deeply to read"
+        raise ValueError(msg) from error
     if not (isinstance(data, list) and all(isinstance(item, dict) for item in data)):
         msg = f"{source['id']}: expected a JSON array of objects"
         raise ValueError(msg)
@@ -918,27 +955,66 @@ def parse_json(source: Source, payload: bytes) -> tuple[list[str], list[dict[str
 def parse_xlsx(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
     """One sheet of an Excel workbook as columns and rows, the first row as the header.
 
-    The sheet is the source's `sheet` key, or else the first. Fully empty rows are skipped.
-    Needs the `xlsx` extra: `uv add 'sourceledger[xlsx]'`.
+    The sheet is the source's `sheet` key, or else the first. Fully empty rows are skipped,
+    and so are empty header cells at the end of the row. An empty cell reads as "", like an
+    empty CSV field. Needs the `xlsx` extra: `uv add 'sourceledger[xlsx]'`.
+
+    Raises ValueError for a file that is not a workbook, one that expands past the source's
+    `max_bytes`, a missing sheet, a repeated column name, or a cell right of the header.
     """
     try:
         import openpyxl  # noqa: PLC0415  # an optional extra, imported only when a source needs it
+        from openpyxl.utils.exceptions import InvalidFileException  # noqa: PLC0415
     except ImportError as error:
         msg = f"{source['id']}: reading .xlsx needs the xlsx extra: uv add 'sourceledger[xlsx]'"
         raise ValueError(msg) from error
-    workbook = openpyxl.load_workbook(io.BytesIO(payload), read_only=True, data_only=True)
+    cap = source.get("max_bytes", _MAX_BYTES)
     try:
-        sheet = workbook[source["sheet"]] if source.get("sheet") is not None else workbook.worksheets[0]
-    except KeyError as error:
-        msg = f"{source['id']}: no sheet {source['sheet']!r}; the workbook has {workbook.sheetnames}"
+        # The sizes the zip declares bound what it can expand to: reading past one fails its check.
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            expanded = sum(info.file_size for info in archive.infolist())
+    except zipfile.BadZipFile as error:
+        msg = f"{source['id']}: not a readable Excel workbook ({error})"
         raise ValueError(msg) from error
-    rows = [row for row in sheet.iter_rows(values_only=True) if any(cell is not None for cell in row)]
-    workbook.close()
+    if expanded > cap:
+        msg = f"{source['id']}: decompresses past {cap} bytes; raise max_bytes in sources.toml if expected"
+        raise ValueError(msg)
+    try:
+        rows = _sheet_rows(source, openpyxl.load_workbook(io.BytesIO(payload), read_only=True, data_only=True))
+    except (zipfile.BadZipFile, KeyError, InvalidFileException) as error:  # a missing part reads as KeyError
+        msg = f"{source['id']}: not a readable Excel workbook ({error})"
+        raise ValueError(msg) from error
     if not rows:
         return [], []
-    columns = [_cell(cell) for cell in rows[0]]
+    header = rows[0][1]
+    width = len(header)
+    while width and header[width - 1] is None:
+        width -= 1
+    columns = [_cell(cell) for cell in header[:width]]
     _check_columns(source, columns)
-    return columns, [dict(zip(columns, (_cell(cell) for cell in row), strict=False)) for row in rows[1:]]
+    table = []
+    for number, row in rows[1:]:
+        if any(cell is not None for cell in row[width:]):
+            msg = f"{source['id']}: row {number} has more cells than the header"
+            raise ValueError(msg)
+        table.append({column: _cell(cell) for column, cell in itertools.zip_longest(columns, row[:width])})
+    return columns, table
+
+
+def _sheet_rows(source: Source, workbook: Any) -> list[tuple[int, tuple[object, ...]]]:  # noqa: ANN401  # openpyxl is optional
+    """The sheet's rows that are not fully empty, each with its row number, and the workbook closed."""
+    try:
+        if (name := source.get("sheet")) is not None and name not in workbook.sheetnames:
+            msg = f"{source['id']}: no sheet {name!r}; the workbook has {workbook.sheetnames}"
+            raise ValueError(msg)
+        sheet = workbook[name] if name is not None else workbook.worksheets[0]
+        return [
+            (number, row)
+            for number, row in enumerate(sheet.iter_rows(values_only=True), start=1)
+            if any(cell is not None for cell in row)
+        ]
+    finally:
+        workbook.close()
 
 
 _PARSERS: dict[str, Parser] = {"csv": parse_csv, "json": parse_json, "xlsx": parse_xlsx}

@@ -31,6 +31,9 @@ Upgrade steps:
 
 - Reading a table with thousands of columns, or a `sources.toml` with thousands of sources,
   is faster: the check for repeated names no longer grows with the square of their number.
+- JSON sources keep numbers as written: `1.10` stays `1.10` and `1e5` stays `1e5`, at the
+  top level and inside nested values. Before, they were read as numbers and written back
+  as `1.1` and `100000.0`. An output built from such a file changes on the next `build`.
 
 ### Removed
 
@@ -60,6 +63,13 @@ Upgrade steps:
   earlier copy. Run from the wrong directory, it used to report no revisions.
 - `fetch` and `build` called from Python with a `sha256` pin in upper case, bypassing
   `load_manifest`, now treat it the same way: both compare it as written.
+- A cut-off or damaged gzip, a file that is not an Excel workbook, and JSON nested too
+  deeply to read now fail `build` and `validate` with one line that names the source,
+  not a traceback.
+- An Excel sheet with a value right of its header is refused, as a CSV row with more
+  fields than its header is. Before, it became a column with an empty name, and two such
+  values gave a misleading "appear more than once" error. Empty header cells at the end
+  of the first row are no longer read as columns.
 
 ### Security
 
@@ -78,6 +88,9 @@ Upgrade steps:
 - `fetch` no longer follows a symlink at `data/raw/.lock` or `data/fetches.jsonl`. A
   checkout could plant one, and taking the lock emptied the file it pointed at. The lock
   file is never truncated now, and a symlinked log fails the fetch.
+- An Excel workbook is refused when it unzips past `max_bytes`, as a gzipped file
+  already was. A small workbook could otherwise expand to more memory than the machine
+  has.
 
 ## [0.2.0] - 2026-10-18
 

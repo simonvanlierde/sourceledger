@@ -1915,6 +1915,82 @@ def test_excel_errors_name_the_source(tmp_path: Path, monkeypatch: pytest.Monkey
         ledger.parse_xlsx({"id": "x"}, path.read_bytes())
 
 
+def _xlsx(tmp_path: Path, *rows: tuple[object, ...]) -> bytes:
+    """A workbook whose first sheet holds `rows`."""
+    openpyxl = pytest.importorskip("openpyxl")
+    book = openpyxl.Workbook()
+    for row in rows:
+        book.active.append(row)
+    path = tmp_path / "b.xlsx"
+    book.save(path)
+    return path.read_bytes()
+
+
+def test_an_excel_workbook_that_expands_past_max_bytes_is_refused(tmp_path: Path) -> None:
+    """Like a gzip, a small workbook can unzip without limit; the cap applies to what it expands to."""
+    payload = _xlsx(tmp_path, ("year", "value"), *((2020, 1.5),) * 100)
+    with pytest.raises(
+        ValueError, match=r"^x: decompresses past 1000 bytes; raise max_bytes in sources\.toml if expected$"
+    ):
+        ledger.parse_xlsx({"id": "x", "max_bytes": 1000}, payload)
+    assert len(ledger.parse_xlsx({"id": "x", "max_bytes": 10 * len(payload)}, payload)[1]) == 100
+
+
+def test_a_cell_right_of_the_excel_header_is_refused(tmp_path: Path) -> None:
+    """As a CSV row with more fields than its header; an empty cell reads as "", like an empty CSV field."""
+    trailing = _xlsx(tmp_path, ("a", "b", None), (1,), (1, 2))
+    assert ledger.parse_xlsx({"id": "x"}, trailing) == (["a", "b"], [{"a": "1", "b": ""}, {"a": "1", "b": "2"}])
+    stray = _xlsx(tmp_path, ("a", "b"), (1, 2), (None, None), (1, 2, None, "x", "y"))
+    with pytest.raises(ValueError, match=r"^x: row 4 has more cells than the header$"):
+        ledger.parse_xlsx({"id": "x"}, stray)
+
+
+@pytest.mark.parametrize("payload", [b"not a workbook", b"PK\x05\x06" + bytes(18)])
+def test_a_file_that_is_not_a_workbook_is_refused_by_name(payload: bytes) -> None:
+    """A damaged download or an empty zip is a one-line error naming the source, not a zipfile traceback."""
+    pytest.importorskip("openpyxl")
+    with pytest.raises(ValueError, match=r"^x: not a readable Excel workbook \("):
+        ledger.parse_xlsx({"id": "x"}, payload)
+
+
+def test_a_cut_off_gzip_fails_build_with_one_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A truncated download that still starts like a gzip is a source error, not a traceback."""
+    upstream = tmp_path / "upstream" / "example.csv.gz"
+    upstream.parent.mkdir()
+    upstream.write_bytes(gzip.compress(FIXTURE.encode() * 50)[:40])
+    _manifest(tmp_path, upstream.as_uri())
+    monkeypatch.chdir(tmp_path)
+    assert _run("fetch") == [0]
+    capsys.readouterr()
+    assert _run("build") == [1]
+    err = capsys.readouterr().err
+    assert err.startswith("build: example: not a readable gzip file (")
+    assert err.count("\n") == 1
+
+
+@pytest.mark.parametrize(
+    "payload", [gzip.compress(b"[]")[:-8] + b"\0" * 8, b"\x1f\x8b\x08\x00" + bytes(6) + b"\x07junk"]
+)
+def test_a_damaged_gzip_is_refused_by_name(payload: bytes) -> None:
+    """A bad checksum or a corrupt stream names the source too."""
+    with pytest.raises(ValueError, match=r"^j: not a readable gzip file \("):
+        ledger.parse_json({"id": "j"}, payload)
+
+
+def test_json_nested_too_deeply_is_refused_by_name() -> None:
+    with pytest.raises(ValueError, match=r"^j: JSON nested too deeply to read$"):
+        ledger.parse_json({"id": "j"}, b"[" * 100_000 + b"]" * 100_000)
+
+
+def test_json_numbers_are_kept_as_written() -> None:
+    """1.10 is not 1.1, and 1e5 is not 100000.0, at the top level or nested."""
+    payload = b'[{"a": 1.10, "b": 1e5, "c": -0, "d": {"e": [2.50, 3E2, true, "x"]}}]'
+    _, rows = ledger.parse_json({"id": "j"}, payload)
+    assert rows == [{"a": "1.10", "b": "1e5", "c": "-0", "d": '{"e": [2.50, 3E2, true, "x"]}'}]
+
+
 @pytest.mark.parametrize(
     ("extra", "expected"),
     [
