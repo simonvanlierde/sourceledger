@@ -1,6 +1,7 @@
 """The whole pipeline against a fixture served from a local file: no network."""
 
 import contextlib
+import csv
 import errno
 import gzip
 import hashlib
@@ -17,6 +18,7 @@ import tempfile
 import threading
 import time
 import tomllib
+import tracemalloc
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator
@@ -2035,6 +2037,17 @@ def test_a_new_vintage_error_is_exact(tmp_path: Path) -> None:
         ledger.verified(ledger.load_manifest()[0])
 
 
+@pytest.mark.usefixtures("upstream")
+def test_verified_gives_the_record_and_bytes_and_refuses_an_edited_raw_file() -> None:
+    (record,) = ledger.fetch(ledger.load_manifest())
+    source = ledger.load_manifest()[0]
+    assert ledger.verified(source) == (record, FIXTURE.encode())
+    assert ledger.verified(source, raw=RAW.parent) == (record, FIXTURE.encode())
+    RAW.write_text("edited\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"^example\.csv changed since it was fetched; re-run fetch$"):
+        ledger.verified(source)
+
+
 def test_status_of_no_sources_is_no_lines(tmp_path: Path) -> None:
     assert ledger.status([], log=tmp_path / "none.jsonl") == []
 
@@ -2344,3 +2357,104 @@ def test_a_manifest_outside_the_project_is_read_from_the_option_or_the_keyword(
     assert main(["validate"], manifest=packaged) == 0
     assert main(["validate"]) == 1  # no ./sources.toml here
     assert not packaged.with_name("data").exists()
+
+
+def _peak(run: Callable[[], object]) -> int:
+    """The most memory Python held at once while `run` ran, in bytes."""
+    tracemalloc.start()
+    try:
+        run()
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+@pytest.fixture
+def big(upstream: Path) -> int:
+    """The upstream file grown to about 2 MB and fetched: its size."""
+    upstream.write_text("year,value,note\n" + "".join(f"{i},{i * 0.5},row {i}\n" for i in range(100_000)))
+    assert _run("fetch") == [0]
+    return upstream.stat().st_size
+
+
+def test_a_conditional_fetch_hashes_the_raw_file_without_holding_it(big: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    sources = ledger.load_manifest()
+    _serve(monkeypatch, _http_error(304))
+    assert _peak(lambda: ledger.fetch(sources)) < big // 4
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_fetch_reads_the_log_once_however_many_sources_keep_their_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _manifest(tmp_path, _DATA, terms=f"{TERMS}\narchive = true")
+    _serve(monkeypatch, _Response(FIXTURE.encode()), _Response(b"", url=_SNAPSHOT), _Response(FIXTURE.encode()))
+    sources = ledger.load_manifest()
+    ledger.fetch(sources)
+    reads: list[Path] = []
+    last_records = ledger._last_records  # noqa: SLF001
+    monkeypatch.setattr(ledger, "_last_records", lambda log: reads.append(log) or last_records(log))
+    assert [r.archive_url for r in ledger.fetch(sources)] == [_SNAPSHOT]
+    assert reads == [LOG]
+
+
+def test_validate_reads_an_output_one_row_at_a_time(big: int) -> None:
+    sources = ledger.load_manifest()
+    ledger.build(sources)
+    assert _peak(lambda: ledger.validate(sources)) < big // 4
+    assert ledger.validate(sources) == []
+
+
+def test_build_streams_a_csv_source_one_row_at_a_time(big: int) -> None:
+    sources = ledger.load_manifest()
+    assert _peak(lambda: ledger.build(sources)) < big // 4
+    assert ledger.validate(sources) == []
+
+
+def _list_path(source: ledger.Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
+    """The default parser behind another name, so build takes the path any custom parser takes."""
+    return ledger.parse_source(source, payload)
+
+
+def _both_paths(raw: bytes) -> list[bytes | str]:
+    """What build writes, or the error it raises, for a CSV source with these bytes: streamed, then as a list."""
+    RAW.write_bytes(raw)
+    record = json.loads(Path(f"{RAW}.fetch.json").read_text(encoding="utf-8"))
+    record["sha256"] = hashlib.sha256(raw).hexdigest()
+    Path(f"{RAW}.fetch.json").write_text(json.dumps(record), encoding="utf-8")
+    results: list[bytes | str] = []
+    for parse in (ledger.parse_source, _list_path):
+        try:
+            ledger.build(ledger.load_manifest(), parse=parse)
+        except (ValueError, csv.Error) as error:
+            results.append(f"{type(error).__name__}: {error}")
+        else:
+            results.append(OUT.read_bytes() + Path("data/processed/datapackage.json").read_bytes())
+    return results
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize(
+    "raw",
+    [
+        FIXTURE.encode(),
+        b"\xef\xbb\xbfyear,value\r\n2020,1.5\r\n",  # a byte-order mark and CRLF
+        b'year,note\n2020,"one\ntwo"\n2021,caf\xc3\xa9 \xe2\x82\xac\n',  # a quoted line break, non-ASCII
+        b'year,note\r\n2020,"one\r\ntwo"\r\n',  # a quoted CRLF, kept as it is
+        b"year,value\n\n2020,1.5\n",  # a blank line
+        b"year,value\n",  # no rows
+        b"",  # empty
+        b"year,year\n1,2\n",
+        b"year,value\n2020,1.5,extra\n",
+        b"year,value\n2020\n",
+        # A short row, then bytes that are not UTF-8 past the first block a stream decodes.
+        pytest.param(b"year,value\n2020\n" + b"x" * 20_000 + b",\xff\n", id="short-row-then-not-utf8"),
+        b"year,source_id\n2020,x\n",  # a provenance column
+        b"year,value\n2020,1.5,\x00\n" + b"2021,2.5\n" * 10,
+        b'year,value\n2020,"open\n',
+    ],
+)
+def test_a_streamed_build_writes_or_refuses_what_the_list_path_does(raw: bytes) -> None:
+    assert _run("fetch") == [0]
+    streamed, listed = _both_paths(raw)
+    assert streamed == listed
