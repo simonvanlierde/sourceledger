@@ -1064,6 +1064,7 @@ def test_the_peer_check_refuses_a_loopback_peer_over_tls(tmp_path: Path) -> None
         capture_output=True,
     )
     server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_context.minimum_version = ssl.TLSVersion.TLSv1_2
     server_context.load_cert_chain(cert, key)
     _TLSEcho.seen.clear()
     server = _QuietServer(("127.0.0.1", 0), _TLSEcho)
