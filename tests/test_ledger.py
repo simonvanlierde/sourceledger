@@ -815,18 +815,90 @@ def test_a_download_that_outlasts_its_budget_fails(
     assert "unfinished after" in capsys.readouterr().err
 
 
-def test_a_redirect_from_a_public_host_to_an_internal_one_is_refused() -> None:
-    """A third-party server can't make the fetch save an internal service's response."""
+def test_a_redirect_from_a_public_host_is_marked_public_only() -> None:
+    """The mark carries on to every later hop; a redirect within an internal host gets none."""
     handler = ledger._NoRedirectInward()  # noqa: SLF001
     public = urllib.request.Request("http://93.184.215.14/data.csv")
-    with pytest.raises(urllib.error.HTTPError, match="refused a redirect"):
-        handler.redirect_request(
-            public, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://127.0.0.1/secret"
-        )
+    new = handler.redirect_request(public, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://10.0.0.1/a")
+    assert new is not None
+    assert new.public_only  # ty: ignore[unresolved-attribute]
+    again = handler.redirect_request(new, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://10.0.0.2/b")
+    assert again is not None
+    assert again.public_only  # ty: ignore[unresolved-attribute]
     internal = urllib.request.Request("http://127.0.0.1/data.csv")
-    assert handler.redirect_request(
+    moved = handler.redirect_request(
         internal, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://127.0.0.1/moved"
     )
+    assert moved is not None
+    assert not hasattr(moved, "public_only")
+
+
+class _Rebinder(http.server.BaseHTTPRequestHandler):
+    """/start.csv redirects to rebind.test on the same port; anything else is the internal secret."""
+
+    def do_GET(self) -> None:
+        if self.path == "/start.csv":
+            self.send_response(302)
+            port = self.headers["Host"].rsplit(":", 1)[1]
+            self.send_header("Location", f"http://rebind.test:{port}/secret")
+            self.end_headers()
+            return
+        body = b"secret\n"
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002  # the base class names it
+        """Keep test output quiet."""
+
+
+def test_a_redirect_to_a_name_that_rebinds_inward_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A .test name answers public to the redirect check's lookup and loopback to the connect's one."""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Rebinder)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    real = socket.getaddrinfo
+
+    def rebinding(host: str, port: object, *args: object, **kwargs: object) -> object:
+        if host.endswith(".test"):
+            host = "93.184.215.14" if port is None else "127.0.0.1"
+        return real(host, port, *args, **kwargs)  # ty: ignore[invalid-argument-type]
+
+    monkeypatch.setattr(socket, "getaddrinfo", rebinding)
+    for proxy in ("http_proxy", "HTTP_PROXY", "all_proxy", "ALL_PROXY"):
+        monkeypatch.delenv(proxy, raising=False)
+    monkeypatch.chdir(tmp_path)
+    _manifest(tmp_path, f"http://origin.test:{server.server_address[1]}/start.csv")
+    try:
+        assert _run("fetch") == [1]
+    finally:
+        server.shutdown()
+    assert "example: refused a redirect from a public host to http://rebind.test" in capsys.readouterr().err
+    assert not RAW.exists()
+
+
+def test_the_peer_check_is_skipped_through_a_proxy() -> None:
+    """Through a proxy the socket reaches the proxy, not the host the URL names."""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Rebinder)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = server.server_address[1]
+    try:
+        for url, refused in ((f"http://127.0.0.1:{port}/a.csv", True), ("http://example.org/a.csv", False)):
+            request = urllib.request.Request(url)  # noqa: S310  # http only
+            request.public_only = True  # ty: ignore[unresolved-attribute]
+            connection = ledger._PeerCheck("127.0.0.1", port=port, req=request)  # noqa: SLF001
+            if refused:
+                with pytest.raises(
+                    ValueError, match=rf"^refused a redirect from a public host to {url}, which is at 127\.0\.0\.1$"
+                ):
+                    connection.connect()
+            else:
+                connection.connect()
+            connection.close()
+    finally:
+        server.shutdown()
 
 
 @pytest.mark.usefixtures("upstream")
@@ -1635,16 +1707,6 @@ def test_an_unresolvable_host_counts_as_public(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(socket, "getaddrinfo", fail)
     assert ledger._is_public("no-such-host.invalid")  # noqa: SLF001
-
-
-def test_a_refused_redirect_keeps_the_status_and_target() -> None:
-    handler = ledger._NoRedirectInward()  # noqa: SLF001
-    public = urllib.request.Request("http://93.184.215.14/data.csv")
-    with pytest.raises(urllib.error.HTTPError) as error:
-        handler.redirect_request(public, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://127.0.0.1/s")
-    assert (error.value.code, error.value.url) == (302, "http://127.0.0.1/s")
-    assert error.value.headers is not None
-    assert error.value.fp is not None
 
 
 def test_a_gzip_exactly_at_max_bytes_is_read() -> None:

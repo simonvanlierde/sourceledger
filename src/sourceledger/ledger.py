@@ -18,6 +18,7 @@ import contextlib
 import csv
 import dataclasses
 import errno
+import functools
 import gzip
 import hashlib
 import http.client
@@ -309,12 +310,18 @@ def _is_public(host: str) -> bool:
     return all(ipaddress.ip_address(info[4][0]).is_global for info in infos)
 
 
+class _InwardRedirectError(ValueError):
+    """A redirect from a public host connected to a loopback, private or link-local address."""
+
+
 class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
     """Refuses a redirect from a public host to a loopback, private or link-local one.
 
     Otherwise a third-party server could have the fetch save an internal service's response
     under the manifest's URL. A source that lives on an internal host can still redirect
-    within it.
+    within it. The redirect is only marked here; the connection checks the address it
+    actually reached (`_PeerCheck`), so a name that resolves to another address the second
+    time can't slip through.
     """
 
     def redirect_request(
@@ -326,20 +333,60 @@ class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
         headers: http.client.HTTPMessage,
         newurl: str,
     ) -> urllib.request.Request | None:
-        """Raise HTTPError for an inward redirect; follow any other as urllib does."""
-        if _is_public(urlsplit(req.full_url).hostname or "") and not _is_public(urlsplit(newurl).hostname or ""):
-            reason = f"refused a redirect from a public host to {newurl}"
-            raise urllib.error.HTTPError(newurl, code, reason, headers, fp)
+        """Follow the redirect as urllib does, marking it public-only when it comes from a public host."""
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is None:
+            return None
+        # Every later hop stays public-only, so a public host can't bounce through one that looks internal.
+        if getattr(req, "public_only", False) or _is_public(urlsplit(req.full_url).hostname or ""):
+            new.public_only = True  # ty: ignore[unresolved-attribute]  # read back by _PeerCheck
         # urllib copies every header to the new request. A token meant for one host must not
         # reach another, nor go out in clear text after https -> http, so a redirect that
         # changes the scheme, host or port keeps only the harmless ones.
-        if new is not None and urlsplit(newurl)[:2] != urlsplit(req.full_url)[:2]:
+        if urlsplit(newurl)[:2] != urlsplit(req.full_url)[:2]:
             new.headers = {k: v for k, v in new.headers.items() if k.lower() in _SAFE_ON_REDIRECT}
         return new
 
 
-_OPENER = urllib.request.build_opener(_NoRedirectInward())
+class _PeerCheck(http.client.HTTPConnection):
+    """Once connected, refuses a public-only request whose socket reached a non-public address.
+
+    Checked before anything is sent. Through a proxy the peer is the proxy, which resolves
+    the name itself, so the check is skipped there.
+    """
+
+    def __init__(self, host: str, *, req: urllib.request.Request, **kwargs: Any) -> None:  # noqa: ANN401  # http.client's own arguments
+        super().__init__(host, **kwargs)
+        self.req = req
+
+    def connect(self) -> None:
+        """Connect as usual, then check the address the socket reached."""
+        super().connect()
+        target = urlsplit(self.req.full_url).hostname or ""
+        if not getattr(self.req, "public_only", False) or self.host.lower() != target:
+            return
+        address = self.sock.getpeername()[0]
+        if not ipaddress.ip_address(address).is_global:
+            self.close()
+            msg = f"refused a redirect from a public host to {self.req.full_url}, which is at {address}"
+            raise _InwardRedirectError(msg)
+
+
+class _HTTPSPeerCheck(_PeerCheck, http.client.HTTPSConnection):
+    pass
+
+
+class _HTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req: urllib.request.Request) -> http.client.HTTPResponse:
+        return self.do_open(functools.partial(_PeerCheck, req=req), req)
+
+
+class _HTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req: urllib.request.Request) -> http.client.HTTPResponse:
+        return self.do_open(functools.partial(_HTTPSPeerCheck, req=req), req, context=self._context)  # ty: ignore[unresolved-attribute]  # set by HTTPSHandler.__init__
+
+
+_OPENER = urllib.request.build_opener(_NoRedirectInward(), _HTTPHandler(), _HTTPSHandler())
 
 
 def _open(request: urllib.request.Request, timeout: float) -> _Response:
@@ -447,6 +494,9 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
                     msg = f"body ended after {size} of the {expected} bytes its Content-Length promised"
                     raise http.client.HTTPException(msg)
                 return _Download(path, digest, size, response.headers, response.url)
+        except _InwardRedirectError as error:
+            msg = f"{source['id']}: {error}"
+            raise ValueError(msg) from error
         except urllib.error.HTTPError as error:
             # urllib raises a 304 like an error. Only a conditional request can get one.
             if error.code == HTTPStatus.NOT_MODIFIED and previous and conditional:

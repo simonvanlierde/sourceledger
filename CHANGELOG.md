@@ -55,6 +55,10 @@ Upgrade steps:
 - A redirect that changes the scheme, such as https to http on the same host, now drops
   the `headers` too, as a redirect to another host already did. Before, the key went out
   in clear text after the downgrade.
+- A redirect from a public host is now checked against the address the connection
+  actually reached, not a separate lookup before it. A name that resolved to a public
+  address for the check and to an internal one for the connection could get past it.
+  Through a proxy the check is skipped, since the proxy resolves the name.
 
 ## [0.2.0] - 2026-10-18
 
