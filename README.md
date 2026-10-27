@@ -108,9 +108,9 @@ Each `[[source]]` table takes these keys:
 | `redistribute` | for implemented sources | `true` if the terms let you republish the raw file, `false` if not. |
 | `vintage` | no | The edition you expect, such as `"2024 release"` or a TOML date. Recorded with each fetch and stamped on each row. `"not stated"` when absent. The old name `release` is refused. |
 | `sha256` | no | The SHA-256 the download must have. Pin it for a fixed release, and `fetch` refuses bytes that changed upstream. |
-| `max_bytes` | no | The largest download `fetch` accepts. 200 MiB unless set. |
-| `format` | no | `"csv"`, `"json"` (an array of objects) or `"xlsx"`. Otherwise from the URL's extension: `.json`, `.xlsx`, and CSV for anything else. A gzipped CSV or JSON file is decompressed, within `max_bytes`. |
-| `sheet` | no | The Excel sheet to read. The first unless set. |
+| `max_bytes` | no | The largest download `fetch` accepts. 200 MiB unless set. A gzipped file or Excel workbook that unpacks past it is refused. |
+| `format` | no | `"csv"`, `"json"` (an array of objects) or `"xlsx"`. Otherwise from the URL's extension: `.json`, `.xlsx`, and CSV for anything else. A gzipped CSV or JSON file is decompressed, within `max_bytes`. JSON numbers are written as they appear in the file (`1e5` stays `1e5`, `1.10` stays `1.10`). |
+| `sheet` | no | The Excel sheet to read. The first unless set. A cell right of the last header cell is refused, and a missing cell in a row reads as `""`. |
 | `headers` | no | Extra request headers, such as an API key, each value naming an environment variable: `{ Authorization = "env:EIA_TOKEN" }`. A literal value is refused, and so is a `url` that is not https. The record keeps the header names, not the values. A redirect to another scheme, host or port drops them. |
 | `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for http and https URLs, and not for a source that needs `headers`: the archive's request sends none. |
 | `reason` | no | A note for people, such as why a source is unimplemented. sourceledger doesn't read it. |
@@ -132,7 +132,8 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 - It tries four times, waiting 5, 10 and 20 s between attempts, on 429, 500, 502, 503,
   504, network errors and a body cut short. A `Retry-After` header, in seconds or as a
   date, raises the wait to at most 120 s. Any other error status fails at once.
-- Each connect and read times out after 30 s, and one source's whole fetch after 300 s.
+- Each connect and read times out after 30 s, and one source's whole fetch after 300 s. The
+  300 s holds against a server that sends bytes slowly, give or take one 30 s socket timeout.
 - Every source is tried. When some fail, the others are still written, and the run
   exits 1 with one line per failed source.
 - A second fetch in the same project, while one runs, exits at once (a lock on

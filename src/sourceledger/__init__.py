@@ -1,4 +1,4 @@
-"""Fetch, verify and validate the public sources a dataset is built from.
+"""Fetch, build and validate the public sources a dataset is built from.
 
 Every download keeps a provenance record, and every output row names the bytes it came from.
 

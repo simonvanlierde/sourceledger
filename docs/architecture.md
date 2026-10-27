@@ -35,7 +35,8 @@ and command option. This page explains how the parts fit together.
 
 Each raw file, record and output is written to a temporary file in the same folder and
 then renamed into place, so a crash never leaves half a file. The log is appended to
-instead, one line per new version. A line cut off by a crash is dropped on the next fetch.
+instead, one line per new version. A last line cut off by a crash is dropped on the next fetch. A complete record that only
+lacks its final newline is kept.
 
 ### fetch
 
@@ -54,7 +55,7 @@ instead, one line per new version. A line cut off by a crash is dropped on the n
 The log line goes in before the record. If a crash comes between the two, the next run
 sees no matching record and fetches in full, so no version is lost. A lock on
 `data/raw/.lock` stops a second fetch in the same project while one runs (Linux and macOS
-only).
+only). `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
 
 ### build
 
