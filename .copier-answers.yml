@@ -1,7 +1,7 @@
 # Managed by copier. Do not edit by hand. Run: copier update
 _commit: v0.10.0-14-g60039c0
 _src_path: gh:simonvanlierde/project-templates
-author_email: 90462640+simonvanlierde@users.noreply.github.com
+author_email: code@duinlab.nl
 author_name: Simon van Lierde
 author_orcid: 0009-0006-6953-909X
 codecov: false

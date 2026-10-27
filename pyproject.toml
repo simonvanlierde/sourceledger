@@ -4,7 +4,7 @@ version = "0.2.0"
 description = "Fetch, verify and validate the public sources a dataset is built from, with a provenance record for every download"
 readme = "README.md"
 requires-python = ">=3.12"
-authors = [{ name = "Simon van Lierde", email = "90462640+simonvanlierde@users.noreply.github.com" }]
+authors = [{ name = "Simon van Lierde", email = "code@duinlab.nl" }]
 license = "MIT"
 license-files = ["LICENSE"]
 keywords = ["provenance", "data pipeline", "reproducibility", "open data", "research software", "FAIR"]
