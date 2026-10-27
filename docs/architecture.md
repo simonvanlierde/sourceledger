@@ -30,13 +30,13 @@ and command option. This page explains how the parts fit together.
 | `data/processed/<id>.csv` | `build` | `validate` | no |
 | `data/processed/datapackage.json` | `build` | `build --only`, `validate`, `verify` | no |
 
-`<ext>` is the extension of the source's URL. The raw files and outputs stay out of git,
-so the repository never republishes a publisher's data. The log goes into git: it holds
-checksums and URLs, and it is the history of every version you fetched.
+`<ext>` is the extension of the source's URL. The README says
+[what to commit](https://github.com/simonvanlierde/sourceledger#what-to-commit).
 
 Each raw file, record and output is written to a temporary file in the same folder and
 then renamed into place, so a crash never leaves half a file. The log is appended to
-instead, one line per new version. A line cut off by a crash is dropped on the next fetch.
+instead, one line per new version. A last line cut off by a crash is dropped on the next fetch. A complete record that only
+lacks its final newline is kept.
 
 ### fetch
 
@@ -44,7 +44,7 @@ instead, one line per new version. A line cut off by a crash is dropped on the n
 
 1. It reads the source's last `.fetch.json`. When that record still matches the manifest
    and the raw file, the request asks the server to send the file only if it changed
-   (`If-None-Match`, `If-Modified-Since`). A `304 Not Modified` keeps the old file and
+   (`If-None-Match` with the ETag, `If-Modified-Since` with Last-Modified). A `304 Not Modified` keeps the old file and
    record.
 2. Otherwise it streams the body to a temporary file, hashing it on the way, within the
    source's size cap and the time budget.
@@ -55,7 +55,7 @@ instead, one line per new version. A line cut off by a crash is dropped on the n
 The log line goes in before the record. If a crash comes between the two, the next run
 sees no matching record and fetches in full, so no version is lost. A lock on
 `data/raw/.lock` stops a second fetch in the same project while one runs (Linux and macOS
-only).
+only). `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
 
 ### build
 
@@ -64,7 +64,10 @@ only).
 1. For each implemented source, it re-reads the `.fetch.json` record and re-hashes the raw
    file. A record made for another URL, vintage or pin, or a raw file changed since, is
    refused.
-2. It reads the raw file with the project's reader, a `Parser`, into columns and rows.
+2. It reads the raw file with the project's reader, a `Parser`, into columns and rows. With
+   the default reader, a plain CSV is read and written one row at a time, so memory stays
+   small whatever the file's size. JSON, Excel, gzipped CSV and a custom `Parser` are read
+   whole.
 3. It writes `data/processed/<id>.csv` with five provenance columns in front of the source's
    own: `source_id`, `source_url`, `retrieved_at`, `vintage` and `raw_sha256`.
 4. It writes `datapackage.json`, a Frictionless Data Package that lists every output with
@@ -76,9 +79,9 @@ time of the build.
 ### validate
 
 `validate` checks the outputs against the manifest and the records, and lists every
-problem instead of stopping at the first. It re-hashes each raw file, re-reads each
-output, and compares each row's provenance columns with the record. It also reports a
-source without reuse terms, an output that no source owns, and a `datapackage.json` that
+problem instead of stopping at the first. It re-hashes each raw file in blocks and reads
+each output one row at a time, so memory stays small. It compares each row's provenance
+columns with the record. It also reports a source without reuse terms, an output that no source owns, and a `datapackage.json` that
 no longer matches the outputs. It exits 1 if it finds any problem.
 
 ### The other commands

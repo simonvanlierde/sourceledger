@@ -34,14 +34,17 @@ formats.
   fix.
 - The tests never touch the network. A local file or a local HTTP server stands in for
   a publisher. A test that needs a real service is marked `live` and runs only with
-  `uv run pytest -m live`, which CI does weekly.
+  `uv run pytest -m live`, which CI does weekly. Where a test stands in for a web service
+  (Save Page Now), a contract test runs against both the stand-in and the real service, so
+  the stand-in cannot drift unnoticed.
 - The README's examples run as tests (`tests/test_docs.py`), so a change that breaks
   them fails.
 - CI runs the suite on Python 3.12, 3.13, 3.14 and 3.15, and fails under 95% coverage
   of lines and branches. `just py-cov` shows the coverage locally.
 - Code that reads outside input (the fetch log, response headers, parsed rows) gets a
   Hypothesis property test in `tests/test_properties.py` as well as examples.
-- `just py-mutation` fails when a function has more surviving mutants than
+- `just py-mutation` changes the code one small step at a time and checks that a test
+  fails. A change no test notices is a survivor. It fails when a function has more surviving mutants than
   `tests/mutation-baseline.txt` lists. Kill a new survivor with a test, or, when the
   change cannot alter behaviour, rerun `just py-mutation-baseline` after a full run.
 - CodSpeed runs `tests/test_benchmarks.py` on every pull request and reports how each
@@ -80,9 +83,5 @@ review check.
 
 ## Who maintains this
 
-Simon van Lierde maintains sourceledger: reviews pull requests, merges them and
-makes releases. The repository belongs to [simonvanlierde](https://github.com/simonvanlierde)
-on GitHub. Only maintainers can merge to `main`. A new maintainer is added by an existing one, by name in this section.
-If no maintainer can continue, the repository is archived with a note in the README,
-and anyone may fork it under its license. [GOVERNANCE.md](../GOVERNANCE.md) says how
-decisions are made.
+Simon van Lierde maintains sourceledger. [GOVERNANCE.md](../GOVERNANCE.md) says how
+decisions are made and how a maintainer is added; new maintainers are named here.

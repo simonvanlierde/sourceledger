@@ -18,11 +18,13 @@ import contextlib
 import csv
 import dataclasses
 import errno
+import functools
 import gzip
 import hashlib
 import http.client
 import io
 import ipaddress
+import itertools
 import json
 import logging
 import os
@@ -35,8 +37,10 @@ import tomllib
 import urllib.error
 import urllib.request
 import urllib.response
+import zipfile
+import zlib
 from collections import Counter
-from collections.abc import Callable, Collection, Generator
+from collections.abc import Callable, Collection, Generator, Iterable, Iterator
 from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
@@ -91,6 +95,9 @@ _MAX_RETRY_AFTER_S = 120
 # Statuses a publisher recovers from. 501 and 505 never will.
 _RETRIED = frozenset({429, 500, 502, 503, 504})
 _CHUNK_BYTES = 1024 * 1024
+# Hashing a file already on disk: small enough that its peak memory stays small, large
+# enough that a small file is one read.
+_HASH_BLOCK_BYTES = 64 * 1024
 # A network error or timeout, or a connection dropped or garbled mid-response.
 _TRANSIENT = (OSError, http.client.HTTPException)
 # A raw file or fetch record that is missing, edited or unreadable.
@@ -282,16 +289,23 @@ def raw_name(source: Source) -> str:
 
 
 def _write_atomic(path: Path, data: bytes) -> None:
-    """Write a new temp file beside `path`, flush it to disk, then rename it over `path`.
+    """Write `data` to `path` as `_replacing` does."""
+    with _replacing(path) as fh:
+        fh.write(data)
+
+
+@contextlib.contextmanager
+def _replacing(path: Path) -> Generator[IO[bytes]]:
+    """A new temp file beside `path` to write; on success it is flushed to disk and renamed over `path`.
 
     A reader never sees half a file. The temp file gets a fresh name, so two runs at once
     don't share it, and it is created rather than opened, so a symlink in its place is
-    never followed.
+    never followed. On an error the temp file is removed and `path` is left as it was.
     """
     fd, temp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".part")
     try:
         with os.fdopen(fd, "wb") as fh:
-            fh.write(data)
+            yield fh
             fh.flush()
             os.fsync(fh.fileno())
         Path(temp).replace(path)
@@ -309,12 +323,18 @@ def _is_public(host: str) -> bool:
     return all(ipaddress.ip_address(info[4][0]).is_global for info in infos)
 
 
+class _InwardRedirectError(ValueError):
+    """A redirect from a public host connected to a loopback, private or link-local address."""
+
+
 class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
     """Refuses a redirect from a public host to a loopback, private or link-local one.
 
     Otherwise a third-party server could have the fetch save an internal service's response
     under the manifest's URL. A source that lives on an internal host can still redirect
-    within it.
+    within it. The redirect is only marked here; the connection checks the address it
+    actually reached (`_PeerCheck`), so a name that resolves to another address the second
+    time can't slip through.
     """
 
     def redirect_request(
@@ -326,20 +346,60 @@ class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
         headers: http.client.HTTPMessage,
         newurl: str,
     ) -> urllib.request.Request | None:
-        """Raise HTTPError for an inward redirect; follow any other as urllib does."""
-        if _is_public(urlsplit(req.full_url).hostname or "") and not _is_public(urlsplit(newurl).hostname or ""):
-            reason = f"refused a redirect from a public host to {newurl}"
-            raise urllib.error.HTTPError(newurl, code, reason, headers, fp)
+        """Follow the redirect as urllib does, marking it public-only when it comes from a public host."""
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is None:
+            return None
+        # Every later hop stays public-only, so a public host can't bounce through one that looks internal.
+        if getattr(req, "public_only", False) or _is_public(urlsplit(req.full_url).hostname or ""):
+            new.public_only = True  # ty: ignore[unresolved-attribute]  # read back by _PeerCheck
         # urllib copies every header to the new request. A token meant for one host must not
         # reach another, nor go out in clear text after https -> http, so a redirect that
         # changes the scheme, host or port keeps only the harmless ones.
-        if new is not None and urlsplit(newurl)[:2] != urlsplit(req.full_url)[:2]:
+        if urlsplit(newurl)[:2] != urlsplit(req.full_url)[:2]:
             new.headers = {k: v for k, v in new.headers.items() if k.lower() in _SAFE_ON_REDIRECT}
         return new
 
 
-_OPENER = urllib.request.build_opener(_NoRedirectInward())
+class _PeerCheck(http.client.HTTPConnection):
+    """Once connected, refuses a public-only request whose socket reached a non-public address.
+
+    Checked before anything is sent. Through a proxy the peer is the proxy, which resolves
+    the name itself, so the check is skipped there.
+    """
+
+    def __init__(self, host: str, *, req: urllib.request.Request, **kwargs: Any) -> None:  # noqa: ANN401  # http.client's own arguments
+        super().__init__(host, **kwargs)
+        self.req = req
+
+    def connect(self) -> None:
+        """Connect as usual, then check the address the socket reached."""
+        super().connect()
+        target = urlsplit(self.req.full_url).hostname or ""
+        if not getattr(self.req, "public_only", False) or self.host.lower() != target:
+            return
+        address = self.sock.getpeername()[0]
+        if not ipaddress.ip_address(address).is_global:
+            self.close()
+            msg = f"refused a redirect from a public host to {self.req.full_url}, which is at {address}"
+            raise _InwardRedirectError(msg)
+
+
+class _HTTPSPeerCheck(_PeerCheck, http.client.HTTPSConnection):
+    pass
+
+
+class _HTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req: urllib.request.Request) -> http.client.HTTPResponse:
+        return self.do_open(functools.partial(_PeerCheck, req=req), req)
+
+
+class _HTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req: urllib.request.Request) -> http.client.HTTPResponse:
+        return self.do_open(functools.partial(_HTTPSPeerCheck, req=req), req, context=self._context)  # ty: ignore[unresolved-attribute]  # set by HTTPSHandler.__init__
+
+
+_OPENER = urllib.request.build_opener(_NoRedirectInward(), _HTTPHandler(), _HTTPSHandler())
 
 
 def _open(request: urllib.request.Request, timeout: float) -> _Response:
@@ -403,7 +463,8 @@ def _copy(response: _Response, fh: IO[bytes], source: Source, deadline: float) -
     cap = source.get("max_bytes", _MAX_BYTES)
     digest = hashlib.sha256()
     size = 0
-    while chunk := response.read(_CHUNK_BYTES):
+    # read1: one socket read at most, so a server trickling bytes can't hold a read past the deadline.
+    while chunk := response.read1(_CHUNK_BYTES):
         size += len(chunk)
         if size > cap:
             msg = f"{source['id']}: download exceeds {cap} bytes; raise max_bytes in sources.toml if expected"
@@ -447,6 +508,9 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
                     msg = f"body ended after {size} of the {expected} bytes its Content-Length promised"
                     raise http.client.HTTPException(msg)
                 return _Download(path, digest, size, response.headers, response.url)
+        except _InwardRedirectError as error:
+            msg = f"{source['id']}: {error}"
+            raise ValueError(msg) from error
         except urllib.error.HTTPError as error:
             # urllib raises a 304 like an error. Only a conditional request can get one.
             if error.code == HTTPStatus.NOT_MODIFIED and previous and conditional:
@@ -506,10 +570,9 @@ def _env_headers(source: Source) -> dict[str, str]:
 def _previous(source: Source, raw: Path) -> FetchRecord | None:
     """The last fetch record of `source`, if it and its raw file still match the manifest."""
     try:
-        record, _ = verified(source, raw=raw)
+        return _current(source, raw)
     except _UNUSABLE:
         return None
-    return record
 
 
 def _conditional(previous: FetchRecord | None) -> dict[str, str]:
@@ -518,6 +581,16 @@ def _conditional(previous: FetchRecord | None) -> dict[str, str]:
         return {}
     headers = {"If-None-Match": previous.etag, "If-Modified-Since": previous.last_modified}
     return {name: value for name, value in headers.items() if value}
+
+
+def _is_record(fields: object) -> bool:
+    """Whether `fields` holds a fetch record's id, URL, time, SHA-256 and size, each of its own type."""
+    return (
+        isinstance(fields, dict)
+        and all(isinstance(fields.get(key), str) for key in ("source_id", "url", "retrieved_at", "sha256"))
+        and _SHA256.fullmatch(fields["sha256"]) is not None
+        and type(fields.get("bytes")) is int  # not isinstance: bool is an int subclass
+    )
 
 
 def _last_records(log: Path) -> dict[str, dict[str, Any]]:
@@ -532,6 +605,7 @@ def _last_records(log: Path) -> dict[str, dict[str, Any]]:
     text = log.read_bytes().decode("utf-8", errors="replace")
     lines = text.splitlines()
     records: dict[str, dict[str, Any]] = {}
+    numbers: dict[str, int] = {}
     for number, line in enumerate(lines, start=1):
         if not line.strip():
             continue
@@ -543,14 +617,17 @@ def _last_records(log: Path) -> dict[str, dict[str, Any]]:
                 continue
             msg = f"{log}:{number} is not a fetch record ({error})"
             raise ValueError(msg) from error
-        if not (
-            isinstance(record, dict)
-            and isinstance(record.get("source_id"), str)
-            and isinstance(record.get("sha256"), str)
-        ):
+        if not (isinstance(record, dict) and isinstance(record.get("source_id"), str)):
             msg = f"{log}:{number} is not a fetch record"
             raise ValueError(msg)  # noqa: TRY004  # a damaged log: the CLI reports ValueError as one line
         records[record["source_id"]] = record
+        numbers[record["source_id"]] = number
+    # Only the last record per source is used, so only those get the full check: it costs
+    # more than reading the line, and a log has many lines per source.
+    for sid, record in records.items():
+        if not _is_record(record):
+            msg = f"{log}:{numbers[sid]} is not a fetch record"
+            raise ValueError(msg)
     return records
 
 
@@ -558,15 +635,42 @@ def _append(log: Path, record: FetchRecord) -> None:
     """Add `record` as one line at the end of the log, in one write, flushed to disk.
 
     A last line cut off by an interrupted fetch is dropped first, so the new line starts
-    on a line of its own.
+    on a line of its own. A whole record that only lacks its newline, as an editor or a
+    merge can leave it, is kept. Only the end of the log is read, however long it is.
+
+    Raises ValueError when the log is a symlink, which a cloned checkout could point at
+    another file.
     """
-    if log.exists() and (text := log.read_bytes()) and not text.endswith(b"\n"):
-        _logger.warning("%s: dropping a last line cut off by an interrupted fetch", log)
-        os.truncate(log, text.rfind(b"\n") + 1)
-    with log.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(dataclasses.asdict(record)) + "\n")
+    if log.is_symlink():
+        msg = f"{log} is a symlink; the fetch log must be a file of its own"
+        raise ValueError(msg)
+    with log.open("a+b") as fh:
+        end = fh.seek(0, os.SEEK_END)
+        lead = b""
+        if end and (start := _last_line_start(fh, end)) < end:
+            fh.seek(start)
+            try:
+                json.loads(fh.read())
+            except ValueError:  # not JSON, or not UTF-8
+                _logger.warning("%s: dropping a last line cut off by an interrupted fetch", log)
+                fh.truncate(start)
+            else:
+                lead = b"\n"
+        fh.write(lead + json.dumps(dataclasses.asdict(record)).encode() + b"\n")
         fh.flush()
         os.fsync(fh.fileno())
+
+
+def _last_line_start(fh: IO[bytes], end: int) -> int:
+    """Where the line after the last newline starts: `end` when the file ends with one."""
+    pos = end
+    while pos > 0:
+        step = min(pos, _CHUNK_BYTES)
+        fh.seek(pos - step)
+        if (newline := fh.read(step).rfind(b"\n")) != -1:
+            return pos - step + newline + 1
+        pos -= step
+    return 0
 
 
 def logged_versions(log: Path = FETCH_LOG) -> dict[str, str]:
@@ -583,7 +687,9 @@ def _lock(raw: Path) -> Generator[None]:
     if sys.platform == "win32":  # noqa: PLR2004
         yield
         return
-    with (raw / ".lock").open("w") as fh:
+    # Never truncated, and never through a symlink: a cloned checkout could plant one to another file.
+    fd = os.open(raw / ".lock", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "wb") as fh:
         try:
             fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
@@ -596,11 +702,12 @@ def revisions(before: Path, *, log: Path = FETCH_LOG) -> list[str]:
     """One Markdown line per source whose bytes changed between `before`, an earlier copy of the log, and `log`.
 
     A source that `before` never logged is new, not revised, and is left out. Raises
-    FileNotFoundError when `before` does not exist: an empty report must mean no
-    revisions, not a missing copy.
+    FileNotFoundError when `before` or `log` does not exist: an empty report must mean no
+    revisions, not a missing copy or a run from the wrong directory.
     """
-    if not before.exists():
-        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(before))
+    for path in (before, log):
+        if not path.exists():
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(path))
     old, new = _last_records(before), _last_records(log)
     return [
         f"- `{sid}`: {old[sid]['sha256'][:12]} -> {r['sha256'][:12]}, {r['bytes']:,} bytes, "
@@ -639,7 +746,7 @@ def fetch(
     records: list[FetchRecord] = []
     failures: list[str] = []
     with _lock(raw):
-        logged = logged_versions(log)
+        logged = _last_records(log)
         for source in implemented(sources):
             try:
                 records.append(_fetch_one(source, raw, log, logged, user_agent))
@@ -652,7 +759,7 @@ def fetch(
     return records
 
 
-def _fetch_one(source: Source, raw: Path, log: Path, logged: dict[str, str], user_agent: str) -> FetchRecord:
+def _fetch_one(source: Source, raw: Path, log: Path, logged: dict[str, dict[str, Any]], user_agent: str) -> FetchRecord:
     """Fetch one source, write its raw file, log and record, and return the record."""
     response = _get(source, _previous(source, raw), user_agent, raw)
     if isinstance(response, FetchRecord):
@@ -666,7 +773,7 @@ def _fetch_one(source: Source, raw: Path, log: Path, logged: dict[str, str], use
 
 
 def _keep(
-    source: Source, download: _Download, raw: Path, log: Path, logged: dict[str, str], user_agent: str
+    source: Source, download: _Download, raw: Path, log: Path, logged: dict[str, dict[str, Any]], user_agent: str
 ) -> FetchRecord:
     """Check a finished download against the pin, move it into place, and log and record it.
 
@@ -679,8 +786,8 @@ def _keep(
     archived = ""
     if source.get("archive"):
         # The same bytes again, with no 304 to say so, keep the snapshot their log line names.
-        same = logged.get(source["id"]) == digest
-        archived = _last_records(log)[source["id"]].get("archive_url", "") if same else _archive(source, user_agent)
+        last = logged.get(source["id"], {})
+        archived = last.get("archive_url", "") if last.get("sha256") == digest else _archive(source, user_agent)
     record = FetchRecord(
         source_id=source["id"],
         url=source["url"],
@@ -704,11 +811,11 @@ def _keep(
     return record
 
 
-def _log_new_version(log: Path, logged: dict[str, str], record: FetchRecord) -> None:
+def _log_new_version(log: Path, logged: dict[str, dict[str, Any]], record: FetchRecord) -> None:
     # Appended, not rewritten: the log is history. A re-download of the same bytes adds nothing.
-    if logged.get(record.source_id) != record.sha256:
+    if logged.get(record.source_id, {}).get("sha256") != record.sha256:
         _append(log, record)
-        logged[record.source_id] = record.sha256
+        logged[record.source_id] = dataclasses.asdict(record)
 
 
 def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
@@ -718,11 +825,49 @@ def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
     now makes (another URL, vintage or `sha256` pin), or when the raw file no longer hashes
     to the record.
     """
+    record = _record(source, raw)
+    payload = (raw / raw_name(source)).read_bytes()
+    _check_hash(source, record, hashlib.sha256(payload).hexdigest())
+    return record, payload
+
+
+def _current(source: Source, raw: Path) -> FetchRecord:
+    """The fetch record for `source`, checked as `verified` checks it, without reading the raw file into memory."""
+    record = _record(source, raw)
+    _check_hash(source, record, _digest(raw / raw_name(source)))
+    return record
+
+
+def _digest(path: Path) -> str:
+    """The file's SHA-256, read a block at a time."""
+    with path.open("rb") as fh:
+        return _sha256(fh)
+
+
+def _sha256(fh: IO[bytes]) -> str:
+    # Not hashlib.file_digest: its fixed 256 KiB buffer costs more than the hash on a small file.
+    digest = hashlib.sha256()
+    while chunk := fh.read(_HASH_BLOCK_BYTES):
+        digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _check_hash(source: Source, record: FetchRecord, digest: str) -> None:
+    if digest != record.sha256:
+        msg = f"{raw_name(source)} changed since it was fetched; re-run fetch"
+        raise ValueError(msg)
+
+
+def _record(source: Source, raw: Path) -> FetchRecord:
+    """The fetch record for `source`, if it was made for the request the manifest now makes."""
     name = raw_name(source)
+    fields = json.loads((raw / f"{name}.fetch.json").read_text(encoding="utf-8"))
+    msg = f"{name}.fetch.json is not a fetch record; re-run fetch"
+    if not _is_record(fields):
+        raise ValueError(msg)
     try:
-        record = FetchRecord(**json.loads((raw / f"{name}.fetch.json").read_text(encoding="utf-8")))
-    except TypeError as error:
-        msg = f"{name}.fetch.json is not a fetch record; re-run fetch"
+        record = FetchRecord(**fields)
+    except TypeError as error:  # a key FetchRecord does not have, or lacks
         raise ValueError(msg) from error
     if (record.source_id, record.url) != (source["id"], source["url"]):
         msg = f"{name} was fetched from {record.url}, but sources.toml now requests {source['url']}; re-run fetch"
@@ -730,14 +875,10 @@ def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
     if record.vintage != _vintage(source):
         msg = f"{name} was fetched as vintage {record.vintage!r}, not {_vintage(source)!r}; re-run fetch"
         raise ValueError(msg)
-    if source.get("sha256", record.sha256).lower() != record.sha256:
+    if source.get("sha256", record.sha256) != record.sha256:  # load_manifest lowercases the pin
         msg = f"{name} hashes to {record.sha256}, not the sha256 sources.toml now pins; re-run fetch"
         raise ValueError(msg)
-    payload = (raw / name).read_bytes()
-    if hashlib.sha256(payload).hexdigest() != record.sha256:
-        msg = f"{name} changed since it was fetched; re-run fetch"
-        raise ValueError(msg)
-    return record, payload
+    return record
 
 
 def parse_source(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
@@ -746,25 +887,36 @@ def parse_source(source: Source, payload: bytes) -> tuple[list[str], list[dict[s
     The format is the source's `format` key, or else the URL's extension: `.json` is JSON,
     `.xlsx` is Excel, anything else is CSV (gzipped or not).
     """
+    return _PARSERS[_format(source)](source, payload)
+
+
+def _format(source: Source) -> str:
     suffix = PurePosixPath(urlsplit(source.get("url", "")).path).suffix.lower()
-    fmt = source.get("format") or {".json": "json", ".xlsx": "xlsx"}.get(suffix, "csv")
-    return _PARSERS[fmt](source, payload)
+    return source.get("format") or {".json": "json", ".xlsx": "xlsx"}.get(suffix, "csv")
 
 
 def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
     """One raw CSV file as its columns and rows. A gzipped file is decompressed first.
 
     Raises ValueError for a repeated column name, a row with more or fewer fields than the
-    header, or a gzipped file that decompresses past the source's `max_bytes`.
+    header, or a gzipped file that is damaged or decompresses past the source's `max_bytes`.
     """
-    if payload[:2] == _GZIP_MAGIC:
-        payload = _gunzip(source, payload)
+    payload = _maybe_gunzip(source, payload)
     # utf-8-sig drops the byte-order mark that spreadsheet exports start with. Plain UTF-8 reads the same.
     text = payload.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text, newline=""))
+    columns, rows = _csv_rows(source, io.StringIO(text, newline=""))
+    return columns, list(rows)
+
+
+def _csv_rows(source: Source, text: IO[str]) -> tuple[list[str], Iterator[dict[str, str]]]:
+    """A CSV text's columns and its rows, each checked as it is read: parse_csv's checks and messages."""
+    reader = csv.DictReader(text)
     columns = list(reader.fieldnames or [])
     _check_columns(source, columns)
-    rows = []
+    return columns, _checked_rows(source, reader)
+
+
+def _checked_rows(source: Source, reader: csv.DictReader[str]) -> Iterator[dict[str, str]]:
     for row in reader:
         # DictReader files the surplus fields of a long row under the key None.
         if None in row:
@@ -774,15 +926,24 @@ def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str,
         if None in row.values():
             msg = f"{source['id']}: line {reader.line_num} has fewer fields than the header"
             raise ValueError(msg)
-        rows.append(row)
-    return columns, rows
+        yield row
 
 
-def _gunzip(source: Source, payload: bytes) -> bytes:
-    """The decompressed bytes, refused past the source's `max_bytes`: a small file can expand without limit."""
+def _maybe_gunzip(source: Source, payload: bytes) -> bytes:
+    """The payload decompressed when it is gzipped, else as it is.
+
+    Refused past the source's `max_bytes`, since a small file can expand without limit,
+    and when the gzip is cut off or damaged.
+    """
+    if payload[:2] != _GZIP_MAGIC:
+        return payload
     cap = source.get("max_bytes", _MAX_BYTES)
-    with gzip.GzipFile(fileobj=io.BytesIO(payload)) as fh:
-        data = fh.read(cap + 1)
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(payload)) as fh:
+            data = fh.read(cap + 1)
+    except (EOFError, zlib.error, gzip.BadGzipFile) as error:
+        msg = f"{source['id']}: not a readable gzip file ({error})"
+        raise ValueError(msg) from error
     if len(data) > cap:
         msg = f"{source['id']}: decompresses past {cap} bytes; raise max_bytes in sources.toml if expected"
         raise ValueError(msg)
@@ -796,8 +957,14 @@ def _check_columns(source: Source, columns: list[str]) -> None:
         raise ValueError(msg)
 
 
+class _Number(str):
+    """A JSON number kept as its text, so 1.10 stays 1.10 and 1e5 stays 1e5."""
+
+    __slots__ = ()
+
+
 def _cell(value: object) -> str:
-    """A JSON or spreadsheet value as output text: empty for none, `true`/`false`, numbers as written."""
+    """A JSON or spreadsheet value as output text: empty for none, `true`/`false`, JSON numbers as written."""
     match value:
         case None:
             return ""
@@ -805,50 +972,111 @@ def _cell(value: object) -> str:
             return value
         case datetime() | date():
             return value.isoformat()
-        case _:  # JSON writes booleans as true/false and numbers as written
+        case _:  # booleans as true/false, nested values as JSON text
+            return _json_text(value)
+
+
+def _json_text(value: object) -> str:
+    """`value` as JSON text, with each `_Number` written as it was read."""
+    match value:
+        case _Number():
+            return value
+        case dict():
+            return (
+                "{" + ", ".join(f"{json.dumps(k, ensure_ascii=False)}: {_json_text(v)}" for k, v in value.items()) + "}"
+            )
+        case list():
+            return "[" + ", ".join(_json_text(item) for item in value) + "]"
+        case _:
             return json.dumps(value, ensure_ascii=False, default=str)
 
 
 def parse_json(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
     """A JSON array of objects as columns and rows: one column per key, in the order keys first appear.
 
-    A key an object lacks is an empty cell. Nested values are kept as JSON text. Raises
-    ValueError for anything but an array of objects.
+    A key an object lacks is an empty cell. Numbers are kept as written, and nested values
+    as JSON text. Raises ValueError for anything but an array of objects, or for one
+    nested too deeply to read.
     """
-    if payload[:2] == _GZIP_MAGIC:
-        payload = _gunzip(source, payload)
-    data = json.loads(payload.decode("utf-8-sig"))
-    if not (isinstance(data, list) and all(isinstance(item, dict) for item in data)):
-        msg = f"{source['id']}: expected a JSON array of objects"
-        raise ValueError(msg)
-    columns = list(dict.fromkeys(key for item in data for key in item))
-    return columns, [{column: _cell(item.get(column)) for column in columns} for item in data]
+    payload = _maybe_gunzip(source, payload)
+    # From 3.14 the reader's depth limit follows the stack size, so a deep value can load and
+    # then overflow while its cell is written: both steps are covered.
+    try:
+        data = json.loads(payload.decode("utf-8-sig"), parse_float=_Number, parse_int=_Number)
+        if not (isinstance(data, list) and all(isinstance(item, dict) for item in data)):
+            msg = f"{source['id']}: expected a JSON array of objects"
+            raise ValueError(msg)
+        columns = list(dict.fromkeys(key for item in data for key in item))
+        rows = [{column: _cell(item.get(column)) for column in columns} for item in data]
+    except RecursionError as error:
+        msg = f"{source['id']}: JSON nested too deeply to read"
+        raise ValueError(msg) from error
+    return columns, rows
 
 
 def parse_xlsx(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
     """One sheet of an Excel workbook as columns and rows, the first row as the header.
 
-    The sheet is the source's `sheet` key, or else the first. Fully empty rows are skipped.
-    Needs the `xlsx` extra: `uv add 'sourceledger[xlsx]'`.
+    The sheet is the source's `sheet` key, or else the first. Fully empty rows are skipped,
+    and so are empty header cells at the end of the row. An empty cell reads as "", like an
+    empty CSV field. Needs the `xlsx` extra: `uv add 'sourceledger[xlsx]'`.
+
+    Raises ValueError for a file that is not a workbook, one that expands past the source's
+    `max_bytes`, a missing sheet, a repeated column name, or a cell right of the header.
     """
     try:
         import openpyxl  # noqa: PLC0415  # an optional extra, imported only when a source needs it
+        from openpyxl.utils.exceptions import InvalidFileException  # noqa: PLC0415
     except ImportError as error:
         msg = f"{source['id']}: reading .xlsx needs the xlsx extra: uv add 'sourceledger[xlsx]'"
         raise ValueError(msg) from error
-    workbook = openpyxl.load_workbook(io.BytesIO(payload), read_only=True, data_only=True)
+    cap = source.get("max_bytes", _MAX_BYTES)
     try:
-        sheet = workbook[source["sheet"]] if source.get("sheet") is not None else workbook.worksheets[0]
-    except KeyError as error:
-        msg = f"{source['id']}: no sheet {source['sheet']!r}; the workbook has {workbook.sheetnames}"
+        # The sizes the zip declares bound what it can expand to: reading past one fails its check.
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            expanded = sum(info.file_size for info in archive.infolist())
+    except zipfile.BadZipFile as error:
+        msg = f"{source['id']}: not a readable Excel workbook ({error})"
         raise ValueError(msg) from error
-    rows = [row for row in sheet.iter_rows(values_only=True) if any(cell is not None for cell in row)]
-    workbook.close()
+    if expanded > cap:
+        msg = f"{source['id']}: decompresses past {cap} bytes; raise max_bytes in sources.toml if expected"
+        raise ValueError(msg)
+    try:
+        rows = _sheet_rows(source, openpyxl.load_workbook(io.BytesIO(payload), read_only=True, data_only=True))
+    except (zipfile.BadZipFile, KeyError, InvalidFileException) as error:  # a missing part reads as KeyError
+        msg = f"{source['id']}: not a readable Excel workbook ({error})"
+        raise ValueError(msg) from error
     if not rows:
         return [], []
-    columns = [_cell(cell) for cell in rows[0]]
+    header = rows[0][1]
+    width = len(header)
+    while width and header[width - 1] is None:
+        width -= 1
+    columns = [_cell(cell) for cell in header[:width]]
     _check_columns(source, columns)
-    return columns, [dict(zip(columns, (_cell(cell) for cell in row), strict=False)) for row in rows[1:]]
+    table = []
+    for number, row in rows[1:]:
+        if any(cell is not None for cell in row[width:]):
+            msg = f"{source['id']}: row {number} has more cells than the header"
+            raise ValueError(msg)
+        table.append({column: _cell(cell) for column, cell in itertools.zip_longest(columns, row[:width])})
+    return columns, table
+
+
+def _sheet_rows(source: Source, workbook: Any) -> list[tuple[int, tuple[object, ...]]]:  # noqa: ANN401  # openpyxl is optional
+    """The sheet's rows that are not fully empty, each with its row number, and the workbook closed."""
+    try:
+        if (name := source.get("sheet")) is not None and name not in workbook.sheetnames:
+            msg = f"{source['id']}: no sheet {name!r}; the workbook has {workbook.sheetnames}"
+            raise ValueError(msg)
+        sheet = workbook[name] if name is not None else workbook.worksheets[0]
+        return [
+            (number, row)
+            for number, row in enumerate(sheet.iter_rows(values_only=True), start=1)
+            if any(cell is not None for cell in row)
+        ]
+    finally:
+        workbook.close()
 
 
 _PARSERS: dict[str, Parser] = {"csv": parse_csv, "json": parse_json, "xlsx": parse_xlsx}
@@ -893,25 +1121,63 @@ def build(
             if source["id"] in earlier:
                 resources.append(earlier[source["id"]])
             continue
-        record, payload = verified(source, raw=raw)
-        stamp = _stamp(record)
-        columns, rows = parse(source, payload)
-        if clash := stamp.keys() & set(columns):
-            msg = f"{source['id']}: source columns {sorted(clash)} collide with the provenance columns"
-            raise ValueError(msg)
-        buffer = io.StringIO(newline="")
-        writer = csv.DictWriter(buffer, fieldnames=[*stamp, *columns])
-        writer.writeheader()
-        # The stamp last: a parser's row cannot overwrite a provenance column.
-        writer.writerows({**row, **stamp} for row in rows)
         out = processed / f"{source['id']}.csv"
-        data = buffer.getvalue().encode()
-        _write_atomic(out, data)
+        record, fields = _build_one(source, raw, out, parse)
         written.append(out)
-        resources.append(_resource(source, record, [*stamp, *columns], data))
+        resources.append(_resource(source, record, fields, out))
     package = {"$schema": _DATAPACKAGE_PROFILE, "name": _package_name(), "resources": resources}
     _write_atomic(processed / DATAPACKAGE, (json.dumps(package, indent=2, ensure_ascii=False) + "\n").encode())
     return written
+
+
+def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[FetchRecord, list[str]]:
+    """Write one source's rows to `out`, each stamped with its fetch record: the record, and the columns written.
+
+    With the default parser a plain CSV file goes through a row at a time, so memory stays
+    near one row whatever the file's size.
+    """
+    record = _record(source, raw)
+    stamp = _stamp(record)
+    with (raw / raw_name(source)).open("rb") as fh:
+        _check_hash(source, record, _sha256(fh))
+        fh.seek(0)
+        if parse is parse_source and _PARSERS[_format(source)] is parse_csv and fh.read(2) != _GZIP_MAGIC:
+            fh.seek(0)
+            text = io.TextIOWrapper(fh, encoding="utf-8-sig", newline="")
+            try:
+                columns, rows = _csv_rows(source, text)
+                _write_rows(source, out, stamp, columns, rows)
+            except (ValueError, csv.Error):
+                # parse_csv decodes the whole file before it reads a row, so it can fail on another
+                # line, or name another byte offset. Reading the file whole gives exactly its error.
+                fh.seek(0)
+                parse(source, fh.read())
+                raise
+            finally:
+                text.detach()  # closing the wrapper would close fh
+        else:
+            # shortcut: other formats, gzipped CSV and custom parsers hold the whole file and its rows
+            # in memory, as a Parser returns lists; stream them too once such sources outgrow memory.
+            fh.seek(0)
+            columns, rows = parse(source, fh.read())
+            _write_rows(source, out, stamp, columns, rows)
+    return record, [*stamp, *columns]
+
+
+def _write_rows(
+    source: Source, out: Path, stamp: dict[str, str], columns: list[str], rows: Iterable[dict[str, str]]
+) -> None:
+    """Write `rows` to `out` as CSV, each with the provenance columns first, as it gets them."""
+    if clash := stamp.keys() & set(columns):
+        msg = f"{source['id']}: source columns {sorted(clash)} collide with the provenance columns"
+        raise ValueError(msg)
+    with _replacing(out) as fh:
+        text = io.TextIOWrapper(fh, encoding="utf-8", newline="")
+        writer = csv.DictWriter(text, fieldnames=[*stamp, *columns])
+        writer.writeheader()
+        # The stamp last: a parser's row cannot overwrite a provenance column.
+        writer.writerows({**row, **stamp} for row in rows)
+        text.detach()  # flushes; _replacing closes fh
 
 
 def _listed(path: Path) -> dict[str, Any]:
@@ -934,7 +1200,7 @@ def _package_name() -> str:
     return re.sub(r"[^a-z0-9._-]+", "-", Path.cwd().name.lower()).strip("-") or "dataset"
 
 
-def _resource(source: Source, record: FetchRecord, fields: list[str], data: bytes) -> dict[str, Any]:
+def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path) -> dict[str, Any]:
     """One output as a Data Package resource. Every column is text, as the CSV holds it."""
     resource: dict[str, Any] = {
         "name": source["id"],
@@ -943,8 +1209,8 @@ def _resource(source: Source, record: FetchRecord, fields: list[str], data: byte
         "format": "csv",
         "mediatype": "text/csv",
         "encoding": "utf-8",
-        "bytes": len(data),
-        "hash": f"sha256:{hashlib.sha256(data).hexdigest()}",
+        "bytes": out.stat().st_size,
+        "hash": f"sha256:{_digest(out)}",
         "schema": {"fields": [{"name": field, "type": "string"} for field in fields]},
         "sources": [{"title": str(source.get("name", source["id"])), "path": record.url}],
     }
@@ -1012,17 +1278,26 @@ def validate(
             continue
         problems += _terms_problems(source)
         try:
-            record, _ = verified(source, raw=raw)
-            rows = read_output(out)
+            rows, stale = _scan(out, _stamp(_current(source, raw)))
         except (OSError, ValueError, csv.Error) as error:
             problems.append(one_line(error))
             continue
         if not rows:
             problems.append(f"{out}: no rows")
-        stamp = _stamp(record)
-        if any({column: row.get(column) for column in stamp} != stamp for row in rows):
+        if stale:
             problems.append(f"{out}: rows come from an earlier fetch than {raw_name(source)}; re-run build")
     return problems + _package_problems(sources, processed, only)
+
+
+def _scan(out: Path, stamp: dict[str, str]) -> tuple[bool, bool]:
+    """Whether an output has rows, and whether any of them has another stamp, read one row at a time."""
+    rows = stale = False
+    with out.open(newline="", encoding="utf-8") as fh:
+        # Read to the end even once stale, so a damaged file fails as csv.Error wherever it is damaged.
+        for row in csv.DictReader(fh):
+            rows = True
+            stale = stale or {column: row.get(column) for column in stamp} != stamp
+    return rows, stale
 
 
 def _package_problems(sources: list[Source], processed: Path, only: Collection[str] | None) -> list[str]:
@@ -1049,7 +1324,7 @@ def _package_problems(sources: list[Source], processed: Path, only: Collection[s
         out = processed / f"{sid}.csv"
         if sid not in listed:
             problems.append(f"{path} does not list {sid}; re-run build")
-        elif out.exists() and listed[sid].get("hash") != f"sha256:{hashlib.sha256(out.read_bytes()).hexdigest()}":
+        elif out.exists() and listed[sid].get("hash") != f"sha256:{_digest(out)}":
             problems.append(f"{path} describes an earlier build of {out}; re-run build")
     return problems
 
@@ -1148,8 +1423,7 @@ def _file_problems(folder: Path, resource: dict[str, Any]) -> list[str]:
     if not (isinstance(expected, str) and expected.lower().startswith("sha256:")):
         problems.append(f"{file}: the package lists no sha256 hash to check it against")
         return problems
-    with file.open("rb") as fh:
-        digest = hashlib.file_digest(fh, "sha256").hexdigest()
+    digest = _digest(file)
     if f"sha256:{digest}" != expected.lower():
         problems.append(f"{file} hashes to sha256:{digest[:12]}, not the hash the package lists")
     return problems

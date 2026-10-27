@@ -1,5 +1,7 @@
 """The whole pipeline against a fixture served from a local file: no network."""
 
+import contextlib
+import csv
 import errno
 import gzip
 import hashlib
@@ -16,6 +18,7 @@ import tempfile
 import threading
 import time
 import tomllib
+import tracemalloc
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator
@@ -124,6 +127,12 @@ def _serve(monkeypatch: pytest.MonkeyPatch, *outcomes: _Response | Exception) ->
 
 def _http_error(code: int, **headers: str) -> urllib.error.HTTPError:
     return urllib.error.HTTPError("https://example.invalid", code, "error", _headers(**headers), None)
+
+
+def _record(source_id: str, digit: str) -> str:
+    """A log line for `source_id` whose SHA-256 is `digit` 64 times."""
+    fields = {"source_id": source_id, "url": "u", "retrieved_at": "t", "sha256": digit * 64, "bytes": 1}
+    return json.dumps(fields)
 
 
 def test_the_whole_pipeline_runs_from_a_local_file(upstream: Path) -> None:
@@ -642,6 +651,74 @@ def test_a_cut_off_last_log_line_is_dropped_not_fatal(upstream: Path, tmp_path: 
     assert len(lines) == 2
 
 
+def test_a_whole_last_log_line_without_its_newline_is_kept(
+    upstream: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An editor or a merge can drop the final newline; the record is history, not a cut-off append."""
+    monkeypatch.setattr(ledger, "_CHUNK_BYTES", 4)  # find the line start across several reads
+    _run("fetch")
+    first = LOG.read_text(encoding="utf-8")
+    LOG.write_text(first.removesuffix("\n"), encoding="utf-8")
+    upstream.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8")
+    assert _run("fetch") == [0]
+    lines = LOG.read_text(encoding="utf-8").splitlines(keepends=True)
+    assert len(lines) == 2
+    assert lines[0] == first
+    assert "dropping" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"url": "u", "retrieved_at": "t", "sha256": "0" * 64, "bytes": 1},
+        {"source_id": "a", "retrieved_at": "t", "sha256": "0" * 64, "bytes": 1},
+        {"source_id": "a", "url": "u", "sha256": "0" * 64, "bytes": 1},
+        {"source_id": "a", "url": "u", "retrieved_at": "t", "sha256": "0", "bytes": 1},
+        {"source_id": "a", "url": "u", "retrieved_at": "t", "sha256": 123, "bytes": 1},
+        {"source_id": "a", "url": "u", "retrieved_at": "t", "sha256": "0" * 64},
+        {"source_id": "a", "url": "u", "retrieved_at": "t", "sha256": "0" * 64, "bytes": True},
+        {"source_id": "a", "url": "u", "retrieved_at": "t", "sha256": "0" * 64, "bytes": "1"},
+    ],
+)
+def test_a_log_line_missing_a_field_or_of_the_wrong_type_is_not_a_record(
+    tmp_path: Path, fields: dict[str, object]
+) -> None:
+    """Revisions print the size, time and URL, so a line without them is reported, not a KeyError."""
+    before, log = tmp_path / "before.jsonl", tmp_path / "log.jsonl"
+    before.write_text(_record("a", "1") + "\n", encoding="utf-8")
+    log.write_text(json.dumps(fields) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"log\.jsonl:1 is not a fetch record$"):
+        ledger.revisions(before, log=log)
+
+
+@pytest.mark.parametrize(("key", "value"), [("sha256", 123), ("bytes", "29"), ("url", None), ("surplus", 1)])
+def test_a_fetch_record_of_the_wrong_type_is_fetched_again(
+    upstream: Path, key: str, value: object, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Validate reports it as a problem and fetch replaces it, rather than either stopping on a traceback."""
+    _run("fetch", "build")
+    record_path = Path("data/raw/example.csv.fetch.json")
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    record_path.write_text(json.dumps({**record, key: value}), encoding="utf-8")
+    capsys.readouterr()
+    assert _run("validate") == [1]
+    assert "example.csv.fetch.json is not a fetch record; re-run fetch" in capsys.readouterr().err
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    assert json.loads(record_path.read_text(encoding="utf-8"))["url"] == upstream.as_uri()
+
+
+def test_a_pin_is_compared_as_given_by_a_library_caller(upstream: Path, tmp_path: Path) -> None:
+    """A pin that skipped load_manifest is compared as written, by fetch and verified alike."""
+    digest = hashlib.sha256(FIXTURE.encode()).hexdigest()
+    source = {"id": "example", "status": "implemented", "url": upstream.as_uri(), "sha256": digest.upper()}
+    raw = tmp_path / "raw"
+    with pytest.raises(ledger.FetchError, match=r"not the sha256 in sources\.toml$"):
+        ledger.fetch([source], raw=raw, log=tmp_path / "log.jsonl")
+    ledger.fetch([{**source, "sha256": digest}], raw=raw, log=tmp_path / "log.jsonl")
+    with pytest.raises(ValueError, match=r"not the sha256 sources\.toml now pins; re-run fetch$"):
+        ledger.verified(source, raw=raw)
+
+
 @pytest.mark.usefixtures("upstream")
 def test_a_bad_line_inside_the_log_is_an_error_that_names_it(capsys: pytest.CaptureFixture[str]) -> None:
     """Only a cut-off last line is forgiven: damage earlier in the history is reported."""
@@ -737,6 +814,10 @@ def test_revisions_needs_the_earlier_log_to_exist(
     assert main(["revisions", "missing.jsonl"]) == 1
     assert "missing.jsonl is missing" in capsys.readouterr().err
     (tmp_path / "before.jsonl").write_text("", encoding="utf-8")
+    assert main(["revisions", "before.jsonl"]) == 1
+    assert "data/fetches.jsonl is missing" in capsys.readouterr().err
+    LOG.parent.mkdir()
+    LOG.write_text("", encoding="utf-8")
     assert main(["revisions", "before.jsonl"]) == 0
 
 
@@ -815,18 +896,118 @@ def test_a_download_that_outlasts_its_budget_fails(
     assert "unfinished after" in capsys.readouterr().err
 
 
-def test_a_redirect_from_a_public_host_to_an_internal_one_is_refused() -> None:
-    """A third-party server can't make the fetch save an internal service's response."""
+def test_a_server_trickling_bytes_is_stopped_near_the_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A byte every 0.2 s never trips the socket timeout, yet the fetch stops at the budget, not the body's end."""
+    monkeypatch.setattr(ledger, "_BUDGET_S", 0.5)
+    monkeypatch.setattr(ledger, "_SOCKET_TIMEOUT_S", 1)
+    listener = socket.create_server(("127.0.0.1", 0))
+
+    def trickle() -> None:
+        connection, _ = listener.accept()
+        with connection, contextlib.suppress(OSError):  # the client hangs up once it gives up
+            connection.recv(4096)
+            connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 30\r\n\r\n")
+            pause = threading.Event()  # time.sleep is stubbed out for the fetch's own waits
+            for _ in range(30):
+                pause.wait(0.2)
+                connection.sendall(b"x")
+
+    threading.Thread(target=trickle, daemon=True).start()
+    monkeypatch.chdir(tmp_path)
+    _manifest(tmp_path, f"http://127.0.0.1:{listener.getsockname()[1]}/data.csv")
+    start = time.monotonic()
+    assert _run("fetch") == [1]
+    # Within the budget plus one socket timeout; the whole body takes 6 s.
+    assert time.monotonic() - start < 1.5 + 0.5
+    assert "unfinished after 0.5 s" in capsys.readouterr().err
+    listener.close()
+
+
+def test_a_redirect_from_a_public_host_is_marked_public_only() -> None:
+    """The mark carries on to every later hop; a redirect within an internal host gets none."""
     handler = ledger._NoRedirectInward()  # noqa: SLF001
     public = urllib.request.Request("http://93.184.215.14/data.csv")
-    with pytest.raises(urllib.error.HTTPError, match="refused a redirect"):
-        handler.redirect_request(
-            public, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://127.0.0.1/secret"
-        )
+    new = handler.redirect_request(public, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://10.0.0.1/a")
+    assert new is not None
+    assert new.public_only  # ty: ignore[unresolved-attribute]
+    again = handler.redirect_request(new, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://10.0.0.2/b")
+    assert again is not None
+    assert again.public_only  # ty: ignore[unresolved-attribute]
     internal = urllib.request.Request("http://127.0.0.1/data.csv")
-    assert handler.redirect_request(
+    moved = handler.redirect_request(
         internal, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://127.0.0.1/moved"
     )
+    assert moved is not None
+    assert not hasattr(moved, "public_only")
+
+
+class _Rebinder(http.server.BaseHTTPRequestHandler):
+    """/start.csv redirects to rebind.test on the same port; anything else is the internal secret."""
+
+    def do_GET(self) -> None:
+        if self.path == "/start.csv":
+            self.send_response(302)
+            self.send_header("Location", f"http://rebind.test:{self.connection.getsockname()[1]}/secret")
+            self.end_headers()
+            return
+        body = b"secret\n"
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002  # the base class names it
+        """Keep test output quiet."""
+
+
+def test_a_redirect_to_a_name_that_rebinds_inward_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A .test name answers public to the redirect check's lookup and loopback to the connect's one."""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Rebinder)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    real = socket.getaddrinfo
+
+    def rebinding(host: str, port: object, *args: object, **kwargs: object) -> object:
+        if host.endswith(".test"):
+            host = "93.184.215.14" if port is None else "127.0.0.1"
+        return real(host, port, *args, **kwargs)  # ty: ignore[invalid-argument-type]
+
+    monkeypatch.setattr(socket, "getaddrinfo", rebinding)
+    for proxy in ("http_proxy", "HTTP_PROXY", "all_proxy", "ALL_PROXY"):
+        monkeypatch.delenv(proxy, raising=False)
+    monkeypatch.chdir(tmp_path)
+    _manifest(tmp_path, f"http://origin.test:{server.server_address[1]}/start.csv")
+    try:
+        assert _run("fetch") == [1]
+    finally:
+        server.shutdown()
+    assert "example: refused a redirect from a public host to http://rebind.test" in capsys.readouterr().err
+    assert not RAW.exists()
+
+
+def test_the_peer_check_is_skipped_through_a_proxy() -> None:
+    """Through a proxy the socket reaches the proxy, not the host the URL names."""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Rebinder)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = server.server_address[1]
+    try:
+        for url, refused in ((f"http://127.0.0.1:{port}/a.csv", True), ("http://example.org/a.csv", False)):
+            request = urllib.request.Request(url)  # noqa: S310  # http only
+            request.public_only = True  # ty: ignore[unresolved-attribute]
+            connection = ledger._PeerCheck("127.0.0.1", port=port, req=request)  # noqa: SLF001
+            if refused:
+                with pytest.raises(
+                    ValueError, match=rf"^refused a redirect from a public host to {url}, which is at 127\.0\.0\.1$"
+                ):
+                    connection.connect()
+            else:
+                connection.connect()
+            connection.close()
+    finally:
+        server.shutdown()
 
 
 @pytest.mark.usefixtures("upstream")
@@ -885,6 +1066,37 @@ def test_real_http_fetches_redirects_and_304s(publisher: str, tmp_path: Path) ->
     assert (record["etag"], record["final_url"]) == ('"v1"', f"{publisher}/data.csv")
     assert _run("fetch", "build", "validate") == [0, 0, 0]
     assert json.loads(record_path.read_text(encoding="utf-8")) == record
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
+@pytest.mark.usefixtures("upstream")
+def test_a_symlinked_lock_file_leaves_its_target_alone(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A checkout can carry a symlink at data/raw/.lock; taking the lock must not empty the file it points at."""
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep me", encoding="utf-8")
+    RAW.parent.mkdir(parents=True)
+    (RAW.parent / ".lock").symlink_to(victim)
+    assert _run("fetch") == [1]
+    assert "data/raw/.lock" in capsys.readouterr().err
+    assert victim.read_text(encoding="utf-8") == "keep me"
+    (RAW.parent / ".lock").unlink()
+    (RAW.parent / ".lock").write_text("held before", encoding="utf-8")
+    assert _run("fetch") == [0]
+    assert (RAW.parent / ".lock").read_text(encoding="utf-8") == "held before"
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_symlinked_fetch_log_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Appending through a planted symlink would write into another file."""
+    victim = tmp_path / "victim.txt"
+    victim.write_text("", encoding="utf-8")
+    LOG.parent.mkdir(parents=True)
+    LOG.symlink_to(victim)
+    assert _run("fetch") == [1]
+    assert (
+        capsys.readouterr().err == "fetch: data/fetches.jsonl is a symlink; the fetch log must be a file of its own\n"
+    )
+    assert victim.read_text(encoding="utf-8") == ""
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
@@ -1550,7 +1762,7 @@ def test_the_stages_take_their_folders_as_arguments(tmp_path: Path) -> None:
 def test_a_cut_off_line_after_several_records_drops_only_itself(caplog: pytest.LogCaptureFixture) -> None:
     """The log is truncated at its last newline, so every complete record before it stays."""
     LOG.parent.mkdir(parents=True)
-    old = [json.dumps({"source_id": s, "sha256": "0"}) for s in ("x", "y")]
+    old = [_record(s, "0") for s in ("x", "y")]
     LOG.write_text("\n".join(old) + '\n{"source_id": "exa', encoding="utf-8")
     assert _run("fetch") == [0]
     lines = LOG.read_text(encoding="utf-8").splitlines()
@@ -1562,10 +1774,10 @@ def test_a_cut_off_line_after_several_records_drops_only_itself(caplog: pytest.L
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ('{"source_id": "a", "sha256": "1"}\n\n{"source_id": "b", "sha256": "2"}\n', {"a": "1", "b": "2"}),
-        ('{"source_id": "a", "sha256": "1"}\n{"source_id": "a"', {"a": "1"}),
-        ('not json\n{"source_id": "a", "sha256": "1"}', "log.jsonl:1 is not a fetch record"),
-        ('{"source_id": "a", "sha256": "1"}\nnot json\n', "log.jsonl:2 is not a fetch record"),
+        (f"{_record('a', '1')}\n\n{_record('b', '2')}\n", {"a": "1" * 64, "b": "2" * 64}),
+        (f'{_record("a", "1")}\n{{"source_id": "a"', {"a": "1" * 64}),
+        (f"not json\n{_record('a', '1')}", "log.jsonl:1 is not a fetch record"),
+        (f"{_record('a', '1')}\nnot json\n", "log.jsonl:2 is not a fetch record"),
     ],
 )
 def test_the_log_reader_skips_blank_lines_and_forgives_only_a_cut_off_end(
@@ -1637,16 +1849,6 @@ def test_an_unresolvable_host_counts_as_public(monkeypatch: pytest.MonkeyPatch) 
     assert ledger._is_public("no-such-host.invalid")  # noqa: SLF001
 
 
-def test_a_refused_redirect_keeps_the_status_and_target() -> None:
-    handler = ledger._NoRedirectInward()  # noqa: SLF001
-    public = urllib.request.Request("http://93.184.215.14/data.csv")
-    with pytest.raises(urllib.error.HTTPError) as error:
-        handler.redirect_request(public, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://127.0.0.1/s")
-    assert (error.value.code, error.value.url) == (302, "http://127.0.0.1/s")
-    assert error.value.headers is not None
-    assert error.value.fp is not None
-
-
 def test_a_gzip_exactly_at_max_bytes_is_read() -> None:
     """The cap is the most a file may expand to, not one byte less."""
     body = FIXTURE.encode()
@@ -1714,6 +1916,83 @@ def test_excel_errors_name_the_source(tmp_path: Path, monkeypatch: pytest.Monkey
         ledger.parse_xlsx({"id": "x"}, path.read_bytes())
 
 
+def _xlsx(tmp_path: Path, *rows: tuple[object, ...]) -> bytes:
+    """A workbook whose first sheet holds `rows`."""
+    openpyxl = pytest.importorskip("openpyxl")
+    book = openpyxl.Workbook()
+    for row in rows:
+        book.active.append(row)
+    path = tmp_path / "b.xlsx"
+    book.save(path)
+    return path.read_bytes()
+
+
+def test_an_excel_workbook_that_expands_past_max_bytes_is_refused(tmp_path: Path) -> None:
+    """Like a gzip, a small workbook can unzip without limit; the cap applies to what it expands to."""
+    payload = _xlsx(tmp_path, ("year", "value"), *((2020, 1.5),) * 100)
+    with pytest.raises(
+        ValueError, match=r"^x: decompresses past 1000 bytes; raise max_bytes in sources\.toml if expected$"
+    ):
+        ledger.parse_xlsx({"id": "x", "max_bytes": 1000}, payload)
+    assert len(ledger.parse_xlsx({"id": "x", "max_bytes": 10 * len(payload)}, payload)[1]) == 100
+
+
+def test_a_cell_right_of_the_excel_header_is_refused(tmp_path: Path) -> None:
+    """As a CSV row with more fields than its header; an empty cell reads as "", like an empty CSV field."""
+    trailing = _xlsx(tmp_path, ("a", "b", None), (1,), (1, 2))
+    assert ledger.parse_xlsx({"id": "x"}, trailing) == (["a", "b"], [{"a": "1", "b": ""}, {"a": "1", "b": "2"}])
+    stray = _xlsx(tmp_path, ("a", "b"), (1, 2), (None, None), (1, 2, None, "x", "y"))
+    with pytest.raises(ValueError, match=r"^x: row 4 has more cells than the header$"):
+        ledger.parse_xlsx({"id": "x"}, stray)
+
+
+@pytest.mark.parametrize("payload", [b"not a workbook", b"PK\x05\x06" + bytes(18)])
+def test_a_file_that_is_not_a_workbook_is_refused_by_name(payload: bytes) -> None:
+    """A damaged download or an empty zip is a one-line error naming the source, not a zipfile traceback."""
+    pytest.importorskip("openpyxl")
+    with pytest.raises(ValueError, match=r"^x: not a readable Excel workbook \("):
+        ledger.parse_xlsx({"id": "x"}, payload)
+
+
+def test_a_cut_off_gzip_fails_build_with_one_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A truncated download that still starts like a gzip is a source error, not a traceback."""
+    upstream = tmp_path / "upstream" / "example.csv.gz"
+    upstream.parent.mkdir()
+    upstream.write_bytes(gzip.compress(FIXTURE.encode() * 50)[:40])
+    _manifest(tmp_path, upstream.as_uri())
+    monkeypatch.chdir(tmp_path)
+    assert _run("fetch") == [0]
+    capsys.readouterr()
+    assert _run("build") == [1]
+    err = capsys.readouterr().err
+    assert err.startswith("build: example: not a readable gzip file (")
+    assert err.count("\n") == 1
+
+
+@pytest.mark.parametrize(
+    "payload", [gzip.compress(b"[]")[:-8] + b"\0" * 8, b"\x1f\x8b\x08\x00" + bytes(6) + b"\x07junk"]
+)
+def test_a_damaged_gzip_is_refused_by_name(payload: bytes) -> None:
+    """A bad checksum or a corrupt stream names the source too."""
+    with pytest.raises(ValueError, match=r"^j: not a readable gzip file \("):
+        ledger.parse_json({"id": "j"}, payload)
+
+
+def test_json_nested_too_deeply_is_refused_by_name() -> None:
+    """Up to 3.13 the JSON reader gives up on it; from 3.14 it reads it, and writing the cell does."""
+    with pytest.raises(ValueError, match=r"^j: JSON nested too deeply to read$"):
+        ledger.parse_json({"id": "j"}, b'[{"a": ' + b"[" * 100_000 + b"]" * 100_000 + b"}]")
+
+
+def test_json_numbers_are_kept_as_written() -> None:
+    """1.10 is not 1.1, and 1e5 is not 100000.0, at the top level or nested."""
+    payload = '[{"a": 1.10, "b": 1e5, "c": -0, "d": {"é": [2.50, 3E2, true, "ü"], "f": null}}]'.encode()
+    _, rows = ledger.parse_json({"id": "j"}, payload)
+    assert rows == [{"a": "1.10", "b": "1e5", "c": "-0", "d": '{"é": [2.50, 3E2, true, "ü"], "f": null}'}]
+
+
 @pytest.mark.parametrize(
     ("extra", "expected"),
     [
@@ -1756,6 +2035,17 @@ def test_a_new_vintage_error_is_exact(tmp_path: Path) -> None:
         ValueError, match=r"^example\.csv was fetched as vintage 'not stated', not '2025'; re-run fetch$"
     ):
         ledger.verified(ledger.load_manifest()[0])
+
+
+@pytest.mark.usefixtures("upstream")
+def test_verified_gives_the_record_and_bytes_and_refuses_an_edited_raw_file() -> None:
+    (record,) = ledger.fetch(ledger.load_manifest())
+    source = ledger.load_manifest()[0]
+    assert ledger.verified(source) == (record, FIXTURE.encode())
+    assert ledger.verified(source, raw=RAW.parent) == (record, FIXTURE.encode())
+    RAW.write_text("edited\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"^example\.csv changed since it was fetched; re-run fetch$"):
+        ledger.verified(source)
 
 
 def test_status_of_no_sources_is_no_lines(tmp_path: Path) -> None:
@@ -1812,9 +2102,9 @@ class _Spy(_Response):
         super().__init__(body)
         self.asks: list[int | None] = []
 
-    def read(self, size: int | None = -1, /) -> bytes:
+    def read1(self, size: int | None = -1, /) -> bytes:
         self.asks.append(size)
-        return super().read(size)
+        return super().read1(size)
 
 
 @pytest.mark.usefixtures("upstream")
@@ -2067,3 +2357,104 @@ def test_a_manifest_outside_the_project_is_read_from_the_option_or_the_keyword(
     assert main(["validate"], manifest=packaged) == 0
     assert main(["validate"]) == 1  # no ./sources.toml here
     assert not packaged.with_name("data").exists()
+
+
+def _peak(run: Callable[[], object]) -> int:
+    """The most memory Python held at once while `run` ran, in bytes."""
+    tracemalloc.start()
+    try:
+        run()
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+@pytest.fixture
+def big(upstream: Path) -> int:
+    """The upstream file grown to about 2 MB and fetched: its size."""
+    upstream.write_text("year,value,note\n" + "".join(f"{i},{i * 0.5},row {i}\n" for i in range(100_000)))
+    assert _run("fetch") == [0]
+    return upstream.stat().st_size
+
+
+def test_a_conditional_fetch_hashes_the_raw_file_without_holding_it(big: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    sources = ledger.load_manifest()
+    _serve(monkeypatch, _http_error(304))
+    assert _peak(lambda: ledger.fetch(sources)) < big // 4
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_fetch_reads_the_log_once_however_many_sources_keep_their_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _manifest(tmp_path, _DATA, terms=f"{TERMS}\narchive = true")
+    _serve(monkeypatch, _Response(FIXTURE.encode()), _Response(b"", url=_SNAPSHOT), _Response(FIXTURE.encode()))
+    sources = ledger.load_manifest()
+    ledger.fetch(sources)
+    reads: list[Path] = []
+    last_records = ledger._last_records  # noqa: SLF001
+    monkeypatch.setattr(ledger, "_last_records", lambda log: reads.append(log) or last_records(log))
+    assert [r.archive_url for r in ledger.fetch(sources)] == [_SNAPSHOT]
+    assert reads == [LOG]
+
+
+def test_validate_reads_an_output_one_row_at_a_time(big: int) -> None:
+    sources = ledger.load_manifest()
+    ledger.build(sources)
+    assert _peak(lambda: ledger.validate(sources)) < big // 4
+    assert ledger.validate(sources) == []
+
+
+def test_build_streams_a_csv_source_one_row_at_a_time(big: int) -> None:
+    sources = ledger.load_manifest()
+    assert _peak(lambda: ledger.build(sources)) < big // 4
+    assert ledger.validate(sources) == []
+
+
+def _list_path(source: ledger.Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
+    """The default parser behind another name, so build takes the path any custom parser takes."""
+    return ledger.parse_source(source, payload)
+
+
+def _both_paths(raw: bytes) -> list[bytes | str]:
+    """What build writes, or the error it raises, for a CSV source with these bytes: streamed, then as a list."""
+    RAW.write_bytes(raw)
+    record = json.loads(Path(f"{RAW}.fetch.json").read_text(encoding="utf-8"))
+    record["sha256"] = hashlib.sha256(raw).hexdigest()
+    Path(f"{RAW}.fetch.json").write_text(json.dumps(record), encoding="utf-8")
+    results: list[bytes | str] = []
+    for parse in (ledger.parse_source, _list_path):
+        try:
+            ledger.build(ledger.load_manifest(), parse=parse)
+        except (ValueError, csv.Error) as error:
+            results.append(f"{type(error).__name__}: {error}")
+        else:
+            results.append(OUT.read_bytes() + Path("data/processed/datapackage.json").read_bytes())
+    return results
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize(
+    "raw",
+    [
+        FIXTURE.encode(),
+        b"\xef\xbb\xbfyear,value\r\n2020,1.5\r\n",  # a byte-order mark and CRLF
+        b'year,note\n2020,"one\ntwo"\n2021,caf\xc3\xa9 \xe2\x82\xac\n',  # a quoted line break, non-ASCII
+        b'year,note\r\n2020,"one\r\ntwo"\r\n',  # a quoted CRLF, kept as it is
+        b"year,value\n\n2020,1.5\n",  # a blank line
+        b"year,value\n",  # no rows
+        b"",  # empty
+        b"year,year\n1,2\n",
+        b"year,value\n2020,1.5,extra\n",
+        b"year,value\n2020\n",
+        # A short row, then bytes that are not UTF-8 past the first block a stream decodes.
+        pytest.param(b"year,value\n2020\n" + b"x" * 20_000 + b",\xff\n", id="short-row-then-not-utf8"),
+        b"year,source_id\n2020,x\n",  # a provenance column
+        b"year,value\n2020,1.5,\x00\n" + b"2021,2.5\n" * 10,
+        b'year,value\n2020,"open\n',
+    ],
+)
+def test_a_streamed_build_writes_or_refuses_what_the_list_path_does(raw: bytes) -> None:
+    assert _run("fetch") == [0]
+    streamed, listed = _both_paths(raw)
+    assert streamed == listed

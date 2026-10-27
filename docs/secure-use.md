@@ -23,6 +23,9 @@ A `sha256` pin, described below, catches that for a fixed file.
 These checks apply to every fetch:
 
 - A redirect from a public host to a loopback, private or link-local address is refused.
+  The check uses the address the connection actually reached, not a separate DNS lookup,
+  so a name that changes its answer cannot get past it. Behind an HTTP(S) proxy the
+  connection goes to the proxy, so the check is skipped there. That is the remaining gap.
   Without this, a third-party server could make the fetch save an internal service's
   response under the manifest's URL.
 - A redirect that changes the scheme, host or port drops the `headers` from the manifest.
@@ -64,9 +67,12 @@ shown by `revisions`, but not refused.
 
 ### Limit what a download can cost
 
-- `max_bytes` caps each download, 200 MiB unless set. A gzipped file is also refused when
-  it expands past the cap, so a small file cannot expand without limit.
-- Each connect and read times out after 30 s, and one source's whole fetch after 300 s.
+- `max_bytes` caps each download, 200 MiB unless set. A gzipped file or an Excel
+  workbook is also refused when it unpacks past the cap, so a small file cannot expand
+  without limit.
+- `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
+- Timeouts bound each request and each source's whole fetch. The
+  [README](https://github.com/simonvanlierde/sourceledger#how-fetch-behaves) has the numbers.
 
 ### Check redistribute before you publish raw files
 

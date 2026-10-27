@@ -9,24 +9,21 @@
 Build a dataset from public sources where every row says which download it came from.
 
 A project lists its inputs in `sources.toml`: each source's URL, the publisher's reuse
-terms, and whether the raw file may be republished. sourceledger runs four stages over it:
+terms, and whether the raw file may be republished. sourceledger runs three stages over it.
+[How it works](docs/architecture.md) has the detail of each.
 
-- `fetch` downloads each source into `data/raw/` and writes a record beside it: the URL,
-  the time, the SHA-256 and size, the vintage, and the server's ETag. The next fetch
-  sends the ETag back, so an unchanged source isn't downloaded again. Each new version is
-  also added to `data/fetches.jsonl`.
-- `build` re-hashes each download, reads it, and writes `data/processed/<id>.csv` with five
-  provenance columns in front: `source_id`, `source_url`, `retrieved_at`, `vintage` and
-  `raw_sha256`. It also writes `datapackage.json`, a
-  [Frictionless Data Package](https://datapackage.org) that describes every output. The
-  same records always give the same files.
+- `fetch` downloads each source into `data/raw/`, with a record beside it: the URL, the
+  time, the SHA-256 and size, the vintage, and the server's ETag and Last-Modified. An
+  unchanged source isn't downloaded again. Each new version is added to
+  `data/fetches.jsonl`.
+- `build` writes `data/processed/<id>.csv` with five provenance columns in front, and a
+  [Frictionless Data Package](https://datapackage.org), `datapackage.json`, that describes
+  every output. The same records always give the same files.
 - `validate` re-reads the outputs and lists every problem it finds, such as an output from
-  an older fetch, an edited raw file, a record made for another URL, vintage or pin, a
-  source without reuse terms, or a `datapackage.json` that no longer matches.
-- `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
-  log. A weekly CI run can use it to report a publisher's revision.
+  an older fetch, an edited raw file, or a source without reuse terms.
 
-`init`, `status`, `attribution` and `verify` help around them: see [Other commands](#other-commands).
+`init`, `status`, `attribution`, `verify` and `revisions` are commands around them: see
+[Other commands](#other-commands).
 
 There are no dependencies. Excel files need the optional `xlsx` extra. The
 [docs page](https://simonvanlierde.github.io/sourceledger/) walks through a fetch and a
@@ -37,6 +34,8 @@ publisher's silent revision.
 ```sh
 uv add sourceledger            # or 'sourceledger[xlsx]' to read Excel files
 ```
+
+It needs Python 3.12 or later, and runs on Linux and macOS only (POSIX).
 
 ### Verify a release
 
@@ -60,8 +59,7 @@ Both fail unless the file is byte for byte the one this repository's workflow bu
 
 ## Quick start
 
-Write a `sources.toml` in the project root. `sourceledger init` writes one to start from,
-with this example commented out:
+Write a `sources.toml` in the project root (`sourceledger init` writes a starter):
 
 ```toml
 [[source]]
@@ -110,19 +108,18 @@ Each `[[source]]` table takes these keys:
 | `redistribute` | for implemented sources | `true` if the terms let you republish the raw file, `false` if not. |
 | `vintage` | no | The edition you expect, such as `"2024 release"` or a TOML date. Recorded with each fetch and stamped on each row. `"not stated"` when absent. The old name `release` is refused. |
 | `sha256` | no | The SHA-256 the download must have. Pin it for a fixed release, and `fetch` refuses bytes that changed upstream. |
-| `max_bytes` | no | The largest download `fetch` accepts. 200 MiB unless set. |
-| `format` | no | `"csv"`, `"json"` (an array of objects) or `"xlsx"`. Otherwise from the URL's extension: `.json`, `.xlsx`, and CSV for anything else. A gzipped CSV or JSON file is decompressed, within `max_bytes`. |
-| `sheet` | no | The Excel sheet to read. The first unless set. |
-| `headers` | no | Extra request headers, such as an API key, each value naming an environment variable: `{ Authorization = "env:EIA_TOKEN" }`. A literal value is refused, so a secret never lands in the manifest, and so is a `url` that is not https, so a secret never crosses the network in clear text. The record keeps the header names, not the values, and a redirect to another scheme, host or port drops them. |
-| `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for http and https URLs. The archive's request does not send `headers`, so don't use it on a source that needs a login. |
+| `max_bytes` | no | The largest download `fetch` accepts. 200 MiB unless set. A gzipped file or Excel workbook that unpacks past it is refused. |
+| `format` | no | `"csv"`, `"json"` (an array of objects) or `"xlsx"`. Otherwise from the URL's extension: `.json`, `.xlsx`, and CSV for anything else. A gzipped CSV or JSON file is decompressed, within `max_bytes`. JSON numbers are written as they appear in the file (`1e5` stays `1e5`, `1.10` stays `1.10`). |
+| `sheet` | no | The Excel sheet to read. The first unless set. A cell right of the last header cell is refused, and a missing cell in a row reads as `""`. |
+| `headers` | no | Extra request headers, such as an API key, each value naming an environment variable: `{ Authorization = "env:EIA_TOKEN" }`. A literal value is refused, and so is a `url` that is not https. The record keeps the header names, not the values. A redirect to another scheme, host or port drops them. |
+| `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for http and https URLs, and not for a source that needs `headers`: the archive's request sends none. |
 | `reason` | no | A note for people, such as why a source is unimplemented. sourceledger doesn't read it. |
 
 `validate` reports a missing `terms`, `terms_url`, `license` or `redistribute`. The other
-keys are checked when the manifest loads. Keys not listed here are kept, for a project's
-own reader.
+keys are checked when the manifest loads. Keys not listed here are kept for your own reader.
 
-To have an editor with a TOML language server (Tombi, Taplo) check the manifest as you
-type, put this line at the top of `sources.toml`:
+For checks in an editor with a TOML language server (Tombi, Taplo), put this line at the
+top of `sources.toml`:
 
 ```toml
 #:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/main/src/sourceledger/sources.schema.json
@@ -135,31 +132,32 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 - It tries four times, waiting 5, 10 and 20 s between attempts, on 429, 500, 502, 503,
   504, network errors and a body cut short. A `Retry-After` header, in seconds or as a
   date, raises the wait to at most 120 s. Any other error status fails at once.
-- Each connect and read times out after 30 s, and one source's whole fetch after 300 s.
-- It asks for the file uncompressed, and refuses a compressed reply. The checksum is
-  always of the file as published.
-- It refuses a redirect from a public host to a loopback, private or link-local
-  address. When a redirect is followed, the record keeps the final URL too.
+- Each connect and read times out after 30 s, and one source's whole fetch after 300 s. The
+  300 s holds against a server that sends bytes slowly, give or take one 30 s socket timeout.
 - Every source is tried. When some fail, the others are still written, and the run
   exits 1 with one line per failed source.
-- Each download streams to a temporary file, hashed on the way, and is renamed into
-  place. Memory stays small, and a crash never leaves half a file. A log line cut off by
-  a crash is dropped on the next run.
 - A second fetch in the same project, while one runs, exits at once (a lock on
-  `data/raw/.lock`, Linux and macOS only).
+  `data/raw/.lock`).
 - Each line it prints says `new` or `unchanged`, against the last version in the log.
-- For a source with `archive = true`, each connect and read of the Internet Archive
-  request times out after 120 s. When it fails, fetch prints a warning, leaves
-  `archive_url` empty, and still succeeds. Archiving is best effort. Save Page Now
-  answers only once the snapshot is taken (49 s for a GitHub page on 2026-10-20), and it
-  captures one URL at most 5 times a day across all its users. Past that it answers
-  HTTP 429 with no `Retry-After`, and that fetch records no snapshot.
+- For a source with `archive = true`, the Internet Archive request times out after 120 s
+  per connect and read. When it fails, fetch prints a warning, leaves `archive_url` empty,
+  and still succeeds. Save Page Now answers only once the snapshot is taken (49 s for a
+  GitHub page on 2026-10-20), and it captures one URL at most 5 times a day across all its
+  users. Past that it answers HTTP 429 with no `Retry-After`, and that fetch records no
+  snapshot.
+
+The checks on redirects, compression and keys are in [Use sourceledger
+safely](docs/secure-use.md). [How it works](docs/architecture.md#fetch) has the steps and
+the crash safety.
 
 ## Other commands
 
 - `init` writes a starter `sources.toml` in the current directory, or at `--manifest PATH`:
-  the schema line and one example source, commented out. It refuses to overwrite a file
-  that exists.
+  the schema line and one example source, commented out. It won't overwrite an existing one.
+- `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
+  log. Copy the log before you fetch (`cp data/fetches.jsonl before.jsonl`), then run
+  `sourceledger revisions before.jsonl`. A weekly CI run can use it to report a
+  publisher's revision.
 - `status` prints one line per source: its id, status and vintage, when its last logged
   version was fetched (or `never`), the start of its SHA-256, its licence, and whether
   the raw file may be republished. It reads the manifest and the log, never the network.
@@ -170,6 +168,9 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   `DIR/datapackage.json` and checks that each file it lists exists, with the size and
   SHA-256 it gives. It prints one line per problem and exits 1 if there are any. It needs
   no `sources.toml` and no network.
+
+Every command exits 1 on a failure or a problem. `revisions` exits 0 when sources changed,
+by design: a test decides what a revision breaks.
 
 `fetch`, `build` and `validate` take `--only ID`, as often as needed, to work on just those
 sources. An id that is not in `sources.toml` is an error. `build --only` keeps the other
@@ -209,12 +210,12 @@ my-dataset = "my_dataset.pipeline:main"
 
 `my-dataset fetch`, `build` and `validate` then use that reader, and publishers see
 `my-dataset` as the User-Agent. A project that ships its `sources.toml` inside its package
-passes that path as `manifest=`, for example
-`manifest=Path(__file__).with_name("sources.toml")`. The
+passes the path as `manifest=Path(__file__).with_name("sources.toml")`. The
 [project-templates](https://github.com/simonvanlierde/project-templates) `data-pipeline`
-kind sets this up for you, with CI and a weekly revision report. The stages are also
+kind sets this up, with CI and a weekly revision report. The stages are also
 functions: `load_manifest`, `fetch`, `build`, `validate`, `revisions`, `status`,
-`attribution` and `verify`.
+`attribution` and `verify`. `verified(source)` returns a source's fetch record and raw
+bytes after checking that both are current, for a reader that needs them.
 
 ## Compared with
 
@@ -263,16 +264,9 @@ how dependencies are chosen. [GOVERNANCE.md](GOVERNANCE.md) says who decides wha
 [docs/secure-use.md](docs/secure-use.md) what sourceledger checks for you. Report a
 vulnerability as [SECURITY.md](.github/SECURITY.md) describes.
 
-By default the tests never touch the network. Where they stand in for a web service (Save Page
-Now), a contract test runs against both the stand-in and the real service, the second
-only under `uv run pytest -m live`. CI runs that weekly, so the stand-in cannot drift
-from the service unnoticed.
-
-`just py-mutation` runs mutation testing: it changes the code one small step at a time
-and checks that some test fails. It takes about 2 minutes. A change no test notices is a
-survivor. `tests/mutation-baseline.txt` lists how many each function may have, all of them
-changes that do not alter behaviour, such as the case of a header name. The run fails when
-a function has more. After adding a test that kills one, run `just py-mutation-baseline`.
+The tests never touch the network, except those marked `live`. The mutation-testing run
+(`just py-mutation`, about 2 minutes) and its baseline are explained in
+[CONTRIBUTING.md](.github/CONTRIBUTING.md#tests).
 
 ## License
 
