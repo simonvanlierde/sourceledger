@@ -596,6 +596,7 @@ def _last_records(log: Path) -> dict[str, dict[str, Any]]:
     text = log.read_bytes().decode("utf-8", errors="replace")
     lines = text.splitlines()
     records: dict[str, dict[str, Any]] = {}
+    numbers: dict[str, int] = {}
     for number, line in enumerate(lines, start=1):
         if not line.strip():
             continue
@@ -607,10 +608,17 @@ def _last_records(log: Path) -> dict[str, dict[str, Any]]:
                 continue
             msg = f"{log}:{number} is not a fetch record ({error})"
             raise ValueError(msg) from error
-        if not _is_record(record):
+        if not (isinstance(record, dict) and isinstance(record.get("source_id"), str)):
             msg = f"{log}:{number} is not a fetch record"
-            raise ValueError(msg)  # a damaged log: the CLI reports ValueError as one line
+            raise ValueError(msg)  # noqa: TRY004  # a damaged log: the CLI reports ValueError as one line
         records[record["source_id"]] = record
+        numbers[record["source_id"]] = number
+    # Only the last record per source is used, so only those get the full check: it costs
+    # more than reading the line, and a log has many lines per source.
+    for sid, record in records.items():
+        if not _is_record(record):
+            msg = f"{log}:{numbers[sid]} is not a fetch record"
+            raise ValueError(msg)
     return records
 
 
