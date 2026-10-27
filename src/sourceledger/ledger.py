@@ -36,7 +36,7 @@ import urllib.error
 import urllib.request
 import urllib.response
 from collections import Counter
-from collections.abc import Callable, Collection, Generator
+from collections.abc import Callable, Collection, Generator, Iterable, Iterator
 from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
@@ -91,6 +91,9 @@ _MAX_RETRY_AFTER_S = 120
 # Statuses a publisher recovers from. 501 and 505 never will.
 _RETRIED = frozenset({429, 500, 502, 503, 504})
 _CHUNK_BYTES = 1024 * 1024
+# Hashing a file already on disk: small enough that its peak memory stays small, large
+# enough that a small file is one read.
+_HASH_BLOCK_BYTES = 64 * 1024
 # A network error or timeout, or a connection dropped or garbled mid-response.
 _TRANSIENT = (OSError, http.client.HTTPException)
 # A raw file or fetch record that is missing, edited or unreadable.
@@ -282,16 +285,23 @@ def raw_name(source: Source) -> str:
 
 
 def _write_atomic(path: Path, data: bytes) -> None:
-    """Write a new temp file beside `path`, flush it to disk, then rename it over `path`.
+    """Write `data` to `path` as `_replacing` does."""
+    with _replacing(path) as fh:
+        fh.write(data)
+
+
+@contextlib.contextmanager
+def _replacing(path: Path) -> Generator[IO[bytes]]:
+    """A new temp file beside `path` to write; on success it is flushed to disk and renamed over `path`.
 
     A reader never sees half a file. The temp file gets a fresh name, so two runs at once
     don't share it, and it is created rather than opened, so a symlink in its place is
-    never followed.
+    never followed. On an error the temp file is removed and `path` is left as it was.
     """
     fd, temp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".part")
     try:
         with os.fdopen(fd, "wb") as fh:
-            fh.write(data)
+            yield fh
             fh.flush()
             os.fsync(fh.fileno())
         Path(temp).replace(path)
@@ -506,10 +516,9 @@ def _env_headers(source: Source) -> dict[str, str]:
 def _previous(source: Source, raw: Path) -> FetchRecord | None:
     """The last fetch record of `source`, if it and its raw file still match the manifest."""
     try:
-        record, _ = verified(source, raw=raw)
+        return _current(source, raw)
     except _UNUSABLE:
         return None
-    return record
 
 
 def _conditional(previous: FetchRecord | None) -> dict[str, str]:
@@ -639,7 +648,7 @@ def fetch(
     records: list[FetchRecord] = []
     failures: list[str] = []
     with _lock(raw):
-        logged = logged_versions(log)
+        logged = _last_records(log)
         for source in implemented(sources):
             try:
                 records.append(_fetch_one(source, raw, log, logged, user_agent))
@@ -652,7 +661,7 @@ def fetch(
     return records
 
 
-def _fetch_one(source: Source, raw: Path, log: Path, logged: dict[str, str], user_agent: str) -> FetchRecord:
+def _fetch_one(source: Source, raw: Path, log: Path, logged: dict[str, dict[str, Any]], user_agent: str) -> FetchRecord:
     """Fetch one source, write its raw file, log and record, and return the record."""
     response = _get(source, _previous(source, raw), user_agent, raw)
     if isinstance(response, FetchRecord):
@@ -666,7 +675,7 @@ def _fetch_one(source: Source, raw: Path, log: Path, logged: dict[str, str], use
 
 
 def _keep(
-    source: Source, download: _Download, raw: Path, log: Path, logged: dict[str, str], user_agent: str
+    source: Source, download: _Download, raw: Path, log: Path, logged: dict[str, dict[str, Any]], user_agent: str
 ) -> FetchRecord:
     """Check a finished download against the pin, move it into place, and log and record it.
 
@@ -679,8 +688,8 @@ def _keep(
     archived = ""
     if source.get("archive"):
         # The same bytes again, with no 304 to say so, keep the snapshot their log line names.
-        same = logged.get(source["id"]) == digest
-        archived = _last_records(log)[source["id"]].get("archive_url", "") if same else _archive(source, user_agent)
+        last = logged.get(source["id"], {})
+        archived = last.get("archive_url", "") if last.get("sha256") == digest else _archive(source, user_agent)
     record = FetchRecord(
         source_id=source["id"],
         url=source["url"],
@@ -704,11 +713,11 @@ def _keep(
     return record
 
 
-def _log_new_version(log: Path, logged: dict[str, str], record: FetchRecord) -> None:
+def _log_new_version(log: Path, logged: dict[str, dict[str, Any]], record: FetchRecord) -> None:
     # Appended, not rewritten: the log is history. A re-download of the same bytes adds nothing.
-    if logged.get(record.source_id) != record.sha256:
+    if logged.get(record.source_id, {}).get("sha256") != record.sha256:
         _append(log, record)
-        logged[record.source_id] = record.sha256
+        logged[record.source_id] = dataclasses.asdict(record)
 
 
 def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
@@ -718,6 +727,41 @@ def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
     now makes (another URL, vintage or `sha256` pin), or when the raw file no longer hashes
     to the record.
     """
+    record = _record(source, raw)
+    payload = (raw / raw_name(source)).read_bytes()
+    _check_hash(source, record, hashlib.sha256(payload).hexdigest())
+    return record, payload
+
+
+def _current(source: Source, raw: Path) -> FetchRecord:
+    """The fetch record for `source`, checked as `verified` checks it, without reading the raw file into memory."""
+    record = _record(source, raw)
+    _check_hash(source, record, _digest(raw / raw_name(source)))
+    return record
+
+
+def _digest(path: Path) -> str:
+    """The file's SHA-256, read a block at a time."""
+    with path.open("rb") as fh:
+        return _sha256(fh)
+
+
+def _sha256(fh: IO[bytes]) -> str:
+    # Not hashlib.file_digest: its fixed 256 KiB buffer costs more than the hash on a small file.
+    digest = hashlib.sha256()
+    while chunk := fh.read(_HASH_BLOCK_BYTES):
+        digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _check_hash(source: Source, record: FetchRecord, digest: str) -> None:
+    if digest != record.sha256:
+        msg = f"{raw_name(source)} changed since it was fetched; re-run fetch"
+        raise ValueError(msg)
+
+
+def _record(source: Source, raw: Path) -> FetchRecord:
+    """The fetch record for `source`, if it was made for the request the manifest now makes."""
     name = raw_name(source)
     try:
         record = FetchRecord(**json.loads((raw / f"{name}.fetch.json").read_text(encoding="utf-8")))
@@ -733,11 +777,7 @@ def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
     if source.get("sha256", record.sha256).lower() != record.sha256:
         msg = f"{name} hashes to {record.sha256}, not the sha256 sources.toml now pins; re-run fetch"
         raise ValueError(msg)
-    payload = (raw / name).read_bytes()
-    if hashlib.sha256(payload).hexdigest() != record.sha256:
-        msg = f"{name} changed since it was fetched; re-run fetch"
-        raise ValueError(msg)
-    return record, payload
+    return record
 
 
 def parse_source(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
@@ -746,9 +786,12 @@ def parse_source(source: Source, payload: bytes) -> tuple[list[str], list[dict[s
     The format is the source's `format` key, or else the URL's extension: `.json` is JSON,
     `.xlsx` is Excel, anything else is CSV (gzipped or not).
     """
+    return _PARSERS[_format(source)](source, payload)
+
+
+def _format(source: Source) -> str:
     suffix = PurePosixPath(urlsplit(source.get("url", "")).path).suffix.lower()
-    fmt = source.get("format") or {".json": "json", ".xlsx": "xlsx"}.get(suffix, "csv")
-    return _PARSERS[fmt](source, payload)
+    return source.get("format") or {".json": "json", ".xlsx": "xlsx"}.get(suffix, "csv")
 
 
 def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
@@ -761,10 +804,19 @@ def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str,
         payload = _gunzip(source, payload)
     # utf-8-sig drops the byte-order mark that spreadsheet exports start with. Plain UTF-8 reads the same.
     text = payload.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text, newline=""))
+    columns, rows = _csv_rows(source, io.StringIO(text, newline=""))
+    return columns, list(rows)
+
+
+def _csv_rows(source: Source, text: IO[str]) -> tuple[list[str], Iterator[dict[str, str]]]:
+    """A CSV text's columns and its rows, each checked as it is read: parse_csv's checks and messages."""
+    reader = csv.DictReader(text)
     columns = list(reader.fieldnames or [])
     _check_columns(source, columns)
-    rows = []
+    return columns, _checked_rows(source, reader)
+
+
+def _checked_rows(source: Source, reader: csv.DictReader[str]) -> Iterator[dict[str, str]]:
     for row in reader:
         # DictReader files the surplus fields of a long row under the key None.
         if None in row:
@@ -774,8 +826,7 @@ def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str,
         if None in row.values():
             msg = f"{source['id']}: line {reader.line_num} has fewer fields than the header"
             raise ValueError(msg)
-        rows.append(row)
-    return columns, rows
+        yield row
 
 
 def _gunzip(source: Source, payload: bytes) -> bytes:
@@ -893,25 +944,63 @@ def build(
             if source["id"] in earlier:
                 resources.append(earlier[source["id"]])
             continue
-        record, payload = verified(source, raw=raw)
-        stamp = _stamp(record)
-        columns, rows = parse(source, payload)
-        if clash := stamp.keys() & set(columns):
-            msg = f"{source['id']}: source columns {sorted(clash)} collide with the provenance columns"
-            raise ValueError(msg)
-        buffer = io.StringIO(newline="")
-        writer = csv.DictWriter(buffer, fieldnames=[*stamp, *columns])
-        writer.writeheader()
-        # The stamp last: a parser's row cannot overwrite a provenance column.
-        writer.writerows({**row, **stamp} for row in rows)
         out = processed / f"{source['id']}.csv"
-        data = buffer.getvalue().encode()
-        _write_atomic(out, data)
+        record, fields = _build_one(source, raw, out, parse)
         written.append(out)
-        resources.append(_resource(source, record, [*stamp, *columns], data))
+        resources.append(_resource(source, record, fields, out))
     package = {"$schema": _DATAPACKAGE_PROFILE, "name": _package_name(), "resources": resources}
     _write_atomic(processed / DATAPACKAGE, (json.dumps(package, indent=2, ensure_ascii=False) + "\n").encode())
     return written
+
+
+def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[FetchRecord, list[str]]:
+    """Write one source's rows to `out`, each stamped with its fetch record: the record, and the columns written.
+
+    With the default parser a plain CSV file goes through a row at a time, so memory stays
+    near one row whatever the file's size.
+    """
+    record = _record(source, raw)
+    stamp = _stamp(record)
+    with (raw / raw_name(source)).open("rb") as fh:
+        _check_hash(source, record, _sha256(fh))
+        fh.seek(0)
+        if parse is parse_source and _PARSERS[_format(source)] is parse_csv and fh.read(2) != _GZIP_MAGIC:
+            fh.seek(0)
+            text = io.TextIOWrapper(fh, encoding="utf-8-sig", newline="")
+            try:
+                columns, rows = _csv_rows(source, text)
+                _write_rows(source, out, stamp, columns, rows)
+            except (ValueError, csv.Error):
+                # parse_csv decodes the whole file before it reads a row, so it can fail on another
+                # line, or name another byte offset. Reading the file whole gives exactly its error.
+                fh.seek(0)
+                parse(source, fh.read())
+                raise
+            finally:
+                text.detach()  # closing the wrapper would close fh
+        else:
+            # shortcut: other formats, gzipped CSV and custom parsers hold the whole file and its rows
+            # in memory, as a Parser returns lists; stream them too once such sources outgrow memory.
+            fh.seek(0)
+            columns, rows = parse(source, fh.read())
+            _write_rows(source, out, stamp, columns, rows)
+    return record, [*stamp, *columns]
+
+
+def _write_rows(
+    source: Source, out: Path, stamp: dict[str, str], columns: list[str], rows: Iterable[dict[str, str]]
+) -> None:
+    """Write `rows` to `out` as CSV, each with the provenance columns first, as it gets them."""
+    if clash := stamp.keys() & set(columns):
+        msg = f"{source['id']}: source columns {sorted(clash)} collide with the provenance columns"
+        raise ValueError(msg)
+    with _replacing(out) as fh:
+        text = io.TextIOWrapper(fh, encoding="utf-8", newline="")
+        writer = csv.DictWriter(text, fieldnames=[*stamp, *columns])
+        writer.writeheader()
+        # The stamp last: a parser's row cannot overwrite a provenance column.
+        writer.writerows({**row, **stamp} for row in rows)
+        text.detach()  # flushes; _replacing closes fh
 
 
 def _listed(path: Path) -> dict[str, Any]:
@@ -934,7 +1023,7 @@ def _package_name() -> str:
     return re.sub(r"[^a-z0-9._-]+", "-", Path.cwd().name.lower()).strip("-") or "dataset"
 
 
-def _resource(source: Source, record: FetchRecord, fields: list[str], data: bytes) -> dict[str, Any]:
+def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path) -> dict[str, Any]:
     """One output as a Data Package resource. Every column is text, as the CSV holds it."""
     resource: dict[str, Any] = {
         "name": source["id"],
@@ -943,8 +1032,8 @@ def _resource(source: Source, record: FetchRecord, fields: list[str], data: byte
         "format": "csv",
         "mediatype": "text/csv",
         "encoding": "utf-8",
-        "bytes": len(data),
-        "hash": f"sha256:{hashlib.sha256(data).hexdigest()}",
+        "bytes": out.stat().st_size,
+        "hash": f"sha256:{_digest(out)}",
         "schema": {"fields": [{"name": field, "type": "string"} for field in fields]},
         "sources": [{"title": str(source.get("name", source["id"])), "path": record.url}],
     }
@@ -1012,17 +1101,26 @@ def validate(
             continue
         problems += _terms_problems(source)
         try:
-            record, _ = verified(source, raw=raw)
-            rows = read_output(out)
+            rows, stale = _scan(out, _stamp(_current(source, raw)))
         except (OSError, ValueError, csv.Error) as error:
             problems.append(one_line(error))
             continue
         if not rows:
             problems.append(f"{out}: no rows")
-        stamp = _stamp(record)
-        if any({column: row.get(column) for column in stamp} != stamp for row in rows):
+        if stale:
             problems.append(f"{out}: rows come from an earlier fetch than {raw_name(source)}; re-run build")
     return problems + _package_problems(sources, processed, only)
+
+
+def _scan(out: Path, stamp: dict[str, str]) -> tuple[bool, bool]:
+    """Whether an output has rows, and whether any of them has another stamp, read one row at a time."""
+    rows = stale = False
+    with out.open(newline="", encoding="utf-8") as fh:
+        # Read to the end even once stale, so a damaged file fails as csv.Error wherever it is damaged.
+        for row in csv.DictReader(fh):
+            rows = True
+            stale = stale or {column: row.get(column) for column in stamp} != stamp
+    return rows, stale
 
 
 def _package_problems(sources: list[Source], processed: Path, only: Collection[str] | None) -> list[str]:
@@ -1049,7 +1147,7 @@ def _package_problems(sources: list[Source], processed: Path, only: Collection[s
         out = processed / f"{sid}.csv"
         if sid not in listed:
             problems.append(f"{path} does not list {sid}; re-run build")
-        elif out.exists() and listed[sid].get("hash") != f"sha256:{hashlib.sha256(out.read_bytes()).hexdigest()}":
+        elif out.exists() and listed[sid].get("hash") != f"sha256:{_digest(out)}":
             problems.append(f"{path} describes an earlier build of {out}; re-run build")
     return problems
 
@@ -1148,8 +1246,7 @@ def _file_problems(folder: Path, resource: dict[str, Any]) -> list[str]:
     if not (isinstance(expected, str) and expected.lower().startswith("sha256:")):
         problems.append(f"{file}: the package lists no sha256 hash to check it against")
         return problems
-    with file.open("rb") as fh:
-        digest = hashlib.file_digest(fh, "sha256").hexdigest()
+    digest = _digest(file)
     if f"sha256:{digest}" != expected.lower():
         problems.append(f"{file} hashes to sha256:{digest[:12]}, not the hash the package lists")
     return problems
