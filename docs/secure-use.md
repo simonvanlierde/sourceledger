@@ -66,7 +66,8 @@ shown by `revisions`, but not refused.
 
 - `max_bytes` caps each download, 200 MiB unless set. A gzipped file is also refused when
   it expands past the cap, so a small file cannot expand without limit.
-- Each connect and read times out after 30 s, and one source's whole fetch after 300 s.
+- Timeouts bound each request and each source's whole fetch. The
+  [README](https://github.com/simonvanlierde/sourceledger#how-fetch-behaves) has the numbers.
 
 ### Check redistribute before you publish raw files
 

@@ -30,9 +30,8 @@ and command option. This page explains how the parts fit together.
 | `data/processed/<id>.csv` | `build` | `validate` | no |
 | `data/processed/datapackage.json` | `build` | `build --only`, `validate`, `verify` | no |
 
-`<ext>` is the extension of the source's URL. The raw files and outputs stay out of git,
-so the repository never republishes a publisher's data. The log goes into git: it holds
-checksums and URLs, and it is the history of every version you fetched.
+`<ext>` is the extension of the source's URL. The README says
+[what to commit](https://github.com/simonvanlierde/sourceledger#what-to-commit).
 
 Each raw file, record and output is written to a temporary file in the same folder and
 then renamed into place, so a crash never leaves half a file. The log is appended to
@@ -44,7 +43,7 @@ instead, one line per new version. A line cut off by a crash is dropped on the n
 
 1. It reads the source's last `.fetch.json`. When that record still matches the manifest
    and the raw file, the request asks the server to send the file only if it changed
-   (`If-None-Match`, `If-Modified-Since`). A `304 Not Modified` keeps the old file and
+   (`If-None-Match` with the ETag, `If-Modified-Since` with Last-Modified). A `304 Not Modified` keeps the old file and
    record.
 2. Otherwise it streams the body to a temporary file, hashing it on the way, within the
    source's size cap and the time budget.
