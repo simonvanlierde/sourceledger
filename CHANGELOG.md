@@ -75,6 +75,9 @@ Upgrade steps:
 - The 300 s limit on one source's fetch now holds against a server that sends a few
   bytes at a time. Each read used to wait for a full 1 MiB, so a slow trickle kept a
   fetch going far past the limit. It now stops within one 30 s socket timeout of it.
+- `fetch` no longer follows a symlink at `data/raw/.lock` or `data/fetches.jsonl`. A
+  checkout could plant one, and taking the lock emptied the file it pointed at. The lock
+  file is never truncated now, and a symlinked log fails the fetch.
 
 ## [0.2.0] - 2026-10-18
 

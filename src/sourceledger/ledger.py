@@ -617,7 +617,13 @@ def _append(log: Path, record: FetchRecord) -> None:
     A last line cut off by an interrupted fetch is dropped first, so the new line starts
     on a line of its own. A whole record that only lacks its newline, as an editor or a
     merge can leave it, is kept. Only the end of the log is read, however long it is.
+
+    Raises ValueError when the log is a symlink, which a cloned checkout could point at
+    another file.
     """
+    if log.is_symlink():
+        msg = f"{log} is a symlink; the fetch log must be a file of its own"
+        raise ValueError(msg)
     with log.open("a+b") as fh:
         end = fh.seek(0, os.SEEK_END)
         lead = b""
@@ -661,7 +667,9 @@ def _lock(raw: Path) -> Generator[None]:
     if sys.platform == "win32":  # noqa: PLR2004
         yield
         return
-    with (raw / ".lock").open("w") as fh:
+    # Never truncated, and never through a symlink: a cloned checkout could plant one to another file.
+    fd = os.open(raw / ".lock", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "wb") as fh:
         try:
             fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:

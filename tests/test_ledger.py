@@ -1069,6 +1069,37 @@ def test_real_http_fetches_redirects_and_304s(publisher: str, tmp_path: Path) ->
 
 @pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
 @pytest.mark.usefixtures("upstream")
+def test_a_symlinked_lock_file_leaves_its_target_alone(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A checkout can carry a symlink at data/raw/.lock; taking the lock must not empty the file it points at."""
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep me", encoding="utf-8")
+    RAW.parent.mkdir(parents=True)
+    (RAW.parent / ".lock").symlink_to(victim)
+    assert _run("fetch") == [1]
+    assert "data/raw/.lock" in capsys.readouterr().err
+    assert victim.read_text(encoding="utf-8") == "keep me"
+    (RAW.parent / ".lock").unlink()
+    (RAW.parent / ".lock").write_text("held before", encoding="utf-8")
+    assert _run("fetch") == [0]
+    assert (RAW.parent / ".lock").read_text(encoding="utf-8") == "held before"
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_symlinked_fetch_log_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Appending through a planted symlink would write into another file."""
+    victim = tmp_path / "victim.txt"
+    victim.write_text("", encoding="utf-8")
+    LOG.parent.mkdir(parents=True)
+    LOG.symlink_to(victim)
+    assert _run("fetch") == [1]
+    assert (
+        capsys.readouterr().err == "fetch: data/fetches.jsonl is a symlink; the fetch log must be a file of its own\n"
+    )
+    assert victim.read_text(encoding="utf-8") == ""
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
+@pytest.mark.usefixtures("upstream")
 def test_a_second_fetch_at_once_is_refused(capsys: pytest.CaptureFixture[str]) -> None:
     """Two runs interleaving their writes could pair one run's raw file with the other's record."""
     RAW.parent.mkdir(parents=True)
