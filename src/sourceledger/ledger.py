@@ -940,16 +940,19 @@ def parse_json(source: Source, payload: bytes) -> tuple[list[str], list[dict[str
     nested too deeply to read.
     """
     payload = _maybe_gunzip(source, payload)
+    # From 3.14 the reader's depth limit follows the stack size, so a deep value can load and
+    # then overflow while its cell is written: both steps are covered.
     try:
         data = json.loads(payload.decode("utf-8-sig"), parse_float=_Number, parse_int=_Number)
+        if not (isinstance(data, list) and all(isinstance(item, dict) for item in data)):
+            msg = f"{source['id']}: expected a JSON array of objects"
+            raise ValueError(msg)
+        columns = list(dict.fromkeys(key for item in data for key in item))
+        rows = [{column: _cell(item.get(column)) for column in columns} for item in data]
     except RecursionError as error:
         msg = f"{source['id']}: JSON nested too deeply to read"
         raise ValueError(msg) from error
-    if not (isinstance(data, list) and all(isinstance(item, dict) for item in data)):
-        msg = f"{source['id']}: expected a JSON array of objects"
-        raise ValueError(msg)
-    columns = list(dict.fromkeys(key for item in data for key in item))
-    return columns, [{column: _cell(item.get(column)) for column in columns} for item in data]
+    return columns, rows
 
 
 def parse_xlsx(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:

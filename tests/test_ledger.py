@@ -1980,8 +1980,9 @@ def test_a_damaged_gzip_is_refused_by_name(payload: bytes) -> None:
 
 
 def test_json_nested_too_deeply_is_refused_by_name() -> None:
+    """Up to 3.13 the JSON reader gives up on it; from 3.14 it reads it, and writing the cell does."""
     with pytest.raises(ValueError, match=r"^j: JSON nested too deeply to read$"):
-        ledger.parse_json({"id": "j"}, b"[" * 100_000 + b"]" * 100_000)
+        ledger.parse_json({"id": "j"}, b'[{"a": ' + b"[" * 100_000 + b"]" * 100_000 + b"}]")
 
 
 def test_json_numbers_are_kept_as_written() -> None:
