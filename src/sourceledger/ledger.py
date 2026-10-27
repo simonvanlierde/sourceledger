@@ -91,6 +91,9 @@ _MAX_RETRY_AFTER_S = 120
 # Statuses a publisher recovers from. 501 and 505 never will.
 _RETRIED = frozenset({429, 500, 502, 503, 504})
 _CHUNK_BYTES = 1024 * 1024
+# Hashing a file already on disk: small enough that its peak memory stays small, large
+# enough that a small file is one read.
+_HASH_BLOCK_BYTES = 64 * 1024
 # A network error or timeout, or a connection dropped or garbled mid-response.
 _TRANSIENT = (OSError, http.client.HTTPException)
 # A raw file or fetch record that is missing, edited or unreadable.
@@ -740,7 +743,15 @@ def _current(source: Source, raw: Path) -> FetchRecord:
 def _digest(path: Path) -> str:
     """The file's SHA-256, read a block at a time."""
     with path.open("rb") as fh:
-        return hashlib.file_digest(fh, "sha256").hexdigest()
+        return _sha256(fh)
+
+
+def _sha256(fh: IO[bytes]) -> str:
+    # Not hashlib.file_digest: its fixed 256 KiB buffer costs more than the hash on a small file.
+    digest = hashlib.sha256()
+    while chunk := fh.read(_HASH_BLOCK_BYTES):
+        digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _check_hash(source: Source, record: FetchRecord, digest: str) -> None:
@@ -951,7 +962,7 @@ def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[Fet
     record = _record(source, raw)
     stamp = _stamp(record)
     with (raw / raw_name(source)).open("rb") as fh:
-        _check_hash(source, record, hashlib.file_digest(fh, "sha256").hexdigest())
+        _check_hash(source, record, _sha256(fh))
         fh.seek(0)
         if parse is parse_source and _PARSERS[_format(source)] is parse_csv and fh.read(2) != _GZIP_MAGIC:
             fh.seek(0)
