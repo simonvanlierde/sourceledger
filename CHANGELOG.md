@@ -16,6 +16,8 @@ Upgrade steps:
   message naming the new one (see Removed below).
 - A source with `headers` needs an https `url` now (see Security below). Switch an
   `http://` URL to `https://`, which most APIs serve.
+- Run `build` again for JSON sources: numbers are now written as they appear in the file,
+  so such an output can change (see Changed below).
 
 ### Added
 
@@ -70,9 +72,9 @@ Upgrade steps:
   or a merge can leave it, keeps that record. Before, the next fetch took it for a line
   cut off by an interrupted fetch and deleted it from the history. Appending now reads
   only the end of the log, not all of it.
-- A fetch log line or a `.fetch.json` record with a missing field, or a field of the wrong
-  type (a SHA-256 that is not 64 hex digits, a size that is not a whole number), is now
-  reported as not a fetch record. Before, `fetch`, `build`, `validate` and `revisions`
+- A source's last record in the fetch log, or its `.fetch.json`, with a missing field or a
+  field of the wrong type (a SHA-256 that is not 64 hex digits, a size that is not a whole
+  number), is now reported as not a fetch record. Before, `fetch`, `build`, `validate` and `revisions`
   could stop with a traceback, and `fetch` skipped the sources after it. `fetch` now
   downloads such a source again, and `validate` lists it as a problem.
 - `revisions` fails when the current log does not exist, as it already did for the
