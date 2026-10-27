@@ -12,7 +12,10 @@ import json
 import logging
 import os
 import re
+import shutil
 import socket
+import ssl
+import subprocess
 import sys
 import tempfile
 import threading
@@ -28,6 +31,7 @@ from email.message import Message
 from email.utils import format_datetime
 from importlib.metadata import version
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -1007,6 +1011,79 @@ def test_the_peer_check_is_skipped_through_a_proxy() -> None:
             else:
                 connection.connect()
             connection.close()
+    finally:
+        server.shutdown()
+
+
+class _QuietServer(http.server.ThreadingHTTPServer):
+    def handle_error(self, request: object, client_address: object) -> None:
+        """The refused client hangs up mid-request; that is the point, so print nothing."""
+
+
+class _TLSEcho(http.server.BaseHTTPRequestHandler):
+    """Answers every GET with a body and records the request line."""
+
+    seen: ClassVar[list[str]] = []
+
+    def do_GET(self) -> None:
+        self.seen.append(self.path)
+        body = b"tls ok\n"
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002  # the base class names it
+        """Keep test output quiet."""
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="needs the openssl CLI to make a throwaway test cert")
+def test_the_peer_check_refuses_a_loopback_peer_over_tls(tmp_path: Path) -> None:
+    """A public-only https request is refused after the handshake and before any request bytes."""
+    cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
+    subprocess.run(  # noqa: S603  # fixed arguments
+        [  # noqa: S607  # openssl from PATH
+            "openssl",
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-days",
+            "1",
+            "-subj",
+            "/CN=127.0.0.1",
+            "-addext",
+            "subjectAltName=IP:127.0.0.1",
+            "-keyout",
+            str(key),
+            "-out",
+            str(cert),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_context.load_cert_chain(cert, key)
+    _TLSEcho.seen.clear()
+    server = _QuietServer(("127.0.0.1", 0), _TLSEcho)
+    server.socket = server_context.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"https://127.0.0.1:{server.server_address[1]}/a.csv"
+    opener = urllib.request.build_opener(ledger._HTTPSHandler(context=ssl.create_default_context(cafile=str(cert))))  # noqa: SLF001
+    try:
+        plain = urllib.request.Request(url)  # https only
+        with opener.open(plain, timeout=5) as response:
+            assert response.read() == b"tls ok\n"
+        assert _TLSEcho.seen == ["/a.csv"]
+        _TLSEcho.seen.clear()
+        marked = urllib.request.Request(url)  # https only
+        marked.public_only = True  # ty: ignore[unresolved-attribute]
+        with pytest.raises(
+            ValueError, match=rf"^refused a redirect from a public host to {url}, which is at 127\.0\.0\.1$"
+        ):
+            opener.open(marked, timeout=5)
+        assert _TLSEcho.seen == []
     finally:
         server.shutdown()
 
