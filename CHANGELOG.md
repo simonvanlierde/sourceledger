@@ -19,6 +19,9 @@ a breaking change comes only in a minor version (see Stability in the README).
   not the one on main. An editor then checks the manifest against the rules your version
   applies, not against keys a later release adds or refuses. Update the line when you
   upgrade. The schema's `$id`, and SchemaStore's entry, stay on main.
+- Each GitHub release now carries the wheel, the sdist and their signed provenance
+  bundle (`sourceledger-<version>.sigstore.json`) as assets. The maintainer pushes a tag,
+  and the release workflow creates the release.
 
 ## [0.3.0] - 2026-10-27
 

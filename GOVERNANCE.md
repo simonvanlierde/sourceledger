@@ -23,10 +23,11 @@ runtime dependencies, and every output row names the download it came from. The
 
 ## Releases
 
-The maintainer publishes a GitHub release from a tag on `main`. The release workflow runs
-the full suite on the tagged commit, and again against the built wheel, before it
-publishes to PyPI. The maintainer approves each publish by hand. Each release has a
-section in the [changelog](CHANGELOG.md), with breaking changes marked and upgrade steps
+The maintainer pushes a signed `v*` tag on `main`. The release workflow runs the full
+suite on the tagged commit, and again against the built wheel, before it publishes to
+PyPI. The maintainer approves each publish by hand. The workflow then creates the GitHub
+release, with the wheel, the sdist and their signed provenance as assets. Each release has
+a section in the [changelog](CHANGELOG.md), with breaking changes marked and upgrade steps
 first. [Stability](README.md#stability) in the README says which changes may break what.
 
 ## Adding a maintainer
