@@ -17,7 +17,6 @@ Upgrade steps:
 
 ### Added
 
-- The README and `pyproject.toml` now say sourceledger runs on POSIX systems only (Linux and macOS).
 - `--manifest PATH` on every command, and `manifest=` on `main`, read a `sources.toml`
   other than the one in the current directory, such as one a project ships inside its
   package. The data still goes to `data/` in the current directory.
@@ -30,6 +29,8 @@ Upgrade steps:
 
 ### Changed
 
+- sourceledger is for Linux and macOS (POSIX), and its package metadata now says so. On
+  Windows it runs, but `fetch` takes no lock against a second run.
 - Reading a table with thousands of columns, or a `sources.toml` with thousands of sources,
   is faster: the check for repeated names no longer grows with the square of their number.
 
