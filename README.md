@@ -46,13 +46,13 @@ pass its path:
 
 ```sh
 uvx pypi-attestations verify pypi --repository https://github.com/simonvanlierde/sourceledger \
-  sourceledger-0.2.0-py3-none-any.whl
+  sourceledger-0.3.0-py3-none-any.whl
 ```
 
 From 0.2.0, GitHub also keeps a signed build-provenance attestation for each file:
 
 ```sh
-gh attestation verify sourceledger-0.2.0-py3-none-any.whl --repo simonvanlierde/sourceledger
+gh attestation verify sourceledger-0.3.0-py3-none-any.whl --repo simonvanlierde/sourceledger
 ```
 
 Both fail unless the file is byte for byte the one this repository's workflow built.
@@ -152,8 +152,8 @@ the crash safety.
 
 ## Other commands
 
-- `init` writes a starter `sources.toml` in the current directory: the schema line and one
-  example source, commented out. It won't overwrite an existing one.
+- `init` writes a starter `sources.toml` in the current directory, or at `--manifest PATH`:
+  the schema line and one example source, commented out. It won't overwrite an existing one.
 - `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
   log. Copy the log before you fetch (`cp data/fetches.jsonl before.jsonl`), then run
   `sourceledger revisions before.jsonl`. A weekly CI run can use it to report a
@@ -177,8 +177,8 @@ sources. An id that is not in `sources.toml` is an error. `build --only` keeps t
 sources' entries in `datapackage.json` as the last build wrote them, and
 `validate --only` skips the checks that cover the whole output.
 
-Every command reads `./sources.toml` unless given `--manifest PATH`. The data folder stays
-`data/` in the current directory either way.
+Every command that reads the manifest reads `./sources.toml` unless given `--manifest PATH`.
+The data folder stays `data/` in the current directory either way.
 
 ## Your own readers
 

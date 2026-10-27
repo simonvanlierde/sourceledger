@@ -1,6 +1,6 @@
 [project]
 name = "sourceledger"
-version = "0.2.0"
+version = "0.3.0"
 description = "Fetch, verify and validate the public sources a dataset is built from, with a provenance record for every download"
 readme = "README.md"
 requires-python = ">=3.12"
