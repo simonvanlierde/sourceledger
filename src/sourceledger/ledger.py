@@ -36,7 +36,7 @@ import urllib.error
 import urllib.request
 import urllib.response
 from collections import Counter
-from collections.abc import Callable, Collection, Generator
+from collections.abc import Callable, Collection, Generator, Iterable, Iterator
 from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
@@ -282,16 +282,23 @@ def raw_name(source: Source) -> str:
 
 
 def _write_atomic(path: Path, data: bytes) -> None:
-    """Write a new temp file beside `path`, flush it to disk, then rename it over `path`.
+    """Write `data` to `path` as `_replacing` does."""
+    with _replacing(path) as fh:
+        fh.write(data)
+
+
+@contextlib.contextmanager
+def _replacing(path: Path) -> Generator[IO[bytes]]:
+    """A new temp file beside `path` to write; on success it is flushed to disk and renamed over `path`.
 
     A reader never sees half a file. The temp file gets a fresh name, so two runs at once
     don't share it, and it is created rather than opened, so a symlink in its place is
-    never followed.
+    never followed. On an error the temp file is removed and `path` is left as it was.
     """
     fd, temp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".part")
     try:
         with os.fdopen(fd, "wb") as fh:
-            fh.write(data)
+            yield fh
             fh.flush()
             os.fsync(fh.fileno())
         Path(temp).replace(path)
@@ -768,9 +775,12 @@ def parse_source(source: Source, payload: bytes) -> tuple[list[str], list[dict[s
     The format is the source's `format` key, or else the URL's extension: `.json` is JSON,
     `.xlsx` is Excel, anything else is CSV (gzipped or not).
     """
+    return _PARSERS[_format(source)](source, payload)
+
+
+def _format(source: Source) -> str:
     suffix = PurePosixPath(urlsplit(source.get("url", "")).path).suffix.lower()
-    fmt = source.get("format") or {".json": "json", ".xlsx": "xlsx"}.get(suffix, "csv")
-    return _PARSERS[fmt](source, payload)
+    return source.get("format") or {".json": "json", ".xlsx": "xlsx"}.get(suffix, "csv")
 
 
 def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
@@ -783,10 +793,19 @@ def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str,
         payload = _gunzip(source, payload)
     # utf-8-sig drops the byte-order mark that spreadsheet exports start with. Plain UTF-8 reads the same.
     text = payload.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text, newline=""))
+    columns, rows = _csv_rows(source, io.StringIO(text, newline=""))
+    return columns, list(rows)
+
+
+def _csv_rows(source: Source, text: IO[str]) -> tuple[list[str], Iterator[dict[str, str]]]:
+    """A CSV text's columns and its rows, each checked as it is read: parse_csv's checks and messages."""
+    reader = csv.DictReader(text)
     columns = list(reader.fieldnames or [])
     _check_columns(source, columns)
-    rows = []
+    return columns, _checked_rows(source, reader)
+
+
+def _checked_rows(source: Source, reader: csv.DictReader[str]) -> Iterator[dict[str, str]]:
     for row in reader:
         # DictReader files the surplus fields of a long row under the key None.
         if None in row:
@@ -796,8 +815,7 @@ def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str,
         if None in row.values():
             msg = f"{source['id']}: line {reader.line_num} has fewer fields than the header"
             raise ValueError(msg)
-        rows.append(row)
-    return columns, rows
+        yield row
 
 
 def _gunzip(source: Source, payload: bytes) -> bytes:
@@ -915,25 +933,63 @@ def build(
             if source["id"] in earlier:
                 resources.append(earlier[source["id"]])
             continue
-        record, payload = verified(source, raw=raw)
-        stamp = _stamp(record)
-        columns, rows = parse(source, payload)
-        if clash := stamp.keys() & set(columns):
-            msg = f"{source['id']}: source columns {sorted(clash)} collide with the provenance columns"
-            raise ValueError(msg)
-        buffer = io.StringIO(newline="")
-        writer = csv.DictWriter(buffer, fieldnames=[*stamp, *columns])
-        writer.writeheader()
-        # The stamp last: a parser's row cannot overwrite a provenance column.
-        writer.writerows({**row, **stamp} for row in rows)
         out = processed / f"{source['id']}.csv"
-        data = buffer.getvalue().encode()
-        _write_atomic(out, data)
+        record, fields = _build_one(source, raw, out, parse)
         written.append(out)
-        resources.append(_resource(source, record, [*stamp, *columns], data))
+        resources.append(_resource(source, record, fields, out))
     package = {"$schema": _DATAPACKAGE_PROFILE, "name": _package_name(), "resources": resources}
     _write_atomic(processed / DATAPACKAGE, (json.dumps(package, indent=2, ensure_ascii=False) + "\n").encode())
     return written
+
+
+def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[FetchRecord, list[str]]:
+    """Write one source's rows to `out`, each stamped with its fetch record: the record, and the columns written.
+
+    With the default parser a plain CSV file goes through a row at a time, so memory stays
+    near one row whatever the file's size.
+    """
+    record = _record(source, raw)
+    stamp = _stamp(record)
+    with (raw / raw_name(source)).open("rb") as fh:
+        _check_hash(source, record, hashlib.file_digest(fh, "sha256").hexdigest())
+        fh.seek(0)
+        if parse is parse_source and _PARSERS[_format(source)] is parse_csv and fh.read(2) != _GZIP_MAGIC:
+            fh.seek(0)
+            text = io.TextIOWrapper(fh, encoding="utf-8-sig", newline="")
+            try:
+                columns, rows = _csv_rows(source, text)
+                _write_rows(source, out, stamp, columns, rows)
+            except (ValueError, csv.Error):
+                # parse_csv decodes the whole file before it reads a row, so it can fail on another
+                # line, or name another byte offset. Reading the file whole gives exactly its error.
+                fh.seek(0)
+                parse(source, fh.read())
+                raise
+            finally:
+                text.detach()  # closing the wrapper would close fh
+        else:
+            # shortcut: other formats, gzipped CSV and custom parsers hold the whole file and its rows
+            # in memory, as a Parser returns lists; stream them too once such sources outgrow memory.
+            fh.seek(0)
+            columns, rows = parse(source, fh.read())
+            _write_rows(source, out, stamp, columns, rows)
+    return record, [*stamp, *columns]
+
+
+def _write_rows(
+    source: Source, out: Path, stamp: dict[str, str], columns: list[str], rows: Iterable[dict[str, str]]
+) -> None:
+    """Write `rows` to `out` as CSV, each with the provenance columns first, as it gets them."""
+    if clash := stamp.keys() & set(columns):
+        msg = f"{source['id']}: source columns {sorted(clash)} collide with the provenance columns"
+        raise ValueError(msg)
+    with _replacing(out) as fh:
+        text = io.TextIOWrapper(fh, encoding="utf-8", newline="")
+        writer = csv.DictWriter(text, fieldnames=[*stamp, *columns])
+        writer.writeheader()
+        # The stamp last: a parser's row cannot overwrite a provenance column.
+        writer.writerows({**row, **stamp} for row in rows)
+        text.detach()  # flushes; _replacing closes fh
 
 
 def _listed(path: Path) -> dict[str, Any]:
@@ -956,7 +1012,7 @@ def _package_name() -> str:
     return re.sub(r"[^a-z0-9._-]+", "-", Path.cwd().name.lower()).strip("-") or "dataset"
 
 
-def _resource(source: Source, record: FetchRecord, fields: list[str], data: bytes) -> dict[str, Any]:
+def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path) -> dict[str, Any]:
     """One output as a Data Package resource. Every column is text, as the CSV holds it."""
     resource: dict[str, Any] = {
         "name": source["id"],
@@ -965,8 +1021,8 @@ def _resource(source: Source, record: FetchRecord, fields: list[str], data: byte
         "format": "csv",
         "mediatype": "text/csv",
         "encoding": "utf-8",
-        "bytes": len(data),
-        "hash": f"sha256:{hashlib.sha256(data).hexdigest()}",
+        "bytes": out.stat().st_size,
+        "hash": f"sha256:{_digest(out)}",
         "schema": {"fields": [{"name": field, "type": "string"} for field in fields]},
         "sources": [{"title": str(source.get("name", source["id"])), "path": record.url}],
     }

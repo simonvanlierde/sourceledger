@@ -1,5 +1,6 @@
 """The whole pipeline against a fixture served from a local file: no network."""
 
+import csv
 import errno
 import gzip
 import hashlib
@@ -2114,3 +2115,57 @@ def test_validate_reads_an_output_one_row_at_a_time(big: int) -> None:
     ledger.build(sources)
     assert _peak(lambda: ledger.validate(sources)) < big // 4
     assert ledger.validate(sources) == []
+
+
+def test_build_streams_a_csv_source_one_row_at_a_time(big: int) -> None:
+    sources = ledger.load_manifest()
+    assert _peak(lambda: ledger.build(sources)) < big // 4
+    assert ledger.validate(sources) == []
+
+
+def _list_path(source: ledger.Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
+    """The default parser behind another name, so build takes the path any custom parser takes."""
+    return ledger.parse_source(source, payload)
+
+
+def _both_paths(raw: bytes) -> list[bytes | str]:
+    """What build writes, or the error it raises, for a CSV source with these bytes: streamed, then as a list."""
+    RAW.write_bytes(raw)
+    record = json.loads(Path(f"{RAW}.fetch.json").read_text(encoding="utf-8"))
+    record["sha256"] = hashlib.sha256(raw).hexdigest()
+    Path(f"{RAW}.fetch.json").write_text(json.dumps(record), encoding="utf-8")
+    results: list[bytes | str] = []
+    for parse in (ledger.parse_source, _list_path):
+        try:
+            ledger.build(ledger.load_manifest(), parse=parse)
+        except (ValueError, csv.Error) as error:
+            results.append(f"{type(error).__name__}: {error}")
+        else:
+            results.append(OUT.read_bytes() + Path("data/processed/datapackage.json").read_bytes())
+    return results
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize(
+    "raw",
+    [
+        FIXTURE.encode(),
+        b"\xef\xbb\xbfyear,value\r\n2020,1.5\r\n",  # a byte-order mark and CRLF
+        b'year,note\n2020,"one\ntwo"\n2021,caf\xc3\xa9 \xe2\x82\xac\n',  # a quoted line break, non-ASCII
+        b"year,value\n\n2020,1.5\n",  # a blank line
+        b"year,value\n",  # no rows
+        b"",  # empty
+        b"year,year\n1,2\n",
+        b"year,value\n2020,1.5,extra\n",
+        b"year,value\n2020\n",
+        # A short row, then bytes that are not UTF-8 past the first block a stream decodes.
+        pytest.param(b"year,value\n2020\n" + b"x" * 20_000 + b",\xff\n", id="short-row-then-not-utf8"),
+        b"year,source_id\n2020,x\n",  # a provenance column
+        b"year,value\n2020,1.5,\x00\n" + b"2021,2.5\n" * 10,
+        b'year,value\n2020,"open\n',
+    ],
+)
+def test_a_streamed_build_writes_or_refuses_what_the_list_path_does(raw: bytes) -> None:
+    assert _run("fetch") == [0]
+    streamed, listed = _both_paths(raw)
+    assert streamed == listed
