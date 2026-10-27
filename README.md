@@ -47,13 +47,13 @@ pass its path:
 
 ```sh
 uvx pypi-attestations verify pypi --repository https://github.com/simonvanlierde/sourceledger \
-  sourceledger-0.2.0-py3-none-any.whl
+  sourceledger-0.3.0-py3-none-any.whl
 ```
 
 From 0.2.0, GitHub also keeps a signed build-provenance attestation for each file:
 
 ```sh
-gh attestation verify sourceledger-0.2.0-py3-none-any.whl --repo simonvanlierde/sourceledger
+gh attestation verify sourceledger-0.3.0-py3-none-any.whl --repo simonvanlierde/sourceledger
 ```
 
 Both fail unless the file is byte for byte the one this repository's workflow built.

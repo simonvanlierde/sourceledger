@@ -8,6 +8,8 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-27
+
 Upgrade steps:
 
 - Rename `release` to `vintage` in `sources.toml`. The old key is now refused, with a
@@ -143,6 +145,7 @@ Upgrade steps:
   vintage or pin.
 - Manifest key `vintage`. The key `release` is still read, with a warning.
 
-[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/simonvanlierde/sourceledger/releases/tag/v0.1.0
