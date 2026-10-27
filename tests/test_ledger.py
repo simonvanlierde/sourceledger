@@ -1760,6 +1760,17 @@ def test_a_new_vintage_error_is_exact(tmp_path: Path) -> None:
         ledger.verified(ledger.load_manifest()[0])
 
 
+@pytest.mark.usefixtures("upstream")
+def test_verified_gives_the_record_and_bytes_and_refuses_an_edited_raw_file() -> None:
+    (record,) = ledger.fetch(ledger.load_manifest())
+    source = ledger.load_manifest()[0]
+    assert ledger.verified(source) == (record, FIXTURE.encode())
+    assert ledger.verified(source, raw=RAW.parent) == (record, FIXTURE.encode())
+    RAW.write_text("edited\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"^example\.csv changed since it was fetched; re-run fetch$"):
+        ledger.verified(source)
+
+
 def test_status_of_no_sources_is_no_lines(tmp_path: Path) -> None:
     assert ledger.status([], log=tmp_path / "none.jsonl") == []
 
@@ -2152,6 +2163,7 @@ def _both_paths(raw: bytes) -> list[bytes | str]:
         FIXTURE.encode(),
         b"\xef\xbb\xbfyear,value\r\n2020,1.5\r\n",  # a byte-order mark and CRLF
         b'year,note\n2020,"one\ntwo"\n2021,caf\xc3\xa9 \xe2\x82\xac\n',  # a quoted line break, non-ASCII
+        b'year,note\r\n2020,"one\r\ntwo"\r\n',  # a quoted CRLF, kept as it is
         b"year,value\n\n2020,1.5\n",  # a blank line
         b"year,value\n",  # no rows
         b"",  # empty
