@@ -506,10 +506,9 @@ def _env_headers(source: Source) -> dict[str, str]:
 def _previous(source: Source, raw: Path) -> FetchRecord | None:
     """The last fetch record of `source`, if it and its raw file still match the manifest."""
     try:
-        record, _ = verified(source, raw=raw)
+        return _current(source, raw)
     except _UNUSABLE:
         return None
-    return record
 
 
 def _conditional(previous: FetchRecord | None) -> dict[str, str]:
@@ -639,7 +638,7 @@ def fetch(
     records: list[FetchRecord] = []
     failures: list[str] = []
     with _lock(raw):
-        logged = logged_versions(log)
+        logged = _last_records(log)
         for source in implemented(sources):
             try:
                 records.append(_fetch_one(source, raw, log, logged, user_agent))
@@ -652,7 +651,7 @@ def fetch(
     return records
 
 
-def _fetch_one(source: Source, raw: Path, log: Path, logged: dict[str, str], user_agent: str) -> FetchRecord:
+def _fetch_one(source: Source, raw: Path, log: Path, logged: dict[str, dict[str, Any]], user_agent: str) -> FetchRecord:
     """Fetch one source, write its raw file, log and record, and return the record."""
     response = _get(source, _previous(source, raw), user_agent, raw)
     if isinstance(response, FetchRecord):
@@ -666,7 +665,7 @@ def _fetch_one(source: Source, raw: Path, log: Path, logged: dict[str, str], use
 
 
 def _keep(
-    source: Source, download: _Download, raw: Path, log: Path, logged: dict[str, str], user_agent: str
+    source: Source, download: _Download, raw: Path, log: Path, logged: dict[str, dict[str, Any]], user_agent: str
 ) -> FetchRecord:
     """Check a finished download against the pin, move it into place, and log and record it.
 
@@ -679,8 +678,8 @@ def _keep(
     archived = ""
     if source.get("archive"):
         # The same bytes again, with no 304 to say so, keep the snapshot their log line names.
-        same = logged.get(source["id"]) == digest
-        archived = _last_records(log)[source["id"]].get("archive_url", "") if same else _archive(source, user_agent)
+        last = logged.get(source["id"], {})
+        archived = last.get("archive_url", "") if last.get("sha256") == digest else _archive(source, user_agent)
     record = FetchRecord(
         source_id=source["id"],
         url=source["url"],
@@ -704,11 +703,11 @@ def _keep(
     return record
 
 
-def _log_new_version(log: Path, logged: dict[str, str], record: FetchRecord) -> None:
+def _log_new_version(log: Path, logged: dict[str, dict[str, Any]], record: FetchRecord) -> None:
     # Appended, not rewritten: the log is history. A re-download of the same bytes adds nothing.
-    if logged.get(record.source_id) != record.sha256:
+    if logged.get(record.source_id, {}).get("sha256") != record.sha256:
         _append(log, record)
-        logged[record.source_id] = record.sha256
+        logged[record.source_id] = dataclasses.asdict(record)
 
 
 def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
@@ -718,6 +717,33 @@ def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
     now makes (another URL, vintage or `sha256` pin), or when the raw file no longer hashes
     to the record.
     """
+    record = _record(source, raw)
+    payload = (raw / raw_name(source)).read_bytes()
+    _check_hash(source, record, hashlib.sha256(payload).hexdigest())
+    return record, payload
+
+
+def _current(source: Source, raw: Path) -> FetchRecord:
+    """The fetch record for `source`, checked as `verified` checks it, without reading the raw file into memory."""
+    record = _record(source, raw)
+    _check_hash(source, record, _digest(raw / raw_name(source)))
+    return record
+
+
+def _digest(path: Path) -> str:
+    """The file's SHA-256, read a block at a time."""
+    with path.open("rb") as fh:
+        return hashlib.file_digest(fh, "sha256").hexdigest()
+
+
+def _check_hash(source: Source, record: FetchRecord, digest: str) -> None:
+    if digest != record.sha256:
+        msg = f"{raw_name(source)} changed since it was fetched; re-run fetch"
+        raise ValueError(msg)
+
+
+def _record(source: Source, raw: Path) -> FetchRecord:
+    """The fetch record for `source`, if it was made for the request the manifest now makes."""
     name = raw_name(source)
     try:
         record = FetchRecord(**json.loads((raw / f"{name}.fetch.json").read_text(encoding="utf-8")))
@@ -733,11 +759,7 @@ def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
     if source.get("sha256", record.sha256).lower() != record.sha256:
         msg = f"{name} hashes to {record.sha256}, not the sha256 sources.toml now pins; re-run fetch"
         raise ValueError(msg)
-    payload = (raw / name).read_bytes()
-    if hashlib.sha256(payload).hexdigest() != record.sha256:
-        msg = f"{name} changed since it was fetched; re-run fetch"
-        raise ValueError(msg)
-    return record, payload
+    return record
 
 
 def parse_source(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
@@ -1049,7 +1071,7 @@ def _package_problems(sources: list[Source], processed: Path, only: Collection[s
         out = processed / f"{sid}.csv"
         if sid not in listed:
             problems.append(f"{path} does not list {sid}; re-run build")
-        elif out.exists() and listed[sid].get("hash") != f"sha256:{hashlib.sha256(out.read_bytes()).hexdigest()}":
+        elif out.exists() and listed[sid].get("hash") != f"sha256:{_digest(out)}":
             problems.append(f"{path} describes an earlier build of {out}; re-run build")
     return problems
 
@@ -1148,8 +1170,7 @@ def _file_problems(folder: Path, resource: dict[str, Any]) -> list[str]:
     if not (isinstance(expected, str) and expected.lower().startswith("sha256:")):
         problems.append(f"{file}: the package lists no sha256 hash to check it against")
         return problems
-    with file.open("rb") as fh:
-        digest = hashlib.file_digest(fh, "sha256").hexdigest()
+    digest = _digest(file)
     if f"sha256:{digest}" != expected.lower():
         problems.append(f"{file} hashes to sha256:{digest[:12]}, not the hash the package lists")
     return problems

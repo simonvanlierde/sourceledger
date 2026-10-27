@@ -31,6 +31,9 @@ Upgrade steps:
 
 - Reading a table with thousands of columns, or a `sources.toml` with thousands of sources,
   is faster: the check for repeated names no longer grows with the square of their number.
+- `fetch` checks a raw file's hash before a conditional request without reading the whole
+  file into memory, and reads the fetch log once per run. Before, each source with
+  `archive = true` that came back with the same bytes read the whole log again.
 
 ### Removed
 

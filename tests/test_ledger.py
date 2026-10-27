@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 import tomllib
+import tracemalloc
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator
@@ -2067,3 +2068,42 @@ def test_a_manifest_outside_the_project_is_read_from_the_option_or_the_keyword(
     assert main(["validate"], manifest=packaged) == 0
     assert main(["validate"]) == 1  # no ./sources.toml here
     assert not packaged.with_name("data").exists()
+
+
+def _peak(run: Callable[[], object]) -> int:
+    """The most memory Python held at once while `run` ran, in bytes."""
+    tracemalloc.start()
+    try:
+        run()
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+@pytest.fixture
+def big(upstream: Path) -> int:
+    """The upstream file grown to about 2 MB and fetched: its size."""
+    upstream.write_text("year,value,note\n" + "".join(f"{i},{i * 0.5},row {i}\n" for i in range(100_000)))
+    assert _run("fetch") == [0]
+    return upstream.stat().st_size
+
+
+def test_a_conditional_fetch_hashes_the_raw_file_without_holding_it(big: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    sources = ledger.load_manifest()
+    _serve(monkeypatch, _http_error(304))
+    assert _peak(lambda: ledger.fetch(sources)) < big // 4
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_fetch_reads_the_log_once_however_many_sources_keep_their_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _manifest(tmp_path, _DATA, terms=f"{TERMS}\narchive = true")
+    _serve(monkeypatch, _Response(FIXTURE.encode()), _Response(b"", url=_SNAPSHOT), _Response(FIXTURE.encode()))
+    sources = ledger.load_manifest()
+    ledger.fetch(sources)
+    reads: list[Path] = []
+    last_records = ledger._last_records  # noqa: SLF001
+    monkeypatch.setattr(ledger, "_last_records", lambda log: reads.append(log) or last_records(log))
+    assert [r.archive_url for r in ledger.fetch(sources)] == [_SNAPSHOT]
+    assert reads == [LOG]
