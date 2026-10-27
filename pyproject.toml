@@ -60,9 +60,6 @@ build-backend = "uv_build"
 # Set here, not user-wide, so every machine writes the same uv.lock.
 [tool.uv]
 exclude-newer = "1 week"
-# TODO(2026-10-27): delete. certifi 2026.10.19 fixes GHSA-6q48-6c7w-9gw2 (through
-# frictionless, dev only) but was uploaded 2026-10-20, inside the week above.
-exclude-newer-package = { certifi = "2026-10-21T00:00:00Z" }
 
 # uv_build derives the package dir from the normalized project.name, so pin it
 # for a module_name that differs.
