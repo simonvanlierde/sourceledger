@@ -17,6 +17,7 @@ Upgrade steps:
 
 ### Added
 
+- The README and `pyproject.toml` now say sourceledger runs on POSIX systems only (Linux and macOS).
 - `--manifest PATH` on every command, and `manifest=` on `main`, read a `sources.toml`
   other than the one in the current directory, such as one a project ships inside its
   package. The data still goes to `data/` in the current directory.
