@@ -127,6 +127,12 @@ def _http_error(code: int, **headers: str) -> urllib.error.HTTPError:
     return urllib.error.HTTPError("https://example.invalid", code, "error", _headers(**headers), None)
 
 
+def _record(source_id: str, digit: str) -> str:
+    """A log line for `source_id` whose SHA-256 is `digit` 64 times."""
+    fields = {"source_id": source_id, "url": "u", "retrieved_at": "t", "sha256": digit * 64, "bytes": 1}
+    return json.dumps(fields)
+
+
 def test_the_whole_pipeline_runs_from_a_local_file(upstream: Path) -> None:
     """Fetch, build and validate succeed, and every output row names the bytes it came from."""
     assert _run("fetch", "build", "validate") == [0, 0, 0]
@@ -643,6 +649,74 @@ def test_a_cut_off_last_log_line_is_dropped_not_fatal(upstream: Path, tmp_path: 
     assert len(lines) == 2
 
 
+def test_a_whole_last_log_line_without_its_newline_is_kept(
+    upstream: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An editor or a merge can drop the final newline; the record is history, not a cut-off append."""
+    monkeypatch.setattr(ledger, "_CHUNK_BYTES", 4)  # find the line start across several reads
+    _run("fetch")
+    first = LOG.read_text(encoding="utf-8")
+    LOG.write_text(first.removesuffix("\n"), encoding="utf-8")
+    upstream.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8")
+    assert _run("fetch") == [0]
+    lines = LOG.read_text(encoding="utf-8").splitlines(keepends=True)
+    assert len(lines) == 2
+    assert lines[0] == first
+    assert "dropping" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"url": "u", "retrieved_at": "t", "sha256": "0" * 64, "bytes": 1},
+        {"source_id": "a", "retrieved_at": "t", "sha256": "0" * 64, "bytes": 1},
+        {"source_id": "a", "url": "u", "sha256": "0" * 64, "bytes": 1},
+        {"source_id": "a", "url": "u", "retrieved_at": "t", "sha256": "0", "bytes": 1},
+        {"source_id": "a", "url": "u", "retrieved_at": "t", "sha256": 123, "bytes": 1},
+        {"source_id": "a", "url": "u", "retrieved_at": "t", "sha256": "0" * 64},
+        {"source_id": "a", "url": "u", "retrieved_at": "t", "sha256": "0" * 64, "bytes": True},
+        {"source_id": "a", "url": "u", "retrieved_at": "t", "sha256": "0" * 64, "bytes": "1"},
+    ],
+)
+def test_a_log_line_missing_a_field_or_of_the_wrong_type_is_not_a_record(
+    tmp_path: Path, fields: dict[str, object]
+) -> None:
+    """Revisions print the size, time and URL, so a line without them is reported, not a KeyError."""
+    before, log = tmp_path / "before.jsonl", tmp_path / "log.jsonl"
+    before.write_text(_record("a", "1") + "\n", encoding="utf-8")
+    log.write_text(json.dumps(fields) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"log\.jsonl:1 is not a fetch record$"):
+        ledger.revisions(before, log=log)
+
+
+@pytest.mark.parametrize(("key", "value"), [("sha256", 123), ("bytes", "29"), ("url", None)])
+def test_a_fetch_record_of_the_wrong_type_is_fetched_again(
+    upstream: Path, key: str, value: object, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Validate reports it as a problem and fetch replaces it, rather than either stopping on a traceback."""
+    _run("fetch", "build")
+    record_path = Path("data/raw/example.csv.fetch.json")
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    record_path.write_text(json.dumps({**record, key: value}), encoding="utf-8")
+    capsys.readouterr()
+    assert _run("validate") == [1]
+    assert "example.csv.fetch.json is not a fetch record; re-run fetch" in capsys.readouterr().err
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    assert json.loads(record_path.read_text(encoding="utf-8"))["url"] == upstream.as_uri()
+
+
+def test_a_pin_is_compared_as_given_by_a_library_caller(upstream: Path, tmp_path: Path) -> None:
+    """A pin that skipped load_manifest is compared as written, by fetch and verified alike."""
+    digest = hashlib.sha256(FIXTURE.encode()).hexdigest()
+    source = {"id": "example", "status": "implemented", "url": upstream.as_uri(), "sha256": digest.upper()}
+    raw = tmp_path / "raw"
+    with pytest.raises(ledger.FetchError, match=r"not the sha256 in sources\.toml$"):
+        ledger.fetch([source], raw=raw, log=tmp_path / "log.jsonl")
+    ledger.fetch([{**source, "sha256": digest}], raw=raw, log=tmp_path / "log.jsonl")
+    with pytest.raises(ValueError, match=r"not the sha256 sources\.toml now pins; re-run fetch$"):
+        ledger.verified(source, raw=raw)
+
+
 @pytest.mark.usefixtures("upstream")
 def test_a_bad_line_inside_the_log_is_an_error_that_names_it(capsys: pytest.CaptureFixture[str]) -> None:
     """Only a cut-off last line is forgiven: damage earlier in the history is reported."""
@@ -738,6 +812,10 @@ def test_revisions_needs_the_earlier_log_to_exist(
     assert main(["revisions", "missing.jsonl"]) == 1
     assert "missing.jsonl is missing" in capsys.readouterr().err
     (tmp_path / "before.jsonl").write_text("", encoding="utf-8")
+    assert main(["revisions", "before.jsonl"]) == 1
+    assert "data/fetches.jsonl is missing" in capsys.readouterr().err
+    LOG.parent.mkdir()
+    LOG.write_text("", encoding="utf-8")
     assert main(["revisions", "before.jsonl"]) == 0
 
 
@@ -1652,7 +1730,7 @@ def test_the_stages_take_their_folders_as_arguments(tmp_path: Path) -> None:
 def test_a_cut_off_line_after_several_records_drops_only_itself(caplog: pytest.LogCaptureFixture) -> None:
     """The log is truncated at its last newline, so every complete record before it stays."""
     LOG.parent.mkdir(parents=True)
-    old = [json.dumps({"source_id": s, "sha256": "0"}) for s in ("x", "y")]
+    old = [_record(s, "0") for s in ("x", "y")]
     LOG.write_text("\n".join(old) + '\n{"source_id": "exa', encoding="utf-8")
     assert _run("fetch") == [0]
     lines = LOG.read_text(encoding="utf-8").splitlines()
@@ -1664,10 +1742,10 @@ def test_a_cut_off_line_after_several_records_drops_only_itself(caplog: pytest.L
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ('{"source_id": "a", "sha256": "1"}\n\n{"source_id": "b", "sha256": "2"}\n', {"a": "1", "b": "2"}),
-        ('{"source_id": "a", "sha256": "1"}\n{"source_id": "a"', {"a": "1"}),
-        ('not json\n{"source_id": "a", "sha256": "1"}', "log.jsonl:1 is not a fetch record"),
-        ('{"source_id": "a", "sha256": "1"}\nnot json\n', "log.jsonl:2 is not a fetch record"),
+        (f"{_record('a', '1')}\n\n{_record('b', '2')}\n", {"a": "1" * 64, "b": "2" * 64}),
+        (f'{_record("a", "1")}\n{{"source_id": "a"', {"a": "1" * 64}),
+        (f"not json\n{_record('a', '1')}", "log.jsonl:1 is not a fetch record"),
+        (f"{_record('a', '1')}\nnot json\n", "log.jsonl:2 is not a fetch record"),
     ],
 )
 def test_the_log_reader_skips_blank_lines_and_forgives_only_a_cut_off_end(

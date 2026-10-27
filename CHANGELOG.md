@@ -47,6 +47,19 @@ Upgrade steps:
   answers only once the snapshot is taken, 49 s for a GitHub page in one test, so a fetch
   whose snapshot took longer than 15 s recorded an empty `archive_url` although the
   archive had the page.
+- A fetch log whose last line is a whole record without its final newline, as an editor
+  or a merge can leave it, keeps that record. Before, the next fetch took it for a line
+  cut off by an interrupted fetch and deleted it from the history. Appending now reads
+  only the end of the log, not all of it.
+- A fetch log line or a `.fetch.json` record with a missing field, or a field of the wrong
+  type (a SHA-256 that is not 64 hex digits, a size that is not a whole number), is now
+  reported as not a fetch record. Before, `fetch`, `build`, `validate` and `revisions`
+  could stop with a traceback, and `fetch` skipped the sources after it. `fetch` now
+  downloads such a source again, and `validate` lists it as a problem.
+- `revisions` fails when the current log does not exist, as it already did for the
+  earlier copy. Run from the wrong directory, it used to report no revisions.
+- `fetch` and `build` called from Python with a `sha256` pin in upper case, bypassing
+  `load_manifest`, now treat it the same way: both compare it as written.
 
 ### Security
 

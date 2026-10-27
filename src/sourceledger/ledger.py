@@ -571,6 +571,16 @@ def _conditional(previous: FetchRecord | None) -> dict[str, str]:
     return {name: value for name, value in headers.items() if value}
 
 
+def _is_record(fields: object) -> bool:
+    """Whether `fields` holds a fetch record's id, URL, time, SHA-256 and size, each of its own type."""
+    return (
+        isinstance(fields, dict)
+        and all(isinstance(fields.get(key), str) for key in ("source_id", "url", "retrieved_at", "sha256"))
+        and _SHA256.fullmatch(fields["sha256"]) is not None
+        and type(fields.get("bytes")) is int  # not isinstance: bool is an int subclass
+    )
+
+
 def _last_records(log: Path) -> dict[str, dict[str, Any]]:
     """The record most recently logged for each source id, from the fetch log.
 
@@ -594,13 +604,9 @@ def _last_records(log: Path) -> dict[str, dict[str, Any]]:
                 continue
             msg = f"{log}:{number} is not a fetch record ({error})"
             raise ValueError(msg) from error
-        if not (
-            isinstance(record, dict)
-            and isinstance(record.get("source_id"), str)
-            and isinstance(record.get("sha256"), str)
-        ):
+        if not _is_record(record):
             msg = f"{log}:{number} is not a fetch record"
-            raise ValueError(msg)  # noqa: TRY004  # a damaged log: the CLI reports ValueError as one line
+            raise ValueError(msg)  # a damaged log: the CLI reports ValueError as one line
         records[record["source_id"]] = record
     return records
 
@@ -609,15 +615,36 @@ def _append(log: Path, record: FetchRecord) -> None:
     """Add `record` as one line at the end of the log, in one write, flushed to disk.
 
     A last line cut off by an interrupted fetch is dropped first, so the new line starts
-    on a line of its own.
+    on a line of its own. A whole record that only lacks its newline, as an editor or a
+    merge can leave it, is kept. Only the end of the log is read, however long it is.
     """
-    if log.exists() and (text := log.read_bytes()) and not text.endswith(b"\n"):
-        _logger.warning("%s: dropping a last line cut off by an interrupted fetch", log)
-        os.truncate(log, text.rfind(b"\n") + 1)
-    with log.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(dataclasses.asdict(record)) + "\n")
+    with log.open("a+b") as fh:
+        end = fh.seek(0, os.SEEK_END)
+        lead = b""
+        if end and (start := _last_line_start(fh, end)) < end:
+            fh.seek(start)
+            try:
+                json.loads(fh.read())
+            except ValueError:  # not JSON, or not UTF-8
+                _logger.warning("%s: dropping a last line cut off by an interrupted fetch", log)
+                fh.truncate(start)
+            else:
+                lead = b"\n"
+        fh.write(lead + json.dumps(dataclasses.asdict(record)).encode() + b"\n")
         fh.flush()
         os.fsync(fh.fileno())
+
+
+def _last_line_start(fh: IO[bytes], end: int) -> int:
+    """Where the line after the last newline starts: `end` when the file ends with one."""
+    pos = end
+    while pos > 0:
+        step = min(pos, _CHUNK_BYTES)
+        fh.seek(pos - step)
+        if (newline := fh.read(step).rfind(b"\n")) != -1:
+            return pos - step + newline + 1
+        pos -= step
+    return 0
 
 
 def logged_versions(log: Path = FETCH_LOG) -> dict[str, str]:
@@ -647,11 +674,12 @@ def revisions(before: Path, *, log: Path = FETCH_LOG) -> list[str]:
     """One Markdown line per source whose bytes changed between `before`, an earlier copy of the log, and `log`.
 
     A source that `before` never logged is new, not revised, and is left out. Raises
-    FileNotFoundError when `before` does not exist: an empty report must mean no
-    revisions, not a missing copy.
+    FileNotFoundError when `before` or `log` does not exist: an empty report must mean no
+    revisions, not a missing copy or a run from the wrong directory.
     """
-    if not before.exists():
-        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(before))
+    for path in (before, log):
+        if not path.exists():
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(path))
     old, new = _last_records(before), _last_records(log)
     return [
         f"- `{sid}`: {old[sid]['sha256'][:12]} -> {r['sha256'][:12]}, {r['bytes']:,} bytes, "
@@ -770,10 +798,13 @@ def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
     to the record.
     """
     name = raw_name(source)
+    fields = json.loads((raw / f"{name}.fetch.json").read_text(encoding="utf-8"))
+    msg = f"{name}.fetch.json is not a fetch record; re-run fetch"
+    if not _is_record(fields):
+        raise ValueError(msg)
     try:
-        record = FetchRecord(**json.loads((raw / f"{name}.fetch.json").read_text(encoding="utf-8")))
-    except TypeError as error:
-        msg = f"{name}.fetch.json is not a fetch record; re-run fetch"
+        record = FetchRecord(**fields)
+    except TypeError as error:  # a key FetchRecord does not have, or lacks
         raise ValueError(msg) from error
     if (record.source_id, record.url) != (source["id"], source["url"]):
         msg = f"{name} was fetched from {record.url}, but sources.toml now requests {source['url']}; re-run fetch"
@@ -781,7 +812,7 @@ def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
     if record.vintage != _vintage(source):
         msg = f"{name} was fetched as vintage {record.vintage!r}, not {_vintage(source)!r}; re-run fetch"
         raise ValueError(msg)
-    if source.get("sha256", record.sha256).lower() != record.sha256:
+    if source.get("sha256", record.sha256) != record.sha256:  # load_manifest lowercases the pin
         msg = f"{name} hashes to {record.sha256}, not the sha256 sources.toml now pins; re-run fetch"
         raise ValueError(msg)
     payload = (raw / name).read_bytes()
