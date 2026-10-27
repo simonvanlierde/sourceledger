@@ -8,6 +8,11 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+### Added
+
+- The README shows how to rebuild a release from its tag and get the same wheel and sdist
+  as on PyPI, byte for byte.
+
 ### Changed
 
 - `init` writes a `#:schema` line that names the schema at your installed version's tag,
