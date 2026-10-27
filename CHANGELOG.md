@@ -31,6 +31,10 @@ Upgrade steps:
 
 - Reading a table with thousands of columns, or a `sources.toml` with thousands of sources,
   is faster: the check for repeated names no longer grows with the square of their number.
+- `validate` reads each output one row at a time, and checks the raw file's hash without
+  reading it into memory, so memory use no longer grows with the size of the data. For a
+  161 MiB source it peaked at 2.5 GiB before. `build` on the command line counts the rows
+  it prints the same way.
 - `fetch` checks a raw file's hash before a conditional request without reading the whole
   file into memory, and reads the fetch log once per run. Before, each source with
   `archive = true` that came back with the same bytes read the whole log again.

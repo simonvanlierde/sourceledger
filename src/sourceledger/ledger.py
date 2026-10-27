@@ -1034,17 +1034,26 @@ def validate(
             continue
         problems += _terms_problems(source)
         try:
-            record, _ = verified(source, raw=raw)
-            rows = read_output(out)
+            rows, stale = _scan(out, _stamp(_current(source, raw)))
         except (OSError, ValueError, csv.Error) as error:
             problems.append(one_line(error))
             continue
         if not rows:
             problems.append(f"{out}: no rows")
-        stamp = _stamp(record)
-        if any({column: row.get(column) for column in stamp} != stamp for row in rows):
+        if stale:
             problems.append(f"{out}: rows come from an earlier fetch than {raw_name(source)}; re-run build")
     return problems + _package_problems(sources, processed, only)
+
+
+def _scan(out: Path, stamp: dict[str, str]) -> tuple[bool, bool]:
+    """Whether an output has rows, and whether any of them has another stamp, read one row at a time."""
+    rows = stale = False
+    with out.open(newline="", encoding="utf-8") as fh:
+        # Read to the end even once stale, so a damaged file fails as csv.Error wherever it is damaged.
+        for row in csv.DictReader(fh):
+            rows = True
+            stale = stale or {column: row.get(column) for column in stamp} != stamp
+    return rows, stale
 
 
 def _package_problems(sources: list[Source], processed: Path, only: Collection[str] | None) -> list[str]:

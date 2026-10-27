@@ -2107,3 +2107,10 @@ def test_a_fetch_reads_the_log_once_however_many_sources_keep_their_snapshot(
     monkeypatch.setattr(ledger, "_last_records", lambda log: reads.append(log) or last_records(log))
     assert [r.archive_url for r in ledger.fetch(sources)] == [_SNAPSHOT]
     assert reads == [LOG]
+
+
+def test_validate_reads_an_output_one_row_at_a_time(big: int) -> None:
+    sources = ledger.load_manifest()
+    ledger.build(sources)
+    assert _peak(lambda: ledger.validate(sources)) < big // 4
+    assert ledger.validate(sources) == []
