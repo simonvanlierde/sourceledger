@@ -947,8 +947,7 @@ class _Rebinder(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/start.csv":
             self.send_response(302)
-            port = self.headers["Host"].rsplit(":", 1)[1]
-            self.send_header("Location", f"http://rebind.test:{port}/secret")
+            self.send_header("Location", f"http://rebind.test:{self.connection.getsockname()[1]}/secret")
             self.end_headers()
             return
         body = b"secret\n"
