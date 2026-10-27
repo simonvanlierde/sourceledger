@@ -144,7 +144,8 @@ jobs:
             echo "CHANGELOG.md has no section for $version" >&2
             exit 1
           fi
-          mv provenance/attestation.json "provenance/sourceledger-$version.sigstore.json"
+          # One bundle, whatever the attest action names it; mv fails if there are more.
+          mv provenance/*.json "provenance/sourceledger-$version.sigstore.json"
           gh release create "$TAG" --draft --verify-tag --title "$TAG" \
             --notes-file "$RUNNER_TEMP/notes.md" \
             dist/* "provenance/sourceledger-$version.sigstore.json"
