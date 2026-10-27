@@ -18,11 +18,13 @@ import contextlib
 import csv
 import dataclasses
 import errno
+import functools
 import gzip
 import hashlib
 import http.client
 import io
 import ipaddress
+import itertools
 import json
 import logging
 import os
@@ -35,6 +37,8 @@ import tomllib
 import urllib.error
 import urllib.request
 import urllib.response
+import zipfile
+import zlib
 from collections import Counter
 from collections.abc import Callable, Collection, Generator, Iterable, Iterator
 from datetime import UTC, date, datetime
@@ -319,12 +323,18 @@ def _is_public(host: str) -> bool:
     return all(ipaddress.ip_address(info[4][0]).is_global for info in infos)
 
 
+class _InwardRedirectError(ValueError):
+    """A redirect from a public host connected to a loopback, private or link-local address."""
+
+
 class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
     """Refuses a redirect from a public host to a loopback, private or link-local one.
 
     Otherwise a third-party server could have the fetch save an internal service's response
     under the manifest's URL. A source that lives on an internal host can still redirect
-    within it.
+    within it. The redirect is only marked here; the connection checks the address it
+    actually reached (`_PeerCheck`), so a name that resolves to another address the second
+    time can't slip through.
     """
 
     def redirect_request(
@@ -336,20 +346,60 @@ class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
         headers: http.client.HTTPMessage,
         newurl: str,
     ) -> urllib.request.Request | None:
-        """Raise HTTPError for an inward redirect; follow any other as urllib does."""
-        if _is_public(urlsplit(req.full_url).hostname or "") and not _is_public(urlsplit(newurl).hostname or ""):
-            reason = f"refused a redirect from a public host to {newurl}"
-            raise urllib.error.HTTPError(newurl, code, reason, headers, fp)
+        """Follow the redirect as urllib does, marking it public-only when it comes from a public host."""
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is None:
+            return None
+        # Every later hop stays public-only, so a public host can't bounce through one that looks internal.
+        if getattr(req, "public_only", False) or _is_public(urlsplit(req.full_url).hostname or ""):
+            new.public_only = True  # ty: ignore[unresolved-attribute]  # read back by _PeerCheck
         # urllib copies every header to the new request. A token meant for one host must not
         # reach another, nor go out in clear text after https -> http, so a redirect that
         # changes the scheme, host or port keeps only the harmless ones.
-        if new is not None and urlsplit(newurl)[:2] != urlsplit(req.full_url)[:2]:
+        if urlsplit(newurl)[:2] != urlsplit(req.full_url)[:2]:
             new.headers = {k: v for k, v in new.headers.items() if k.lower() in _SAFE_ON_REDIRECT}
         return new
 
 
-_OPENER = urllib.request.build_opener(_NoRedirectInward())
+class _PeerCheck(http.client.HTTPConnection):
+    """Once connected, refuses a public-only request whose socket reached a non-public address.
+
+    Checked before anything is sent. Through a proxy the peer is the proxy, which resolves
+    the name itself, so the check is skipped there.
+    """
+
+    def __init__(self, host: str, *, req: urllib.request.Request, **kwargs: Any) -> None:  # noqa: ANN401  # http.client's own arguments
+        super().__init__(host, **kwargs)
+        self.req = req
+
+    def connect(self) -> None:
+        """Connect as usual, then check the address the socket reached."""
+        super().connect()
+        target = urlsplit(self.req.full_url).hostname or ""
+        if not getattr(self.req, "public_only", False) or self.host.lower() != target:
+            return
+        address = self.sock.getpeername()[0]
+        if not ipaddress.ip_address(address).is_global:
+            self.close()
+            msg = f"refused a redirect from a public host to {self.req.full_url}, which is at {address}"
+            raise _InwardRedirectError(msg)
+
+
+class _HTTPSPeerCheck(_PeerCheck, http.client.HTTPSConnection):
+    pass
+
+
+class _HTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req: urllib.request.Request) -> http.client.HTTPResponse:
+        return self.do_open(functools.partial(_PeerCheck, req=req), req)
+
+
+class _HTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req: urllib.request.Request) -> http.client.HTTPResponse:
+        return self.do_open(functools.partial(_HTTPSPeerCheck, req=req), req, context=self._context)  # ty: ignore[unresolved-attribute]  # set by HTTPSHandler.__init__
+
+
+_OPENER = urllib.request.build_opener(_NoRedirectInward(), _HTTPHandler(), _HTTPSHandler())
 
 
 def _open(request: urllib.request.Request, timeout: float) -> _Response:
@@ -413,7 +463,8 @@ def _copy(response: _Response, fh: IO[bytes], source: Source, deadline: float) -
     cap = source.get("max_bytes", _MAX_BYTES)
     digest = hashlib.sha256()
     size = 0
-    while chunk := response.read(_CHUNK_BYTES):
+    # read1: one socket read at most, so a server trickling bytes can't hold a read past the deadline.
+    while chunk := response.read1(_CHUNK_BYTES):
         size += len(chunk)
         if size > cap:
             msg = f"{source['id']}: download exceeds {cap} bytes; raise max_bytes in sources.toml if expected"
@@ -457,6 +508,9 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
                     msg = f"body ended after {size} of the {expected} bytes its Content-Length promised"
                     raise http.client.HTTPException(msg)
                 return _Download(path, digest, size, response.headers, response.url)
+        except _InwardRedirectError as error:
+            msg = f"{source['id']}: {error}"
+            raise ValueError(msg) from error
         except urllib.error.HTTPError as error:
             # urllib raises a 304 like an error. Only a conditional request can get one.
             if error.code == HTTPStatus.NOT_MODIFIED and previous and conditional:
@@ -529,6 +583,16 @@ def _conditional(previous: FetchRecord | None) -> dict[str, str]:
     return {name: value for name, value in headers.items() if value}
 
 
+def _is_record(fields: object) -> bool:
+    """Whether `fields` holds a fetch record's id, URL, time, SHA-256 and size, each of its own type."""
+    return (
+        isinstance(fields, dict)
+        and all(isinstance(fields.get(key), str) for key in ("source_id", "url", "retrieved_at", "sha256"))
+        and _SHA256.fullmatch(fields["sha256"]) is not None
+        and type(fields.get("bytes")) is int  # not isinstance: bool is an int subclass
+    )
+
+
 def _last_records(log: Path) -> dict[str, dict[str, Any]]:
     """The record most recently logged for each source id, from the fetch log.
 
@@ -541,6 +605,7 @@ def _last_records(log: Path) -> dict[str, dict[str, Any]]:
     text = log.read_bytes().decode("utf-8", errors="replace")
     lines = text.splitlines()
     records: dict[str, dict[str, Any]] = {}
+    numbers: dict[str, int] = {}
     for number, line in enumerate(lines, start=1):
         if not line.strip():
             continue
@@ -552,14 +617,17 @@ def _last_records(log: Path) -> dict[str, dict[str, Any]]:
                 continue
             msg = f"{log}:{number} is not a fetch record ({error})"
             raise ValueError(msg) from error
-        if not (
-            isinstance(record, dict)
-            and isinstance(record.get("source_id"), str)
-            and isinstance(record.get("sha256"), str)
-        ):
+        if not (isinstance(record, dict) and isinstance(record.get("source_id"), str)):
             msg = f"{log}:{number} is not a fetch record"
             raise ValueError(msg)  # noqa: TRY004  # a damaged log: the CLI reports ValueError as one line
         records[record["source_id"]] = record
+        numbers[record["source_id"]] = number
+    # Only the last record per source is used, so only those get the full check: it costs
+    # more than reading the line, and a log has many lines per source.
+    for sid, record in records.items():
+        if not _is_record(record):
+            msg = f"{log}:{numbers[sid]} is not a fetch record"
+            raise ValueError(msg)
     return records
 
 
@@ -567,15 +635,42 @@ def _append(log: Path, record: FetchRecord) -> None:
     """Add `record` as one line at the end of the log, in one write, flushed to disk.
 
     A last line cut off by an interrupted fetch is dropped first, so the new line starts
-    on a line of its own.
+    on a line of its own. A whole record that only lacks its newline, as an editor or a
+    merge can leave it, is kept. Only the end of the log is read, however long it is.
+
+    Raises ValueError when the log is a symlink, which a cloned checkout could point at
+    another file.
     """
-    if log.exists() and (text := log.read_bytes()) and not text.endswith(b"\n"):
-        _logger.warning("%s: dropping a last line cut off by an interrupted fetch", log)
-        os.truncate(log, text.rfind(b"\n") + 1)
-    with log.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(dataclasses.asdict(record)) + "\n")
+    if log.is_symlink():
+        msg = f"{log} is a symlink; the fetch log must be a file of its own"
+        raise ValueError(msg)
+    with log.open("a+b") as fh:
+        end = fh.seek(0, os.SEEK_END)
+        lead = b""
+        if end and (start := _last_line_start(fh, end)) < end:
+            fh.seek(start)
+            try:
+                json.loads(fh.read())
+            except ValueError:  # not JSON, or not UTF-8
+                _logger.warning("%s: dropping a last line cut off by an interrupted fetch", log)
+                fh.truncate(start)
+            else:
+                lead = b"\n"
+        fh.write(lead + json.dumps(dataclasses.asdict(record)).encode() + b"\n")
         fh.flush()
         os.fsync(fh.fileno())
+
+
+def _last_line_start(fh: IO[bytes], end: int) -> int:
+    """Where the line after the last newline starts: `end` when the file ends with one."""
+    pos = end
+    while pos > 0:
+        step = min(pos, _CHUNK_BYTES)
+        fh.seek(pos - step)
+        if (newline := fh.read(step).rfind(b"\n")) != -1:
+            return pos - step + newline + 1
+        pos -= step
+    return 0
 
 
 def logged_versions(log: Path = FETCH_LOG) -> dict[str, str]:
@@ -592,7 +687,9 @@ def _lock(raw: Path) -> Generator[None]:
     if sys.platform == "win32":  # noqa: PLR2004
         yield
         return
-    with (raw / ".lock").open("w") as fh:
+    # Never truncated, and never through a symlink: a cloned checkout could plant one to another file.
+    fd = os.open(raw / ".lock", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "wb") as fh:
         try:
             fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
@@ -605,11 +702,12 @@ def revisions(before: Path, *, log: Path = FETCH_LOG) -> list[str]:
     """One Markdown line per source whose bytes changed between `before`, an earlier copy of the log, and `log`.
 
     A source that `before` never logged is new, not revised, and is left out. Raises
-    FileNotFoundError when `before` does not exist: an empty report must mean no
-    revisions, not a missing copy.
+    FileNotFoundError when `before` or `log` does not exist: an empty report must mean no
+    revisions, not a missing copy or a run from the wrong directory.
     """
-    if not before.exists():
-        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(before))
+    for path in (before, log):
+        if not path.exists():
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(path))
     old, new = _last_records(before), _last_records(log)
     return [
         f"- `{sid}`: {old[sid]['sha256'][:12]} -> {r['sha256'][:12]}, {r['bytes']:,} bytes, "
@@ -763,10 +861,13 @@ def _check_hash(source: Source, record: FetchRecord, digest: str) -> None:
 def _record(source: Source, raw: Path) -> FetchRecord:
     """The fetch record for `source`, if it was made for the request the manifest now makes."""
     name = raw_name(source)
+    fields = json.loads((raw / f"{name}.fetch.json").read_text(encoding="utf-8"))
+    msg = f"{name}.fetch.json is not a fetch record; re-run fetch"
+    if not _is_record(fields):
+        raise ValueError(msg)
     try:
-        record = FetchRecord(**json.loads((raw / f"{name}.fetch.json").read_text(encoding="utf-8")))
-    except TypeError as error:
-        msg = f"{name}.fetch.json is not a fetch record; re-run fetch"
+        record = FetchRecord(**fields)
+    except TypeError as error:  # a key FetchRecord does not have, or lacks
         raise ValueError(msg) from error
     if (record.source_id, record.url) != (source["id"], source["url"]):
         msg = f"{name} was fetched from {record.url}, but sources.toml now requests {source['url']}; re-run fetch"
@@ -774,7 +875,7 @@ def _record(source: Source, raw: Path) -> FetchRecord:
     if record.vintage != _vintage(source):
         msg = f"{name} was fetched as vintage {record.vintage!r}, not {_vintage(source)!r}; re-run fetch"
         raise ValueError(msg)
-    if source.get("sha256", record.sha256).lower() != record.sha256:
+    if source.get("sha256", record.sha256) != record.sha256:  # load_manifest lowercases the pin
         msg = f"{name} hashes to {record.sha256}, not the sha256 sources.toml now pins; re-run fetch"
         raise ValueError(msg)
     return record
@@ -798,10 +899,9 @@ def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str,
     """One raw CSV file as its columns and rows. A gzipped file is decompressed first.
 
     Raises ValueError for a repeated column name, a row with more or fewer fields than the
-    header, or a gzipped file that decompresses past the source's `max_bytes`.
+    header, or a gzipped file that is damaged or decompresses past the source's `max_bytes`.
     """
-    if payload[:2] == _GZIP_MAGIC:
-        payload = _gunzip(source, payload)
+    payload = _maybe_gunzip(source, payload)
     # utf-8-sig drops the byte-order mark that spreadsheet exports start with. Plain UTF-8 reads the same.
     text = payload.decode("utf-8-sig")
     columns, rows = _csv_rows(source, io.StringIO(text, newline=""))
@@ -829,11 +929,21 @@ def _checked_rows(source: Source, reader: csv.DictReader[str]) -> Iterator[dict[
         yield row
 
 
-def _gunzip(source: Source, payload: bytes) -> bytes:
-    """The decompressed bytes, refused past the source's `max_bytes`: a small file can expand without limit."""
+def _maybe_gunzip(source: Source, payload: bytes) -> bytes:
+    """The payload decompressed when it is gzipped, else as it is.
+
+    Refused past the source's `max_bytes`, since a small file can expand without limit,
+    and when the gzip is cut off or damaged.
+    """
+    if payload[:2] != _GZIP_MAGIC:
+        return payload
     cap = source.get("max_bytes", _MAX_BYTES)
-    with gzip.GzipFile(fileobj=io.BytesIO(payload)) as fh:
-        data = fh.read(cap + 1)
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(payload)) as fh:
+            data = fh.read(cap + 1)
+    except (EOFError, zlib.error, gzip.BadGzipFile) as error:
+        msg = f"{source['id']}: not a readable gzip file ({error})"
+        raise ValueError(msg) from error
     if len(data) > cap:
         msg = f"{source['id']}: decompresses past {cap} bytes; raise max_bytes in sources.toml if expected"
         raise ValueError(msg)
@@ -847,8 +957,14 @@ def _check_columns(source: Source, columns: list[str]) -> None:
         raise ValueError(msg)
 
 
+class _Number(str):
+    """A JSON number kept as its text, so 1.10 stays 1.10 and 1e5 stays 1e5."""
+
+    __slots__ = ()
+
+
 def _cell(value: object) -> str:
-    """A JSON or spreadsheet value as output text: empty for none, `true`/`false`, numbers as written."""
+    """A JSON or spreadsheet value as output text: empty for none, `true`/`false`, JSON numbers as written."""
     match value:
         case None:
             return ""
@@ -856,50 +972,111 @@ def _cell(value: object) -> str:
             return value
         case datetime() | date():
             return value.isoformat()
-        case _:  # JSON writes booleans as true/false and numbers as written
+        case _:  # booleans as true/false, nested values as JSON text
+            return _json_text(value)
+
+
+def _json_text(value: object) -> str:
+    """`value` as JSON text, with each `_Number` written as it was read."""
+    match value:
+        case _Number():
+            return value
+        case dict():
+            return (
+                "{" + ", ".join(f"{json.dumps(k, ensure_ascii=False)}: {_json_text(v)}" for k, v in value.items()) + "}"
+            )
+        case list():
+            return "[" + ", ".join(_json_text(item) for item in value) + "]"
+        case _:
             return json.dumps(value, ensure_ascii=False, default=str)
 
 
 def parse_json(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
     """A JSON array of objects as columns and rows: one column per key, in the order keys first appear.
 
-    A key an object lacks is an empty cell. Nested values are kept as JSON text. Raises
-    ValueError for anything but an array of objects.
+    A key an object lacks is an empty cell. Numbers are kept as written, and nested values
+    as JSON text. Raises ValueError for anything but an array of objects, or for one
+    nested too deeply to read.
     """
-    if payload[:2] == _GZIP_MAGIC:
-        payload = _gunzip(source, payload)
-    data = json.loads(payload.decode("utf-8-sig"))
-    if not (isinstance(data, list) and all(isinstance(item, dict) for item in data)):
-        msg = f"{source['id']}: expected a JSON array of objects"
-        raise ValueError(msg)
-    columns = list(dict.fromkeys(key for item in data for key in item))
-    return columns, [{column: _cell(item.get(column)) for column in columns} for item in data]
+    payload = _maybe_gunzip(source, payload)
+    # From 3.14 the reader's depth limit follows the stack size, so a deep value can load and
+    # then overflow while its cell is written: both steps are covered.
+    try:
+        data = json.loads(payload.decode("utf-8-sig"), parse_float=_Number, parse_int=_Number)
+        if not (isinstance(data, list) and all(isinstance(item, dict) for item in data)):
+            msg = f"{source['id']}: expected a JSON array of objects"
+            raise ValueError(msg)
+        columns = list(dict.fromkeys(key for item in data for key in item))
+        rows = [{column: _cell(item.get(column)) for column in columns} for item in data]
+    except RecursionError as error:
+        msg = f"{source['id']}: JSON nested too deeply to read"
+        raise ValueError(msg) from error
+    return columns, rows
 
 
 def parse_xlsx(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
     """One sheet of an Excel workbook as columns and rows, the first row as the header.
 
-    The sheet is the source's `sheet` key, or else the first. Fully empty rows are skipped.
-    Needs the `xlsx` extra: `uv add 'sourceledger[xlsx]'`.
+    The sheet is the source's `sheet` key, or else the first. Fully empty rows are skipped,
+    and so are empty header cells at the end of the row. An empty cell reads as "", like an
+    empty CSV field. Needs the `xlsx` extra: `uv add 'sourceledger[xlsx]'`.
+
+    Raises ValueError for a file that is not a workbook, one that expands past the source's
+    `max_bytes`, a missing sheet, a repeated column name, or a cell right of the header.
     """
     try:
         import openpyxl  # noqa: PLC0415  # an optional extra, imported only when a source needs it
+        from openpyxl.utils.exceptions import InvalidFileException  # noqa: PLC0415
     except ImportError as error:
         msg = f"{source['id']}: reading .xlsx needs the xlsx extra: uv add 'sourceledger[xlsx]'"
         raise ValueError(msg) from error
-    workbook = openpyxl.load_workbook(io.BytesIO(payload), read_only=True, data_only=True)
+    cap = source.get("max_bytes", _MAX_BYTES)
     try:
-        sheet = workbook[source["sheet"]] if source.get("sheet") is not None else workbook.worksheets[0]
-    except KeyError as error:
-        msg = f"{source['id']}: no sheet {source['sheet']!r}; the workbook has {workbook.sheetnames}"
+        # The sizes the zip declares bound what it can expand to: reading past one fails its check.
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            expanded = sum(info.file_size for info in archive.infolist())
+    except zipfile.BadZipFile as error:
+        msg = f"{source['id']}: not a readable Excel workbook ({error})"
         raise ValueError(msg) from error
-    rows = [row for row in sheet.iter_rows(values_only=True) if any(cell is not None for cell in row)]
-    workbook.close()
+    if expanded > cap:
+        msg = f"{source['id']}: decompresses past {cap} bytes; raise max_bytes in sources.toml if expected"
+        raise ValueError(msg)
+    try:
+        rows = _sheet_rows(source, openpyxl.load_workbook(io.BytesIO(payload), read_only=True, data_only=True))
+    except (zipfile.BadZipFile, KeyError, InvalidFileException) as error:  # a missing part reads as KeyError
+        msg = f"{source['id']}: not a readable Excel workbook ({error})"
+        raise ValueError(msg) from error
     if not rows:
         return [], []
-    columns = [_cell(cell) for cell in rows[0]]
+    header = rows[0][1]
+    width = len(header)
+    while width and header[width - 1] is None:
+        width -= 1
+    columns = [_cell(cell) for cell in header[:width]]
     _check_columns(source, columns)
-    return columns, [dict(zip(columns, (_cell(cell) for cell in row), strict=False)) for row in rows[1:]]
+    table = []
+    for number, row in rows[1:]:
+        if any(cell is not None for cell in row[width:]):
+            msg = f"{source['id']}: row {number} has more cells than the header"
+            raise ValueError(msg)
+        table.append({column: _cell(cell) for column, cell in itertools.zip_longest(columns, row[:width])})
+    return columns, table
+
+
+def _sheet_rows(source: Source, workbook: Any) -> list[tuple[int, tuple[object, ...]]]:  # noqa: ANN401  # openpyxl is optional
+    """The sheet's rows that are not fully empty, each with its row number, and the workbook closed."""
+    try:
+        if (name := source.get("sheet")) is not None and name not in workbook.sheetnames:
+            msg = f"{source['id']}: no sheet {name!r}; the workbook has {workbook.sheetnames}"
+            raise ValueError(msg)
+        sheet = workbook[name] if name is not None else workbook.worksheets[0]
+        return [
+            (number, row)
+            for number, row in enumerate(sheet.iter_rows(values_only=True), start=1)
+            if any(cell is not None for cell in row)
+        ]
+    finally:
+        workbook.close()
 
 
 _PARSERS: dict[str, Parser] = {"csv": parse_csv, "json": parse_json, "xlsx": parse_xlsx}
