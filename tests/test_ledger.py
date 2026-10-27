@@ -689,7 +689,7 @@ def test_a_log_line_missing_a_field_or_of_the_wrong_type_is_not_a_record(
         ledger.revisions(before, log=log)
 
 
-@pytest.mark.parametrize(("key", "value"), [("sha256", 123), ("bytes", "29"), ("url", None)])
+@pytest.mark.parametrize(("key", "value"), [("sha256", 123), ("bytes", "29"), ("url", None), ("surplus", 1)])
 def test_a_fetch_record_of_the_wrong_type_is_fetched_again(
     upstream: Path, key: str, value: object, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1986,9 +1986,9 @@ def test_json_nested_too_deeply_is_refused_by_name() -> None:
 
 def test_json_numbers_are_kept_as_written() -> None:
     """1.10 is not 1.1, and 1e5 is not 100000.0, at the top level or nested."""
-    payload = b'[{"a": 1.10, "b": 1e5, "c": -0, "d": {"e": [2.50, 3E2, true, "x"]}}]'
+    payload = '[{"a": 1.10, "b": 1e5, "c": -0, "d": {"é": [2.50, 3E2, true, "ü"], "f": null}}]'.encode()
     _, rows = ledger.parse_json({"id": "j"}, payload)
-    assert rows == [{"a": "1.10", "b": "1e5", "c": "-0", "d": '{"e": [2.50, 3E2, true, "x"]}'}]
+    assert rows == [{"a": "1.10", "b": "1e5", "c": "-0", "d": '{"é": [2.50, 3E2, true, "ü"], "f": null}'}]
 
 
 @pytest.mark.parametrize(
