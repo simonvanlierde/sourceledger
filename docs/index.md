@@ -8,10 +8,10 @@ description: Build a dataset from public sources where every row says which down
 Build a dataset from public sources where every row says which download it came from.
 
 sourceledger is a small Python library and command, with no dependencies, for projects that
-turn other people's published data into a dataset of their own. It keeps four promises:
+turn other people's published data into a dataset of their own. It makes four promises:
 
-1. **Every download is recorded.** The URL, when it was fetched, the SHA-256 and size of the
-   bytes, the edition you expected, and the server's ETag.
+1. **Every download is recorded.** The URL, the time, the SHA-256 and size of the bytes, the
+   edition you expected, and the server's ETag and Last-Modified.
 2. **Every output row names its download.** Five provenance columns lead each row, and a
    Frictionless `datapackage.json` describes every output.
 3. **Every source states its reuse terms.** In the publisher's words, as an SPDX licence id,
@@ -28,8 +28,8 @@ turn other people's published data into a dataset of their own. It keeps four pr
 ### A worked example
 
 This example follows one source through a publisher's revision. A local file stands in for
-the publisher, so the revision can be made on purpose. With a real source, the steps and
-output are the same. The output is from an actual run, with the file path shortened.
+the publisher, so the revision can be made on purpose. The output is from an actual run,
+with the file path shortened.
 
 #### 1. Declare the source
 
@@ -70,14 +70,16 @@ $ sourceledger fetch
 co2  unchanged         37 B  38fe14e8b0ed  2025 release  file:///…/publisher/annual.csv
 ```
 
-Over HTTP, this fetch sends the ETag back and the server answers that nothing changed, so
-nothing is downloaded. The log gains no line.
+Over HTTP, this fetch sends the ETag and Last-Modified back and the server answers that
+nothing changed, so nothing is downloaded. The log gains no line.
 
 #### 4. The publisher revises a value
 
-The publisher changes 2023's value from 419.31 to 419.32, without saying so.
+The publisher changes 2023's value from 419.31 to 419.32, without saying so. Copy the log
+before you fetch, so you can compare against it:
 
 ```console
+$ cp data/fetches.jsonl before.jsonl
 $ sourceledger fetch
 co2  new               37 B  16f81da8a5c1  2025 release  file:///…/publisher/annual.csv
 $ sourceledger validate
@@ -88,8 +90,9 @@ $ sourceledger revisions before.jsonl
 ```
 
 The new bytes have a new checksum, so the fetch line says `new` and the log gains a second
-line. `validate` now refuses the output built from the old download. `revisions`, given the
-log as it was before (`before.jsonl`), names the source that changed. The
+line. `validate` now refuses the output built from the old download. `revisions`, given
+`before.jsonl`, names the source that changed. It exits 0 here, since a test decides what a
+revision breaks. The
 [project-templates](https://github.com/simonvanlierde/project-templates) `data-pipeline`
 kind runs this check weekly in CI and comments on an issue when a source changes.
 
@@ -104,11 +107,9 @@ co2,file:///…/publisher/annual.csv,2026-10-18T03:38:33Z,2025 release,16f81da8a
 
 ### What to commit
 
-Commit `sources.toml` and `data/fetches.jsonl`: the log holds checksums and URLs, never
-data. Keep `data/raw/` and `data/processed/` out of git, so the repository never
-redistributes a publisher's data. Anyone can rebuild them with `fetch` and `build`. To see
-whether a source changed since your last commit, copy the log before fetching and run
-`sourceledger revisions` against the copy.
+Commit `sources.toml` and `data/fetches.jsonl`, and keep `data/raw/` and `data/processed/`
+out of git. The [README](https://github.com/simonvanlierde/sourceledger#what-to-commit)
+says why.
 
 ### Check a dataset you downloaded
 
@@ -123,8 +124,8 @@ Each file the package lists must exist, with the size and SHA-256 it gives.
 
 ### Check a manifest as you type
 
-To have an editor with a TOML language server (Tombi, Taplo) check the manifest, put this
-line at the top of `sources.toml`:
+For checks in an editor with a TOML language server (Tombi, Taplo), put this line at the
+top of `sources.toml`:
 
 ```toml
 #:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/main/src/sourceledger/sources.schema.json

@@ -29,6 +29,8 @@ Upgrade steps:
 
 ### Changed
 
+- sourceledger is for Linux and macOS (POSIX), and its package metadata now says so. On
+  Windows it runs, but `fetch` takes no lock against a second run.
 - Reading a table with thousands of columns, or a `sources.toml` with thousands of sources,
   is faster: the check for repeated names no longer grows with the square of their number.
 - JSON sources keep numbers as written: `1.10` stays `1.10` and `1e5` stays `1e5`, at the
