@@ -157,8 +157,9 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 
 ## Other commands
 
-- `init` writes a starter `sources.toml` in the current directory: the schema line and one
-  example source, commented out. It refuses to overwrite a `sources.toml` that exists.
+- `init` writes a starter `sources.toml` in the current directory, or at `--manifest PATH`:
+  the schema line and one example source, commented out. It refuses to overwrite a file
+  that exists.
 - `status` prints one line per source: its id, status and vintage, when its last logged
   version was fetched (or `never`), the start of its SHA-256, its licence, and whether
   the raw file may be republished. It reads the manifest and the log, never the network.
@@ -175,8 +176,8 @@ sources. An id that is not in `sources.toml` is an error. `build --only` keeps t
 sources' entries in `datapackage.json` as the last build wrote them, and
 `validate --only` skips the checks that cover the whole output.
 
-Every command reads `./sources.toml` unless given `--manifest PATH`. The data folder stays
-`data/` in the current directory either way.
+Every command that reads the manifest reads `./sources.toml` unless given `--manifest PATH`.
+The data folder stays `data/` in the current directory either way.
 
 ## Your own readers
 
