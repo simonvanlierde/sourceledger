@@ -26,7 +26,7 @@ terms, and whether the raw file may be republished. sourceledger runs three stag
 [Other commands](#other-commands).
 
 There are no dependencies. Excel files need the optional `xlsx` extra. The
-[docs page](https://simonvanlierde.github.io/sourceledger/) walks through a fetch and a
+[docs page](https://simonvanlierde.com/sourceledger/) walks through a fetch and a
 publisher's silent revision.
 
 ## Install
