@@ -1,0 +1,32 @@
+name: fair
+
+# fair-software.eu: howfairis scores the public repository on five recommendations (repository,
+# license, registry, citation, checklist) and the job summary lists which checks pass. A new
+# repo misses the registry and checklist checks until you list it in a registry and earn the
+# OpenSSF Best Practices badge, so the job fails only below the floor in FAIR_MIN. howfairis
+# reads GitHub's API without a token, so it runs weekly, not on every pull request.
+on:
+  schedule:
+    - cron: "17 6 * * 3" # Wednesdays, 06:17 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  howfairis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Filled dots required out of five. A new repo has three: raise this as you earn the rest.
+      FAIR_MIN: 3
+    steps:
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+      # howfairis exits 1 below five checks, so the score is read from its output.
+      - run: |-
+          uvx howfairis@0.14.2 https://github.com/simonvanlierde/sourceledger | tee out.txt || true
+          cat out.txt >> "$GITHUB_STEP_SUMMARY"
+          score=$(grep '^Calculated compliance' out.txt | grep -o '●' | wc -l)
+          echo "fair-software.eu score: $score of 5 (floor $FAIR_MIN)" | tee -a "$GITHUB_STEP_SUMMARY"
+          [ "$score" -ge "$FAIR_MIN" ]

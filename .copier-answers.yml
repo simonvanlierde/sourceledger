@@ -1,22 +1,28 @@
 # Managed by copier. Do not edit by hand. Run: copier update
-_commit: v0.10.0-14-g60039c0
+_commit: v0.11.0
 _src_path: gh:simonvanlierde/project-templates
 author_email: code@duinlab.nl
 author_name: Simon van Lierde
 author_orcid: 0009-0006-6953-909X
 codecov: false
+codspeed: false
 copyright_year: '2026'
+customise: false
 dependency_bot: renovate
 github_user: simonvanlierde
 kind: library
 license: MIT
 module_name: sourceledger
+openssf_badge: none
 project_description: Fetch, verify and validate the public sources a dataset is built
     from, with a provenance record for every download
 project_name: sourceledger
+public: true
 publish_to_pypi: true
 python_dir: .
+python_layout: src
 python_min: '3.12'
 python_version: '3.15'
 stacks:
 - python
+test_extras: []

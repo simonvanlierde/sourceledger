@@ -1,0 +1,26 @@
+name: links
+
+# The lychee git hook runs offline and checks only relative links. A web link can die
+# without a commit, so this checks every link in the Markdown and HTML files weekly,
+# with network access. The job summary lists the dead ones. A new repo's run is red
+# until its badge and tag links resolve, which needs the first push and release.
+on:
+  schedule:
+    - cron: "37 5 * * 4" # Thursdays, 05:37 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lychee:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The action sends the job's token on GitHub links, so GitHub's rate limit is not hit.
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --no-progress './**/*.md' './**/*.html'

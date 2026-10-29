@@ -45,8 +45,8 @@ dev = [
   "pytest>=9.1.1",
   "pytest-codspeed>=5.0.3",
   "pytest-cov>=7.1.0",
-  "ruff>=0.16.10",
-  "ty>=0.0.84",
+  "ruff>=0.17.1",
+  "ty>=0.0.89",
 ]
 mutation = [
   "mutmut>=3.8.0",
@@ -100,6 +100,10 @@ convention = "google"
 [tool.ruff.lint.pylint]
 allow-magic-value-types = ["int"]
 max-args = 10
+
+# A rule set to "warn" reports without failing: ty otherwise exits 1 on warnings too.
+[tool.ty.terminal]
+error-on-warning = false
 
 [tool.pytest.ini_options]
 # `live` tests reach real services; `pytest -m live` runs only them (the last -m wins).

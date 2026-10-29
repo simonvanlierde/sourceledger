@@ -1,0 +1,10 @@
+# Commit message rules for committed (https://github.com/crate-ci/committed). The
+# commit-msg hook checks each commit, and the pr-title workflow checks the pull request
+# title, which becomes the commit subject when it is squash-merged.
+style = "conventional"
+allowed_types = ["build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "revert", "style", "test"]
+# A summary of any length; the body is free-form. Lower case is the convention, but
+# committed has no option to refuse a capital, so it isn't checked.
+subject_capitalized = false
+subject_length = 0
+line_length = 0

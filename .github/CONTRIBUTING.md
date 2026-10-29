@@ -73,13 +73,29 @@ review check.
   `type(scope): summary`, in the imperative, lower case, with no period. Add a body only
   when the change needs one, with a bullet per logical chunk.
 - **The pull request title** becomes the squash commit subject, so it follows the same rule.
-- **The pull request body** says what it fixes and why, in three or four bullets, and ends
-  with a `Tests:` line.
+- **Both are checked** against [`committed.toml`](../committed.toml): a commit-msg
+  hook (installed by `prek install`) refuses a commit message that breaks the rule, and
+  the `pull request title` check fails a pull request whose title does. Lower case isn't
+  checked. A revert is titled `revert: <original subject>`: rename the
+  `Revert "..."` title that GitHub's Revert button writes.
+- **The pull request body** has the shape of
+  [the pull request template](pull_request_template.md): what it fixes and why, three or
+  four bullets, and a `Tests:` line.
 - **The changelog** ([CHANGELOG.md](../CHANGELOG.md)) follows
   [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/). Write each entry for
   the people who use the project, not as a commit subject. Mark breaking changes
   **Breaking**, and put upgrade steps first under the version.
 - **The release notes** are that version's changelog section.
+
+## Sign off your commits
+
+Every commit in a pull request carries a `Signed-off-by:` line, which says you wrote the
+change or have the right to submit it under this project's license: the
+[Developer Certificate of Origin 1.1](https://developercertificate.org/). `git commit -s`
+adds the line. To add it to commits you already made, run
+`git rebase --signoff upstream/main` (the branch you started from) and force-push the branch.
+
+The `dco` workflow checks every pull request from a fork and fails on a commit without the line. Pull requests from a branch in this repository skip it: pushing that branch already needed write access.
 
 ## Who maintains this
 
