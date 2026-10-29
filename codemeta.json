@@ -1,5 +1,5 @@
 {
-  "@context": "https://w3id.org/codemeta/4.0",
+  "@context": "https://w3id.org/codemeta/3.0",
   "@type": "SoftwareSourceCode",
   "name": "sourceledger",
   "description": "Fetch, verify and validate the public sources a dataset is built from, with a provenance record for every download",
@@ -8,8 +8,7 @@
       "@type": "Person",
       "@id": "https://orcid.org/0009-0006-6953-909X",
       "givenName": "Simon",
-      "familyName": "van Lierde",
-      "email": "code@duinlab.nl"
+      "familyName": "van Lierde"
     }
   ],
   "codeRepository": "https://github.com/simonvanlierde/sourceledger",

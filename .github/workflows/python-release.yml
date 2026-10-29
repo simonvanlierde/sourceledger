@@ -15,16 +15,14 @@ name: python release
 # `id-token: write` exposes an OpenID Connect (OIDC) request token to every step
 # in its job, so publish is a separate job that runs no project code.
 #
-# A release starts from a pushed `v*` tag, not a GitHub release: releases here are
-# immutable once published, so the workflow creates the release itself, as a draft,
-# attaches the dists and their provenance bundle, and only then publishes it. Zenodo
-# archives the release when that happens.
+# After PyPI, the release job attaches distributions and their provenance to a
+# draft, then publishes it. Immutable releases accept no assets after publication.
 
 # No workflow_dispatch: a manual run can target any branch, and neither trusted
 # publishing nor the environment checks which ref it publishes.
 on:
   push:
-    tags: ["v*"]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
 
 permissions:
   contents: read
@@ -55,6 +53,14 @@ jobs:
         with:
           enable-cache: false
           version: "0.13.1"
+
+      # Validate and save the notes before PyPI publishes anything.
+      - run: '"$GITHUB_WORKSPACE/.github/scripts/release-notes.sh" "$GITHUB_REF_NAME" "$GITHUB_WORKSPACE/CHANGELOG.md" >"$RUNNER_TEMP/notes.md"'
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes.md
 
       # Publish only what passes, on the exact commit being released.
       - run: uv sync --locked
@@ -101,28 +107,21 @@ jobs:
         id: attest
         with:
           subject-path: dist/*
-      # The same attestation as a file, one Sigstore bundle covering every dist, for the
-      # release job to attach.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: provenance
           path: ${{ steps.attest.outputs.bundle-path }}
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
 
-  # Runs after PyPI, so a release only appears once its files are on PyPI. If this job
-  # fails, PyPI has the version and GitHub has no release yet: re-run this job. A
-  # leftover draft from the failed run must be deleted first (`gh release delete <tag>`).
+  # PyPI already has this version if this job fails: re-run only this job.
+  # Delete a leftover draft first; a published immutable release needs a new version.
   release:
     needs: publish
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Write access to releases only; no OIDC token, and no project code runs here.
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dist
@@ -131,22 +130,20 @@ jobs:
         with:
           name: provenance
           path: provenance/
-      # Draft first: an immutable release takes no assets once published. Scorecard's
-      # Signed-Releases check counts a release asset ending in `.sigstore.json`.
-      - env:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
+          path: notes/
+      # No checkout or project code runs with the write token.
+      - name: publish the GitHub release
+        env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |-
-          version="${TAG#v}"
-          awk -v h="## [$version]" 'index($0, h) == 1 { on = 1; next } on && /^## \[/ { exit } on' \
-            CHANGELOG.md >"$RUNNER_TEMP/notes.md"
-          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
-            echo "CHANGELOG.md has no section for $version" >&2
-            exit 1
-          fi
-          # One bundle, whatever the attest action names it; mv fails if there are more.
-          mv provenance/*.json "provenance/sourceledger-$version.sigstore.json"
+          set -euo pipefail
+          # mv also checks that the action produced exactly one bundle.
+          mv provenance/*.json "provenance/sourceledger-${TAG#v}.sigstore.json"
           gh release create "$TAG" --draft --verify-tag --title "$TAG" \
-            --notes-file "$RUNNER_TEMP/notes.md" \
-            dist/* "provenance/sourceledger-$version.sigstore.json"
+            --notes-file notes/notes.md dist/* "provenance/sourceledger-${TAG#v}.sigstore.json"
           gh release edit "$TAG" --draft=false

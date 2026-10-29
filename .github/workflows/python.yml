@@ -11,8 +11,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # The event is in the group because a queued run replaces a pending one in its group
+  # whatever cancel-in-progress says, so a push to main must not wait beside the weekly run.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  # Only a newer push to the same pull request cancels a run. A push to main must not cancel
+  # the weekly scheduled run, or that week's revision report is lost.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # uv checks every package against OSV's malware advisories before its code
@@ -23,7 +27,7 @@ env:
 
 jobs:
   check:
-    name: lint, types, tests
+    name: "python: lint, types, tests"
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -38,16 +42,19 @@ jobs:
         with:
           persist-credentials: false
 
+      # Saved off pull requests only: a cache a pull request saves is readable by that
+      # pull request alone, and it pushes main's entries out of the 10 GB per-repo limit.
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
+          save-cache: ${{ github.event_name != 'pull_request' }}
           version: "0.13.1"
           python-version: ${{ matrix.python }}
 
       - run: uv sync --locked
       # Checks every locked dependency, dev group included, against the OSV database
-      # for known vulnerabilities and deprecated or quarantined projects. Experimental
-      # in uv 0.12, hence the preview flag.
+      # for known vulnerabilities and deprecated or quarantined projects. Still
+      # experimental in uv, hence the preview flag.
       - run: uv audit --locked --preview-features audit-command
 
       - run: uv run ruff check --output-format=github
@@ -55,3 +62,26 @@ jobs:
       - run: uv run ty check
       # Fails below the fail_under in pyproject.toml.
       - run: uv run pytest --cov
+
+  api:
+    # Fails when the public API lost or changed something since the last git tag,
+    # so a breaking change shows before it ships. Passes when there is no tag yet.
+    name: "python: API breaks since the last tag"
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history and tags: griffe reads the last tag's code from git.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          save-cache: ${{ github.event_name != 'pull_request' }}
+          version: "0.13.1"
+
+      # Reads the source without importing it, so the package needs no install. Runs
+      # from the root: griffe resolves --search against the repository root at the tag.
+      - run: uvx griffe@2.3.2 check --search src --format github sourceledger

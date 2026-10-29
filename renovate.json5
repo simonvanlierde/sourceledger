@@ -1,33 +1,59 @@
 // Renovate, the `dependency_bot` answer: it needs the Renovate GitHub App on this repo.
-// It follows the same rules as the template's Dependabot config, except that it merges
-// non-major updates itself once every check on the branch passes. Majors and template
-// updates stay manual. Renovate merges through its own app, which is on main's ruleset
-// bypass list, so these PRs need no approval.
+// It follows the same rules as the template's Dependabot config, except that Dependabot
+// also groups npm security updates and never merges a PR itself.
+//
+// Minor and patch updates of the packages CI installs, and the weekly relock, merge
+// themselves once the week's wait is over and every check on the branch has passed.
+// Renovate does the merge. In a public repo the `main` ruleset asks for an approval,
+// which Renovate's app may skip, and `main-checks` holds the required checks, which it
+// may not. Majors, copier template releases, and the actions and hooks group stay for
+// you to merge: the release and scheduled workflows run their actions only after the
+// merge, so CI cannot test them first.
 //
 // `minimumReleaseAge` holds a version update back until the release has been public for
 // a week, long enough for a compromised release to be caught and yanked. Security
-// updates ignore it.
+// updates ignore it and the schedule. They need Dependabot alerts on in the repo settings,
+// and cover only the dependencies a manifest names.
 //
 // No Dockerfile or compose updates: the FROM tags are copier answers, so those PRs
 // would fight the next `copier update`.
 {
   $schema: 'https://docs.renovatebot.com/renovate-schema.json',
-  extends: ['config:recommended'],
+  // Conventional Commits titles, `chore(deps): update ...`, which the pr-title workflow checks.
+  extends: ['config:recommended', ':semanticCommits'],
   schedule: ['before 9am on monday'],
   minimumReleaseAge: '7 days',
-  // GitHub's auto-merge would wait for the approval main requires. Renovate merging the
-  // PR itself uses its bypass instead.
+  // Renovate merges the PR itself. GitHub's own auto-merge may not use the bypass, and
+  // would then wait for an approval.
   platformAutomerge: false,
+  // A weekly relock is the only way a fix reaches a dependency that only the lockfile
+  // names. A relock has no release date, so the week's wait above would hold it back for
+  // good: uv's exclude-newer and pnpm's minimumReleaseAge keep the week instead. It runs
+  // all Monday, because the hosted app often misses Renovate's 'before 4am' window.
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ['on monday'],
+    minimumReleaseAge: null,
+    automerge: true,
+  },
   // Off by default in Renovate. The hook revs are commit SHAs with a `# frozen:` tag
   // comment; check that the first hooks PR keeps that form.
   'pre-commit': { enabled: true },
   dockerfile: { enabled: false },
   'docker-compose': { enabled: false },
   packageRules: [
-    { matchManagers: ['github-actions'], groupName: 'actions' },
-    { matchManagers: ['pre-commit'], groupName: 'hooks' },
-    // Dev tooling lands as one PR. A runtime dependency gets its own, so a risky bump
-    // is not buried in lint-tool churn.
+    // Actions and hook revs are all CI and dev tooling: one PR for both.
+    { matchManagers: ['github-actions', 'pre-commit'], groupName: 'actions and hooks' },
+    // Dev tooling lands as one PR and runtime minor and patch bumps as another, so a
+    // risky bump is not buried in lint-tool churn. A runtime major gets its own PR. The
+    // dev-tooling rule comes second, so it wins for dev dependencies. Both groups merge
+    // themselves.
+    {
+      matchManagers: ['pep621', 'npm', 'cargo', 'gomod'],
+      matchUpdateTypes: ['minor', 'patch'],
+      groupName: 'runtime',
+      automerge: true,
+    },
     {
       matchManagers: ['pep621', 'npm', 'cargo'],
       matchDepTypes: ['dependency-groups', 'devDependencies', 'dev-dependencies'],
