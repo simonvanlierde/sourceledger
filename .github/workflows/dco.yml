@@ -28,10 +28,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          PR_BY_BOT: ${{ github.event.pull_request.user.type == 'Bot' }}
         run: |-
           set -euo pipefail
           missing=$(gh api --paginate "repos/$REPO/pulls/$PR/commits" --jq '.[]
             | select((.parents | length) < 2)
+            | select(env.PR_BY_BOT != "true" or .author.type != "Bot")
             | select([.commit.message | split("\n")[] | select(test("^Signed-off-by: .+ <[^>]+>\\s*$"))] | length == 0)
             | .sha[0:7] + " " + (.commit.message | split("\n")[0])')
           if [ -n "$missing" ]; then

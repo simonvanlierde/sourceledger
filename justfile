@@ -25,6 +25,10 @@ fmt:
 hooks:
     prek run -a
 
+# Write .zenodo.json and codemeta.json from CITATION.cff. `just citation --check` writes nothing and fails while they disagree, as the git hook does.
+citation *args:
+    uv run --script .github/scripts/citation.py {{ args }}
+
 # Protect the default branch (no deletion, no force-push, linear history, PRs squash-merged after the always-on checks pass and one approval) and the v* tags. Turn on private vulnerability reporting. Safe to rerun.
 repo-settings:
     #!/usr/bin/env bash
@@ -34,6 +38,7 @@ repo-settings:
     fail() {
         cat "$err" >&2
         grep -qE 'HTTP (403|404)' "$err" && echo "Rulesets on a private repo need a paid GitHub plan (or the repo does not exist, or you lack admin rights)." >&2
+        grep -q 'must be part of the ruleset source' "$err" && echo "The main ruleset lets the Renovate app bypass the review, and GitHub accepts that only once the app is installed on this repo: add it at https://github.com/apps/renovate, then rerun." >&2
         exit 1
     }
     # Merge-method switches live on the repo itself; the ruleset also limits the PR button.
@@ -43,10 +48,11 @@ repo-settings:
         file=.github/rulesets/$name.json
         id=$(gh api "repos/{owner}/{repo}/rulesets?includes_parents=false" --jq ".[] | select(.name == \"$name\") | .id" 2>"$err") || fail
         if [ -n "$id" ]; then
-            gh api -X PUT "repos/{owner}/{repo}/rulesets/$id" --input "$file" >/dev/null 2>"$err" || fail
+            gh api -X PUT "repos/{owner}/{repo}/rulesets/$id" --input "$file" >"$err" 2>&1 || fail
             echo "Updated ruleset '$name' ($id)."
         else
-            gh api -X POST repos/{owner}/{repo}/rulesets --input "$file" >/dev/null 2>"$err" || fail
+            # gh prints GitHub's reason for a refusal on stdout, so fail() needs both.
+            gh api -X POST repos/{owner}/{repo}/rulesets --input "$file" >"$err" 2>&1 || fail
             echo "Created ruleset '$name'."
         fi
     done

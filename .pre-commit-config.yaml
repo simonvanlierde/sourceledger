@@ -35,6 +35,14 @@ repos:
         # git writes a merge commit's message itself, so skip the check during a merge.
         entry: sh -c 'test -f "$(git rev-parse --git-path MERGE_HEAD)" || exec committed "$@"' --
 
+  # Not gated to ts: .vscode/ and .github/rulesets/ JSON ship to every stack.
+  # .json files are read as JSON5, so comments and trailing commas in tsconfig
+  # and VS Code settings pass; syntax errors and duplicate keys fail.
+  - repo: https://github.com/simonvanlierde/jsonvet
+    rev: 022d320d5b971eccb28cfa6ce205152cbb382e53 # frozen: v3.2.0
+    hooks:
+      - id: jsonvet
+
   # Formats first, so yamllint below sees the formatted file.
   - repo: https://github.com/google/yamlfmt
     rev: 21ca5323a9c87ee37a434e0ca908efc0a89daa07 # frozen: v0.21.0
@@ -74,6 +82,17 @@ repos:
     rev: 0494aa7fa1314e98913a41227d8f0a515b2c1049 # frozen: 0.38.2
     hooks:
       - id: check-citation-file-format
+
+  # .zenodo.json and codemeta.json are written from CITATION.cff by `just citation`.
+  # prek installs the script's pinned dependencies from its own header.
+  - repo: local
+    hooks:
+      - id: citation
+        name: citation files agree with CITATION.cff
+        entry: .github/scripts/citation.py --check
+        language: python
+        files: ^(CITATION\.cff|\.zenodo\.json|codemeta\.json|\.github/scripts/citation\.py)$
+        pass_filenames: false
 
   - repo: https://github.com/kynan/nbstripout
     rev: 34071b78c181af3bf5af955c1426466e096fc3db # frozen: 0.9.1

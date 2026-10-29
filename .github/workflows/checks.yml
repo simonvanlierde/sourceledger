@@ -33,11 +33,23 @@ jobs:
         with:
           persist-credentials: false
 
+      # The hook environments are cached by hand: prek-action's cache saves on any run
+      # that changes .pre-commit-config.yaml, pull requests included, and has no switch
+      # for that alone. A cache a pull request saves is readable by that pull request
+      # alone, so pull requests only restore. ~/.cache/prek is prek's cache directory.
+      - id: prek-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/prek
+          key: prek-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: prek-${{ runner.os }}-
+
       # prek is the action author's own binary, so the digest pin is the trust anchor.
       # Hook revs are pinned in .pre-commit-config.yaml.
       - uses: j178/prek-action@af4d4fcb6922b8e6f65c0426947125fcc38794ce # v3.0.2
         with:
           prek-version: ${{ env.PREK_VERSION }}
+          cache: false
         env:
           # The stack workflows run these from the project's own environment.
           # betterleaks scans staged changes only and CI stages nothing. GitHub secret
@@ -52,8 +64,15 @@ jobs:
         with:
           prek-version: ${{ env.PREK_VERSION }}
           extra-args: zizmor --all-files
+          cache: false
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - if: github.event_name != 'pull_request' && steps.prek-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/prek
+          key: ${{ steps.prek-cache.outputs.cache-primary-key }}
 
   dependency-review:
     name: dependency review
