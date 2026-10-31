@@ -15,8 +15,7 @@ sources.toml ──fetch──> data/raw/        ──build──> data/process
                         data/fetches.jsonl
 ```
 
-The [README](https://github.com/simonvanlierde/sourceledger#readme) has every manifest key
-and command option. This page explains how the parts fit together.
+The [reference](reference.md) lists the manifest keys and command options. This page explains how the parts fit together.
 
 ### The files on disk
 
@@ -108,7 +107,7 @@ It exits 1 if it finds any problem.
   read top to bottom: manifest checks, HTTP, the log, fetch, the readers, build, validate,
   and the reports.
 - `src/sourceledger/cli.py`: the command line. It parses the arguments, runs one stage,
-  and turns an expected error into one line on stderr and exit code 1.
+  and reports expected errors with exit code 1. JSON reports put errors in the document on stdout.
 - `src/sourceledger/sources.schema.json`: the JSON Schema for `sources.toml`, for editors.
   A test checks that it accepts exactly what `load_manifest` accepts.
 - `src/sourceledger/__init__.py`: the public API, listed in `__all__`.
@@ -122,8 +121,7 @@ requests itself.
 A project that needs another file format writes its own reader: a function that takes the
 source's manifest table and the raw bytes, and returns columns and rows. It passes the
 reader to `build`, or to `main` from its own entry point. Everything else, including the
-provenance columns, stays the same. The README's
-[Your own readers](https://github.com/simonvanlierde/sourceledger#your-own-readers) has an
+provenance columns, stays the same. [Custom readers](readers.md) has an
 example.
 
 [Use sourceledger safely](secure-use.md) covers what each stage trusts and checks.

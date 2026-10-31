@@ -1,6 +1,6 @@
 ---
 title: Use sourceledger safely
-description: What sourceledger checks for you when it downloads and publishes data, and what it leaves to you.
+description: What sourceledger checks for you when it downloads and builds data, and what it leaves to you.
 ---
 
 ## Use sourceledger safely
@@ -73,8 +73,8 @@ shown by `revisions`, but not refused.
   workbook is also refused when it unpacks past the cap, so a small file cannot expand
   without limit.
 - `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
-- Timeouts bound each request and each source's whole fetch. The
-  [README](https://github.com/simonvanlierde/sourceledger#how-fetch-behaves) has the numbers.
+- The download budget is checked before attempts and after body reads. DNS lookup and HTTP
+  header parsing can exceed it. See [download limits and retries](fetching.md).
 
 ### Check redistribute before you publish raw files
 
@@ -102,9 +102,7 @@ path that leads out of the folder, including through a symlink.
 ### Check a sourceledger release
 
 Each release on PyPI comes with signed provenance that ties it to the workflow that built
-it. The README's
-[Verify a release](https://github.com/simonvanlierde/sourceledger#verify-a-release)
-section shows how to check it.
+it. [Release verification](releases.md) shows how to check it.
 
 ### How dependencies are chosen
 

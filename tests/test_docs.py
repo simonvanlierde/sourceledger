@@ -13,6 +13,8 @@ from sourceledger.cli import main
 
 ROOT = Path(__file__).parents[1]
 README = (ROOT / "README.md").read_text(encoding="utf-8")
+REFERENCE = (ROOT / "docs" / "reference.md").read_text(encoding="utf-8")
+READERS = (ROOT / "docs" / "readers.md").read_text(encoding="utf-8")
 SCHEMA = json.loads((Path(ledger.__file__).parent / "sources.schema.json").read_text(encoding="utf-8"))
 FIXTURE = "year,mean,unc\n2022,418.53,0.12\n2023,421.08,0.12\n"
 
@@ -51,14 +53,14 @@ def test_the_quick_start_runs() -> None:
 def test_the_own_reader_example_runs(project: Path) -> None:
     """The project entry point in "Your own readers" runs every stage with its reader."""
     module = project / "pipeline.py"
-    module.write_text(_block(README, "## Your own readers", "python"), encoding="utf-8")
+    module.write_text(_block(READERS, "## Write a custom reader", "python"), encoding="utf-8")
     entry = runpy.run_path(str(module))["main"]
     assert [entry([stage]) for stage in ("fetch", "build", "validate")] == [0, 0, 0]
 
 
 def test_every_schema_line_names_the_published_schema() -> None:
     """The docs show the line `init` writes: the schema at this version's tag. A release bumps both."""
-    docs = [README, (ROOT / "docs" / "index.md").read_text(encoding="utf-8")]
+    docs = [README, *[p.read_text(encoding="utf-8") for p in (ROOT / "docs").rglob("*.md")]]
     urls = [url for text in docs for url in re.findall(r"^#:schema (\S+)$", text, re.MULTILINE)]
     assert urls
     assert set(urls) == {SCHEMA["$id"].replace("/main/", f"/v{version('sourceledger')}/")}
@@ -72,7 +74,7 @@ def test_the_starter_example_is_the_quick_start_one() -> None:
     )
 
 
-def test_the_readme_names_every_stage_and_key() -> None:
+def test_the_reference_names_every_stage_and_key() -> None:
     """A stage or manifest key added without docs fails here."""
     names = [*cli._STAGES, *SCHEMA["$defs"]["source"]["properties"]]  # noqa: SLF001
-    assert [name for name in names if not re.search(rf"`{name}[` ]", README)] == []
+    assert [name for name in names if not re.search(rf"`{name}[` ]", REFERENCE)] == []

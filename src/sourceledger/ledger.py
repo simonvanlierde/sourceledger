@@ -737,15 +737,23 @@ def revisions(before: Path, *, log: Path = FETCH_LOG) -> list[str]:
     FileNotFoundError when `before` or `log` does not exist: an empty report must mean no
     revisions, not a missing copy or a run from the wrong directory.
     """
+    return [
+        f"- `{r['source_id']}`: {r['before_sha256'][:12]} -> {r['after']['sha256'][:12]}, "
+        f"{r['after']['bytes']:,} bytes, fetched {r['after']['retrieved_at']} from <{r['after']['url']}>"
+        for r in _revision_records(before, log=log)
+    ]
+
+
+def _revision_records(before: Path, *, log: Path = FETCH_LOG) -> list[dict[str, Any]]:
+    """Changed sources with their earlier hash and current fetch record, in log order."""
     for path in (before, log):
         if not path.exists():
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(path))
     old, new = _last_records(before), _last_records(log)
     return [
-        f"- `{sid}`: {old[sid]['sha256'][:12]} -> {r['sha256'][:12]}, {r['bytes']:,} bytes, "
-        f"fetched {r['retrieved_at']} from <{r['url']}>"
-        for sid, r in new.items()
-        if sid in old and old[sid]["sha256"] != r["sha256"]
+        {"source_id": sid, "before_sha256": old[sid]["sha256"], "after": record}
+        for sid, record in new.items()
+        if sid in old and old[sid]["sha256"] != record["sha256"]
     ]
 
 
@@ -1408,22 +1416,38 @@ def status(sources: list[Source], *, log: Path = FETCH_LOG) -> list[str]:
     (or `never`), the start of its SHA-256, the licence, and whether the raw file may be
     republished.
     """
-    last = _last_records(log)
     width = max((len(s["id"]) for s in sources), default=0)
-    lines = []
-    for source in sources:
-        record = last.get(source["id"], {})
-        fields = [
-            f"{source['id']:<{width}}",
-            f"{source.get('status')!s:<13}",
-            _vintage(source),
-            record.get("retrieved_at", "never"),
-            record.get("sha256", "-")[:12],
-            str(source.get("license") or "-"),
-            f"redistribute={_yes_no(source.get('redistribute'))}",
-        ]
-        lines.append("  ".join(fields))
-    return lines
+    return [
+        "  ".join(
+            [
+                f"{r['source_id']:<{width}}",
+                f"{r['status']!s:<13}",
+                r["vintage"],
+                r["retrieved_at"] if r["retrieved_at"] is not None else "never",
+                (r["sha256"] or "-")[:12],
+                str(r["license"] or "-"),
+                f"redistribute={_yes_no(r['redistribute'])}",
+            ]
+        )
+        for r in _status_records(sources, log=log)
+    ]
+
+
+def _status_records(sources: list[Source], *, log: Path = FETCH_LOG) -> list[dict[str, Any]]:
+    """Manifest status and the last logged fetch, with nulls for missing information."""
+    last = _last_records(log)
+    return [
+        {
+            "source_id": source["id"],
+            "status": source.get("status"),
+            "vintage": _vintage(source),
+            "retrieved_at": last.get(source["id"], {}).get("retrieved_at"),
+            "sha256": last.get(source["id"], {}).get("sha256"),
+            "license": str(source["license"]) if source.get("license") else None,
+            "redistribute": source.get("redistribute") if isinstance(source.get("redistribute"), bool) else None,
+        }
+        for source in sources
+    ]
 
 
 def _md_cell(value: object) -> str:

@@ -198,3 +198,24 @@ def test_timeout_values_are_positive_finite_numbers(*, value: float | bool | str
         else:
             with pytest.raises(ValueError, match="timeout_s"):
                 ledger.load_manifest(manifest)
+
+
+@given(vintage=st.dates(), licence=st.text(), redistribute=st.booleans())
+def test_status_metadata_is_json_serializable(vintage: object, licence: str, *, redistribute: bool) -> None:
+    with tempfile.TemporaryDirectory() as folder:
+        rows = ledger._status_records(  # noqa: SLF001
+            [
+                {
+                    "id": "example",
+                    "status": "unimplemented",
+                    "vintage": vintage,
+                    "license": licence,
+                    "redistribute": redistribute,
+                }
+            ],
+            log=Path(folder) / "missing.jsonl",
+        )
+    (row,) = json.loads(json.dumps(rows, ensure_ascii=False))
+    assert row["vintage"] == str(vintage)
+    assert row["license"] == (licence or None)
+    assert row["redistribute"] is redistribute

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import logging
 import sys
 from pathlib import Path
@@ -18,6 +19,8 @@ from sourceledger.ledger import (
     FetchError,
     FetchRecord,
     Parser,
+    _revision_records,
+    _status_records,
     attribution,
     build,
     fetch,
@@ -36,6 +39,7 @@ from sourceledger.ledger import (
 _STAGES = ("init", "fetch", "build", "validate", "status", "attribution", "revisions", "verify")
 # Stages that take --only.
 _SELECTABLE = ("fetch", "build", "validate")
+_JSON_STAGES = ("status", "validate", "revisions")
 # Stages that take a path, and what it is.
 _NEEDS_PATH = {"revisions": "an earlier copy of the fetch log", "verify": "the folder of a published dataset"}
 
@@ -58,6 +62,7 @@ def main(
 ) -> int:
     """Run one stage: init, fetch, build, validate, status, attribution, revisions or verify.
 
+    `--json` prints structured status, validate and revisions reports, including runtime errors.
     `revisions` takes an earlier copy of the fetch log, and `verify` the folder of a published
     dataset. `--only ID`, repeatable, restricts fetch, build and validate to those sources.
 
@@ -80,13 +85,18 @@ def main(
     parser.add_argument(
         "--manifest", type=Path, default=manifest, metavar="PATH", help="the manifest to read (default: %(default)s)"
     )
+    parser.add_argument("--json", action="store_true", help="status, validate and revisions: print JSON")
     args = parser.parse_args(argv)
+    if args.json and args.stage not in _JSON_STAGES:
+        parser.error(f"--json works with {', '.join(_JSON_STAGES)}, not {args.stage}")
     if args.only is not None and args.stage not in _SELECTABLE:
         parser.error(f"--only works with {', '.join(_SELECTABLE)}, not {args.stage}")
     if args.stage in _NEEDS_PATH and args.path is None:
         parser.error(f"{args.stage} needs {_NEEDS_PATH[args.stage]}")
     # Retries and recovered fetch logs are reported as warnings, on stderr.
     logging.basicConfig(format=f"{prog}: %(message)s", level=logging.WARNING)
+    if args.json:
+        return _json_run(args.stage, args.path, args.only, args.manifest)
     # Filled by fetch, for the lines of a run that fails.
     before: dict[str, str] = {}
     try:
@@ -105,6 +115,27 @@ def main(
     for problem in problems:
         print(problem, file=sys.stderr)
     return 1 if problems else 0
+
+
+def _json_run(stage: str, path: Path | None, only: list[str] | None, manifest: Path) -> int:
+    """Write one JSON report, including expected runtime failures, and return the stage's exit code."""
+    report: dict[str, object] = {"stage": stage, "errors": []}
+    failed = False
+    try:
+        match stage, path:
+            case "status", _:
+                report["sources"] = _status_records(load_manifest(manifest))
+            case "revisions", Path():
+                report["revisions"] = _revision_records(path)
+            case _:
+                problems = validate(load_manifest(manifest), only=only)
+                report["problems"] = problems
+                failed = bool(problems)
+    except (OSError, ValueError) as error:
+        report["errors"] = [one_line(error)]
+        failed = True
+    print(json.dumps(report))
+    return int(failed)
 
 
 def _run(  # noqa: C901, PLR0912  # one case per stage
