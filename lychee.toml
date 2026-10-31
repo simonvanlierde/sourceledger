@@ -1,0 +1,2 @@
+# Jekyll resolves Liquid URLs when building the site.
+exclude = ['(?i)(\{\{|%7B%7B).*?(\}\}|%7D%7D)']

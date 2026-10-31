@@ -1,0 +1,23 @@
+<section class="revision-example" data-revision-example aria-labelledby="revision-title">
+  <h2 id="revision-title">A one-value change leaves a trail.</h2>
+  <p>A recorded example: the publisher revises 2023’s value from 419.31 to 419.32.</p>
+  <div class="revision-controls" hidden>
+    <button type="button" data-version="before" aria-controls="version-before" aria-pressed="true">Original download</button>
+    <button type="button" data-version="after" aria-controls="version-after" aria-pressed="false">After the revision</button>
+  </div>
+  <div id="version-before" data-version-panel="before">
+    <pre><code>{{ site.data.revision.before | escape }}</code></pre>
+    <p class="revision-hash">SHA-256 (first 12 characters) <code>{{ site.data.revision.before_sha256 | slice: 0, 12 }}</code></p>
+    <p class="revision-result">The built output matches this download. Validation passes.</p>
+  </div>
+  <div id="version-after" data-version-panel="after">
+    <pre><code>{{ site.data.revision.after | escape }}</code></pre>
+    <p class="revision-hash">SHA-256 (first 12 characters) <code>{{ site.data.revision.after_sha256 | slice: 0, 12 }}</code></p>
+    <p class="revision-result">The changed bytes have a new checksum. After a fresh fetch, validation reports that the existing output needs rebuilding.</p>
+    <details>
+      <summary>Read the validation report</summary>
+      <pre><code>{{ site.data.revision.problem | escape }}</code></pre>
+    </details>
+  </div>
+  <p><a href="{{ '/getting-started.html' | relative_url }}">Follow the complete example</a></p>
+</section>

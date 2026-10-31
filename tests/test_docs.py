@@ -78,3 +78,25 @@ def test_the_reference_names_every_stage_and_key() -> None:
     """A stage or manifest key added without docs fails here."""
     names = [*cli._STAGES, *SCHEMA["$defs"]["source"]["properties"]]  # noqa: SLF001
     assert [name for name in names if not re.search(rf"`{name}[` ]", REFERENCE)] == []
+
+
+def test_the_website_revision_example_matches_the_pipeline(project: Path) -> None:
+    """The browser's recorded example must agree with real fetch/build/validate results."""
+    example = json.loads((ROOT / "docs" / "_data" / "revision.json").read_text())
+    guide = (ROOT / "docs" / "getting-started.md").read_text()
+    assert example["before_sha256"][:12] in guide
+    assert example["after_sha256"] in guide
+    upstream = project / "upstream" / "co2-annmean-mlo.csv"
+    sources = ledger.load_manifest()
+    upstream.write_text(example["before"], encoding="utf-8")
+    (before,) = ledger.fetch(sources)
+    ledger.build(sources)
+    assert ledger.validate(sources) == []
+    assert before.sha256 == example["before_sha256"]
+    upstream.write_text(example["after"], encoding="utf-8")
+    (after,) = ledger.fetch(sources)
+    assert after.sha256 == example["after_sha256"]
+    assert before.sha256 != after.sha256
+    assert ledger.validate(sources) == [example["problem"]]
+    ledger.build(sources)
+    assert ledger.validate(sources) == []
