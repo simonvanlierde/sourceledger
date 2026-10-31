@@ -12,6 +12,7 @@ Move manually added files out of `data/processed/` before running `validate`.
 
 ### Added
 
+- `status`, `validate` and `revisions` accept `--json` for scripts and CI. See [JSON reports](docs/reports.md).
 - Per-source `timeout_s` sets the fetch budget, including retries and waits. The default
   remains 300 seconds; see [How fetch behaves](README.md#how-fetch-behaves).
 - `format = "file"` keeps files unchanged and validates their bytes, provenance and
@@ -20,8 +21,15 @@ Move manually added files out of `data/processed/` before running `validate`.
 
 ### Changed
 
+- Documentation separates the quick start from the [manifest and command reference](docs/reference.md), custom readers and release verification.
+
 - **Breaking:** `validate` reports unclaimed non-CSV files in `data/processed/`, alongside
   unclaimed CSV files. See [validation](docs/architecture.md#validate).
+
+### Fixed
+
+- Command options can appear between the stage and its path on Python 3.12, including
+  `revisions --json OLD_LOG`. See the [command reference](docs/reference.md#other-commands).
 
 ### Security
 

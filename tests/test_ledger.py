@@ -2738,3 +2738,140 @@ def test_redirects_do_not_need_the_redirect_response_body(publisher: str, tmp_pa
     _manifest(tmp_path, f"{publisher}/unreadable-redirect.csv", terms=f"{TERMS}\nmax_bytes = {len(FIXTURE)}")
     assert _run("fetch", "build", "validate") == [0, 0, 0]
     assert RAW.read_text() == FIXTURE
+
+
+@pytest.mark.usefixtures("upstream")
+def test_json_status_keeps_types_and_full_hashes(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["status", "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report == {
+        "stage": "status",
+        "errors": [],
+        "sources": [
+            {
+                "source_id": "example",
+                "status": "implemented",
+                "vintage": "not stated",
+                "retrieved_at": None,
+                "sha256": None,
+                "license": "CC0-1.0",
+                "redistribute": True,
+            },
+            {
+                "source_id": "later",
+                "status": "unimplemented",
+                "vintage": "not stated",
+                "retrieved_at": None,
+                "sha256": None,
+                "license": None,
+                "redistribute": None,
+            },
+        ],
+    }
+    assert _run("fetch") == [0]
+    capsys.readouterr()
+    assert main(["status", "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    record = json.loads(Path("data/raw/example.csv.fetch.json").read_text())
+    assert report["sources"][0]["sha256"] == record["sha256"]
+    assert report["sources"][0]["retrieved_at"] == record["retrieved_at"]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["revisions", "before.jsonl", "--json"],
+        ["revisions", "--json", "before.jsonl"],
+        ["--json", "revisions", "before.jsonl"],
+    ],
+)
+def test_json_revisions_describes_changed_bytes(
+    upstream: Path, capsys: pytest.CaptureFixture[str], args: list[str]
+) -> None:
+    assert _run("fetch") == [0]
+    before = Path("before.jsonl")
+    shutil.copyfile(LOG, before)
+    old = json.loads(before.read_text())
+    upstream.write_text(FIXTURE + "2022,3.5\n")
+    assert _run("fetch") == [0]
+    new = json.loads(LOG.read_text().splitlines()[-1])
+    capsys.readouterr()
+    assert main(args) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "stage": "revisions",
+        "errors": [],
+        "revisions": [{"source_id": "example", "before_sha256": old["sha256"], "after": new}],
+    }
+    assert main(["revisions", str(LOG), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["revisions"] == []
+
+
+@pytest.mark.usefixtures("upstream")
+def test_json_validation_preserves_problems_and_selection(capsys: pytest.CaptureFixture[str]) -> None:
+    assert _run("fetch", "build") == [0, 0]
+    capsys.readouterr()
+    assert main(["validate", "--json", "--only", "example"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"stage": "validate", "errors": [], "problems": []}
+    OUT.write_text("changed")
+    expected = ledger.validate(ledger.load_manifest())
+    assert main(["validate", "--json"]) == 1
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert json.loads(captured.out) == {"stage": "validate", "errors": [], "problems": expected}
+
+
+@pytest.mark.parametrize("stage", ["status", "validate", "revisions"])
+def test_json_runtime_errors_are_one_document(
+    stage: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    args = [stage, "--json"] + (["missing.jsonl"] if stage == "revisions" else [])
+    assert main(args) == 1
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert json.loads(captured.out) == {
+        "stage": stage,
+        "errors": ["missing.jsonl is missing" if stage == "revisions" else "sources.toml is missing"],
+    }
+
+
+@pytest.mark.parametrize("stage", ["init", "fetch", "build", "attribution", "verify"])
+def test_json_is_rejected_for_unsupported_stages(stage: str, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit, match="2"):
+        main([stage, "--json"])
+    assert f"--json works with status, validate, revisions, not {stage}" in capsys.readouterr().err
+
+
+@pytest.mark.usefixtures("upstream")
+def test_json_reports_honor_manifest_and_report_bad_input(capsys: pytest.CaptureFixture[str]) -> None:
+    Path("sources.toml").rename("alternate.toml")
+    assert main(["status", "--json", "--manifest", "alternate.toml"]) == 0
+    assert json.loads(capsys.readouterr().out)["sources"][0]["source_id"] == "example"
+    assert main(["validate", "--json", "--manifest", "alternate.toml", "--only", "missing"]) == 1
+    assert "not in sources.toml" in json.loads(capsys.readouterr().out)["errors"][0]
+    Path("alternate.toml").write_text("bad toml [")
+    assert main(["status", "--json", "--manifest", "alternate.toml"]) == 1
+    assert json.loads(capsys.readouterr().out)["errors"]
+
+
+@pytest.mark.usefixtures("upstream")
+def test_status_uses_a_custom_log_and_marks_invalid_reuse_terms(capsys: pytest.CaptureFixture[str]) -> None:
+    assert _run("fetch") == [0]
+    capsys.readouterr()
+    record = json.loads(LOG.read_text())
+    other = Path("other.jsonl")
+    LOG.rename(other)
+    lines = ledger.status(ledger.load_manifest(), log=other)
+    assert record["sha256"][:12] in lines[0]
+    assert record["retrieved_at"] in lines[0]
+    manifest = Path("sources.toml")
+    manifest.write_text(manifest.read_text().replace("redistribute = true", 'redistribute = "unknown"'))
+    assert main(["status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["sources"][0]["redistribute"] is None
+
+
+def test_help_explains_json_reports(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit, match="0"):
+        main(["--help"])
+    line = next(line for line in capsys.readouterr().out.splitlines() if line.strip().startswith("--json"))
+    assert " ".join(line.split()) == "--json status, validate and revisions: print JSON"

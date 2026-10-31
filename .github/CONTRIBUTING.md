@@ -1,7 +1,6 @@
 # Contributing
 
-Thank you for your interest in sourceledger. Bug reports, feature requests and pull
-requests are welcome. Please read the [Code of Conduct](CODE_OF_CONDUCT.md) first, and
+Bug reports, feature requests and pull requests are welcome. Read the [Code of Conduct](CODE_OF_CONDUCT.md) first, and
 report vulnerabilities as [SECURITY.md](SECURITY.md) describes, not in a public issue.
 
 ## Report a bug or ask for a feature
@@ -22,9 +21,17 @@ request outside what the project sets out to do is closed with a link to this se
 
 ## Set up and check
 
-[Development](../README.md#development) in the README installs the tools, the dependencies
-and the git hooks. `just check` runs the checks CI runs, and `just py-fmt` fixes and
-formats.
+Use Python 3.12 or later, [uv](https://docs.astral.sh/uv/) and [just](https://just.systems/).
+From the checkout, install the dependencies and git hooks:
+
+```sh
+uv sync
+uv tool install prek
+prek install
+just check
+```
+
+`just check` runs the checks CI runs. `just py-fmt` fixes lint and formatting issues.
 
 ## Coding standard
 

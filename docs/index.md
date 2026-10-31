@@ -1,34 +1,24 @@
 ---
 title: sourceledger
-description: Build a dataset from public sources where every row says which download it came from.
+description: Build a dataset from published sources and check when they change.
 ---
 
 ## sourceledger
 
-Build a dataset from public sources where every row says which download it came from.
+sourceledger helps you build a dataset from published sources and check when those sources change.
+It records the download behind each output and the terms for reusing it.
+You need Python 3.12 or later on Linux or macOS, and a terminal.
 
-sourceledger is a small Python library and command, with no dependencies, for projects that
-turn other people's published data into a dataset of their own. It makes four promises:
+[Install sourceledger](https://github.com/simonvanlierde/sourceledger/blob/main/README.md#install), then follow the worked example below.
+The example uses a local file so you can change the publisher's data yourself.
 
-1. **Every download is recorded.** The URL, the time, the SHA-256 and size of the bytes, the
-   edition you expected, and the server's ETag and Last-Modified.
-2. **Every output row names its download.** Five provenance columns lead each row, and a
-   Frictionless `datapackage.json` describes every output.
-3. **Every source states its reuse terms.** In the publisher's words, as an SPDX licence id,
-   and as a yes or no on republishing. `validate` fails without them.
-4. **A publisher's revision is noticed.** Each new version of a source is logged, and
-   `revisions` lists what changed since a copy of that log.
-
-[Install and reference](https://github.com/simonvanlierde/sourceledger#readme) ·
-[PyPI](https://pypi.org/project/sourceledger/) ·
-[Changelog](https://github.com/simonvanlierde/sourceledger/blob/main/CHANGELOG.md) ·
-[How it works](architecture.md) ·
-[Use it safely](secure-use.md)
+[Manifest and commands](reference.md) · [JSON reports](reports.md) ·
+[Custom readers](readers.md) · [How it works](architecture.md) · [Safe use](secure-use.md)
 
 ### A worked example
 
 This example follows one source through a publisher's revision. A local file stands in for
-the publisher, so the revision can be made on purpose. The output is from an actual run,
+the publisher, so you can reproduce the revision. The output is from an actual run,
 with the file path shortened.
 
 #### 1. Declare the source
@@ -71,7 +61,7 @@ co2  unchanged         37 B  38fe14e8b0ed  2025 release  file:///…/publisher/a
 ```
 
 Over HTTP, this fetch sends the ETag and Last-Modified back and the server answers that
-nothing changed, so nothing is downloaded. The log gains no line.
+nothing changed, so nothing is downloaded. The log stays unchanged.
 
 #### 4. The publisher revises a value
 
@@ -107,9 +97,7 @@ co2,file:///…/publisher/annual.csv,2026-10-18T03:38:33Z,2025 release,16f81da8a
 
 ### What to commit
 
-Commit `sources.toml` and `data/fetches.jsonl`, and keep `data/raw/` and `data/processed/`
-out of git. The [README](https://github.com/simonvanlierde/sourceledger#what-to-commit)
-says why.
+See [what to commit](https://github.com/simonvanlierde/sourceledger/blob/main/README.md#what-to-commit) for the manifest, log and local data directories.
 
 ### Check a dataset you downloaded
 
@@ -124,10 +112,4 @@ Each file the package lists must exist, with the size and SHA-256 it gives.
 
 ### Check a manifest as you type
 
-For checks in an editor with a TOML language server (Tombi, Taplo), put this line at the
-top of `sources.toml`. `init` writes it, with the version you have installed in place of
-`v0.3.1`:
-
-```toml
-#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.3.1/src/sourceledger/sources.schema.json
-```
+The [manifest reference](reference.md#sourcestoml) shows the schema line for your editor.
