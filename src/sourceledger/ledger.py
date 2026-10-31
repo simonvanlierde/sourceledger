@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import socket
 import sys
 import tempfile
@@ -86,10 +87,11 @@ _STARTER = f"""#:schema {_SCHEMA_URL}
 
 IMPLEMENTED = "implemented"
 UNIMPLEMENTED = "unimplemented"
+FILE_FORMAT = "file"
 # Bounds each connect and each read. A server that trickles bytes is stopped by _BUDGET_S.
 _SOCKET_TIMEOUT_S = 30
-# One source's whole fetch, every attempt and wait included, so a stalled publisher costs
-# at most 5 minutes of a CI job.
+# One source's download, every attempt and wait included, so a stalled publisher costs
+# at most 5 minutes of a CI job unless timeout_s overrides it.
 _BUDGET_S = 300
 # Waits of 5, 10 and 20 s between four attempts ride out a brief publisher outage.
 _ATTEMPTS = 4
@@ -169,7 +171,7 @@ class FetchError(OSError):
 
 
 def load_manifest(path: Path = MANIFEST) -> list[Source]:
-    """The `[[source]]` tables of sources.toml, after checking ids, URLs, caps and pins."""
+    """The `[[source]]` tables of sources.toml, after checking ids, URLs, caps, timeouts and pins."""
     with path.open("rb") as fh:
         sources = tomllib.load(fh).get("source", [])
     if not isinstance(sources, list) or not all(isinstance(s, dict) and isinstance(s.get("id"), str) for s in sources):
@@ -193,6 +195,13 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
         raise ValueError(msg)
     if bad_archive := [s["id"] for s in sources if not isinstance(s.get("archive", False), bool)]:
         msg = f"sources {bad_archive} in sources.toml need archive to be true or false"
+        raise ValueError(msg)
+    if bad_timeout := [
+        s["id"]
+        for s in sources
+        if type(timeout := s.get("timeout_s", _BUDGET_S)) not in (int, float) or not 0 < timeout <= sys.float_info.max
+    ]:
+        msg = f"sources {bad_timeout} in sources.toml need timeout_s to be a positive finite number"
         raise ValueError(msg)
     for source in sources:
         _check_pin(source)
@@ -232,8 +241,8 @@ def _select(sources: list[Source], only: Collection[str] | None) -> list[Source]
 
 
 def _check_format(source: Source) -> None:
-    if (fmt := source.get("format")) is not None and fmt not in _PARSERS:
-        msg = f"{source['id']}: format in sources.toml must be one of {sorted(_PARSERS)}, not {fmt!r}"
+    if (fmt := source.get("format")) is not None and fmt not in (*_PARSERS, FILE_FORMAT):
+        msg = f"{source['id']}: format in sources.toml must be one of {sorted([*_PARSERS, FILE_FORMAT])}, not {fmt!r}"
         raise ValueError(msg)
 
 
@@ -290,6 +299,11 @@ def implemented(sources: list[Source]) -> list[Source]:
 def raw_name(source: Source) -> str:
     """The raw file's name: the source id plus the URL's extension, e.g. `example-co2.csv`."""
     return source["id"] + PurePosixPath(urlsplit(source["url"]).path).suffix
+
+
+def _output_name(source: Source) -> str:
+    """The built file's name; an unimplemented source may have no URL yet."""
+    return raw_name(source) if source.get("format") == FILE_FORMAT and source.get("url") else f"{source['id']}.csv"
 
 
 def _write_atomic(path: Path, data: bytes) -> None:
@@ -362,6 +376,8 @@ class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
         # changes the scheme, host or port keeps only the harmless ones.
         if urlsplit(newurl)[:2] != urlsplit(req.full_url)[:2]:
             new.headers = {k: v for k, v in new.headers.items() if k.lower() in _SAFE_ON_REDIRECT}
+        # urllib drains this body before redirecting; closing it avoids an unbounded read.
+        fp.close()
         return new
 
 
@@ -468,19 +484,29 @@ def _copy(response: _Response, fh: IO[bytes], source: Source, deadline: float) -
     digest = hashlib.sha256()
     size = 0
     # read1: one socket read at most, so a server trickling bytes can't hold a read past the deadline.
-    while chunk := response.read1(_CHUNK_BYTES):
+    while True:
+        chunk = response.read1(_CHUNK_BYTES)
+        _time_left(source, deadline)
+        if not chunk:
+            break
         size += len(chunk)
         if size > cap:
             msg = f"{source['id']}: download exceeds {cap} bytes; raise max_bytes in sources.toml if expected"
             raise ValueError(msg)
-        if time.monotonic() > deadline:
-            msg = f"download still unfinished after {_BUDGET_S} s"
-            raise TimeoutError(msg)
         digest.update(chunk)
         fh.write(chunk)
     fh.flush()
     os.fsync(fh.fileno())
     return digest.hexdigest(), size
+
+
+def _time_left(source: Source, deadline: float) -> float:
+    """The fetch budget left for this attempt or read, or a timeout when it is spent."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        msg = f"download still unfinished after {source.get('timeout_s', _BUDGET_S)} s"
+        raise TimeoutError(msg)
+    return remaining
 
 
 def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: Path) -> _Download | FetchRecord:
@@ -491,7 +517,9 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
 
     429, 500, 502, 503 and 504, network errors and a body shorter than its Content-Length
     are retried with exponential backoff, waiting at least the server's Retry-After (up to
-    120 s). The whole fetch stops after 300 s. Any other error status is raised at once.
+    120 s). The `timeout_s` budget (default 300 s) is checked before attempts and after
+    body reads. DNS lookup and HTTP header parsing can exceed it; it is not a hard
+    time limit. Any other error status is raised at once.
 
     Raises ValueError for a body over the source's `max_bytes` (default 200 MiB), or one
     served compressed.
@@ -499,11 +527,11 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
     conditional = _conditional(previous)
     headers = {"User-Agent": user_agent, "Accept-Encoding": "identity", **_env_headers(source), **conditional}
     request = urllib.request.Request(source["url"], headers=headers)  # noqa: S310  # see _open
-    deadline = time.monotonic() + _BUDGET_S
+    deadline = time.monotonic() + source.get("timeout_s", _BUDGET_S)
     for attempt in range(1, _ATTEMPTS + 1):
         wait = _BACKOFF_S * 2 ** (attempt - 1)
         try:
-            with _open(request, timeout=_SOCKET_TIMEOUT_S) as response:
+            with _open(request, timeout=min(_SOCKET_TIMEOUT_S, _time_left(source, deadline))) as response:
                 path, digest, size = _download(response, source, deadline, folder)
                 # A connection dropped mid-body can end the read early without an error.
                 expected = _content_length(response.headers)
@@ -527,7 +555,7 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
             if attempt == _ATTEMPTS:
                 raise
             failure = error
-        if time.monotonic() + wait > deadline:
+        if time.monotonic() + wait >= deadline:
             raise failure
         _logger.warning(
             "%s: attempt %d of %d failed (%s); retrying in %.0f s", source["id"], attempt, _ATTEMPTS, failure, wait
@@ -889,8 +917,12 @@ def parse_source(source: Source, payload: bytes) -> tuple[list[str], list[dict[s
     """One raw file as its columns and rows, read by its format: the default `Parser`.
 
     The format is the source's `format` key, or else the URL's extension: `.json` is JSON,
-    `.xlsx` is Excel, anything else is CSV (gzipped or not).
+    `.xlsx` is Excel, anything else is CSV (gzipped or not). Raises ValueError for
+    `format = "file"`, which has no table; `build` copies these files without a parser.
     """
+    if _format(source) == FILE_FORMAT:
+        msg = f"{source['id']}: format file has no table to parse"
+        raise ValueError(msg)
     return _PARSERS[_format(source)](source, payload)
 
 
@@ -1105,15 +1137,17 @@ def build(
     parse: Parser = parse_source,
     only: Collection[str] | None = None,
 ) -> list[Path]:
-    """Write each implemented source to `processed/<id>.csv`, each row stamped with its fetch record.
+    """Write implemented sources to `processed`: unchanged files, or tables stamped with their fetch records.
 
-    `parse` reads each raw file; the default reads CSV, JSON and Excel by each source's format.
+    `format = "file"` copies the original bytes to `processed/<raw_name>`, without parsing.
+    For tables, `parse` reads each raw file; the default reads CSV, JSON and Excel by format.
     Then writes `processed/datapackage.json`, a Frictionless Data Package (v2) describing every
     output: its columns, size and SHA-256, its source URL and licence, and its fetch record.
     The same records give the same file, byte for byte.
 
     `only` restricts the build to those source ids. The package keeps each other source's
-    entry as the last build wrote it. Raises ValueError for an id the manifest does not have.
+    entry as the last build wrote it. Raises ValueError for an id the manifest does not have,
+    or a file output named `datapackage.json`, which is reserved for the descriptor.
     """
     selected = {s["id"] for s in _select(sources, only)}
     earlier = {} if only is None else _listed(processed / DATAPACKAGE)
@@ -1125,7 +1159,10 @@ def build(
             if source["id"] in earlier:
                 resources.append(earlier[source["id"]])
             continue
-        out = processed / f"{source['id']}.csv"
+        out = processed / _output_name(source)
+        if out.name.lower() == DATAPACKAGE:
+            msg = f"{DATAPACKAGE} is reserved for the package descriptor; choose another source id"
+            raise ValueError(msg)
         record, fields = _build_one(source, raw, out, parse)
         written.append(out)
         resources.append(_resource(source, record, fields, out))
@@ -1135,8 +1172,9 @@ def build(
 
 
 def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[FetchRecord, list[str]]:
-    """Write one source's rows to `out`, each stamped with its fetch record: the record, and the columns written.
+    """Write one source to `out`: the fetch record, and the columns written (none for a file).
 
+    File sources are copied unchanged. Tables get their provenance columns first.
     With the default parser a plain CSV file goes through a row at a time, so memory stays
     near one row whatever the file's size.
     """
@@ -1145,6 +1183,10 @@ def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[Fet
     with (raw / raw_name(source)).open("rb") as fh:
         _check_hash(source, record, _sha256(fh))
         fh.seek(0)
+        if source.get("format") == FILE_FORMAT:
+            with _replacing(out) as target:
+                shutil.copyfileobj(fh, target)
+            return record, []
         if parse is parse_source and _PARSERS[_format(source)] is parse_csv and fh.read(2) != _GZIP_MAGIC:
             fh.seek(0)
             text = io.TextIOWrapper(fh, encoding="utf-8-sig", newline="")
@@ -1160,7 +1202,7 @@ def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[Fet
             finally:
                 text.detach()  # closing the wrapper would close fh
         else:
-            # shortcut: other formats, gzipped CSV and custom parsers hold the whole file and its rows
+            # NOTE: other formats, gzipped CSV and custom parsers hold the whole file and its rows
             # in memory, as a Parser returns lists; stream them too once such sources outgrow memory.
             fh.seek(0)
             columns, rows = parse(source, fh.read())
@@ -1205,11 +1247,11 @@ def _package_name() -> str:
 
 
 def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path) -> dict[str, Any]:
-    """One output as a Data Package resource. Every column is text, as the CSV holds it."""
+    """One output as a Data Package resource: a file, or a table whose columns hold text."""
     resource: dict[str, Any] = {
         "name": source["id"],
         "type": "table",
-        "path": f"{source['id']}.csv",
+        "path": out.name,
         "format": "csv",
         "mediatype": "text/csv",
         "encoding": "utf-8",
@@ -1218,6 +1260,9 @@ def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path)
         "schema": {"fields": [{"name": field, "type": "string"} for field in fields]},
         "sources": [{"title": str(source.get("name", source["id"])), "path": record.url}],
     }
+    if source.get("format") == FILE_FORMAT:
+        for key in ("type", "format", "mediatype", "encoding", "schema"):
+            del resource[key]
     if source.get("license"):
         licence = {"name": source["license"], "path": source.get("terms_url"), "title": source.get("terms")}
         resource["licenses"] = [{k: v for k, v in licence.items() if v}]
@@ -1262,35 +1307,51 @@ def validate(
     """
     selected = _select(sources, only)
     problems = []
-    ids = {source["id"] for source in sources}
+    listed = _listed(processed / DATAPACKAGE)
+    outputs = {_output_name(source) for source in sources}
     # Output of a source since removed or renamed would otherwise pass as published data.
     if only is None:
         problems += [
             f"{out}: no source {out.stem!r} in sources.toml; delete it"
-            for out in sorted(processed.glob("*.csv"))
-            if out.stem not in ids
+            for out in sorted(processed.glob("*"))
+            if out.is_file() and out.name != DATAPACKAGE and out.name not in outputs
         ]
     for source in selected:
         sid, status = source["id"], source.get("status")
-        out = processed / f"{sid}.csv"
+        out = processed / _output_name(source)
         if status == UNIMPLEMENTED:
-            if out.exists():
+            if out.name.lower() != DATAPACKAGE and out.exists():
                 problems.append(f"{sid}: status is unimplemented, but {out} exists")
             continue
         if status != IMPLEMENTED:
             problems.append(f"{sid}: status must be {IMPLEMENTED!r} or {UNIMPLEMENTED!r}, not {status!r}")
             continue
         problems += _terms_problems(source)
-        try:
-            rows, stale = _scan(out, _stamp(_current(source, raw)))
-        except (OSError, ValueError, csv.Error) as error:
-            problems.append(one_line(error))
-            continue
-        if not rows:
-            problems.append(f"{out}: no rows")
-        if stale:
-            problems.append(f"{out}: rows come from an earlier fetch than {raw_name(source)}; re-run build")
+        problems += _output_problems(source, raw, out, listed.get(sid))
     return problems + _package_problems(sources, processed, only)
+
+
+def _output_problems(source: Source, raw: Path, out: Path, resource: dict[str, Any] | None) -> list[str]:
+    """Whether one built file and its metadata still match the current fetch."""
+    try:
+        record = _current(source, raw)
+        if source.get("format") == FILE_FORMAT:
+            expected = _resource(source, record, [], out)
+            problems = []
+            if expected["hash"] != f"sha256:{record.sha256}":
+                problems.append(f"{out}: differs from the fetched file; re-run build")
+            if resource is not None and resource != expected:
+                problems.append(f"{out.parent / DATAPACKAGE} describes an earlier build of {out}; re-run build")
+            return problems
+        rows, stale = _scan(out, _stamp(record))
+    except (OSError, ValueError, csv.Error) as error:
+        return [one_line(error)]
+    problems = []
+    if not rows:
+        problems.append(f"{out}: no rows")
+    if stale:
+        problems.append(f"{out}: rows come from an earlier fetch than {raw_name(source)}; re-run build")
+    return problems
 
 
 def _scan(out: Path, stamp: dict[str, str]) -> tuple[bool, bool]:
@@ -1310,8 +1371,8 @@ def _package_problems(sources: list[Source], processed: Path, only: Collection[s
     With `only`, whether it lists those of them, each with its output's current hash.
     """
     path = processed / DATAPACKAGE
-    expected = {source["id"] for source in implemented(sources)}
-    checked = expected if only is None else expected & set(only)
+    expected = {source["id"]: source for source in implemented(sources)}
+    checked = expected.keys() if only is None else expected.keys() & set(only)
     try:
         package = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -1319,13 +1380,13 @@ def _package_problems(sources: list[Source], processed: Path, only: Collection[s
     except ValueError as error:
         return [f"{path} is not JSON ({error}); re-run build"]
     listed = _by_name(package)
-    if only is None and set(listed) != expected:
+    if only is None and listed.keys() != expected.keys():
         return [
             f"{path} lists {sorted(map(str, listed))}, not the implemented sources {sorted(expected)}; re-run build"
         ]
     problems = []
     for sid in sorted(checked):
-        out = processed / f"{sid}.csv"
+        out = processed / _output_name(expected[sid])
         if sid not in listed:
             problems.append(f"{path} does not list {sid}; re-run build")
         elif out.exists() and listed[sid].get("hash") != f"sha256:{_digest(out)}":

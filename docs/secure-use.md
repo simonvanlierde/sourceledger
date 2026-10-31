@@ -31,6 +31,8 @@ These checks apply to every fetch:
 - A redirect that changes the scheme, host or port drops the `headers` from the manifest.
   An API key meant for one host never goes to another, and never goes out over http after
   a redirect from https.
+- Redirects discard their unused response bodies, so a redirect cannot make urllib
+  buffer an unlimited body before following the destination URL.
 - The file is requested and stored uncompressed, so the SHA-256 is always that of the file
   as published.
 
@@ -81,6 +83,11 @@ Every implemented source must say whether its terms let you republish the raw fi
 publishes anything itself. It records `redistribute` in `datapackage.json`, and shows it in
 the `status` and `attribution` reports. The README tells you to keep `data/raw/` and
 `data/processed/` out of git, so a push never republishes them.
+
+`build` prepares a local working dataset. For `format = "file"` it copies the original
+file into `data/processed/`, even when `redistribute = false`. That flag records reuse
+terms; it does not prevent private local processing. A successful `validate` or `verify`
+checks integrity and does not clear the dataset for publication.
 
 Before you publish a dataset, check the sources marked `redistribute = false`. Leave their
 raw files out of the release. Your outputs still hold their values, so check the terms

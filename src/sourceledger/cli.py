@@ -11,6 +11,7 @@ from pathlib import Path
 from sourceledger.ledger import (
     DATAPACKAGE,
     FETCH_LOG,
+    FILE_FORMAT,
     MANIFEST,
     PROCESSED,
     USER_AGENT,
@@ -25,6 +26,7 @@ from sourceledger.ledger import (
     logged_versions,
     one_line,
     parse_source,
+    raw_name,
     revisions,
     status,
     validate,
@@ -137,10 +139,19 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
             for record in fetch(load_manifest(manifest), user_agent=user_agent, only=only):
                 print(_fetch_line(record, logged))
         case "build", _:
-            for out in build(load_manifest(manifest), parse=parse, only=only):
-                with out.open(newline="", encoding="utf-8") as fh:
-                    rows = sum(1 for _ in csv.DictReader(fh))
-                print(f"{rows} rows -> {out}")
+            sources = load_manifest(manifest)
+            files = {
+                PROCESSED / raw_name(source)
+                for source in sources
+                if source.get("format") == FILE_FORMAT and source.get("url")
+            }
+            for out in build(sources, parse=parse, only=only):
+                if out in files:
+                    print(f"{out.stat().st_size} bytes -> {out}")
+                else:
+                    with out.open(newline="", encoding="utf-8") as fh:
+                        rows = sum(1 for _ in csv.DictReader(fh))
+                    print(f"{rows} rows -> {out}")
             print(f"package -> {PROCESSED / DATAPACKAGE}")
         case "status", _:
             for line in status(load_manifest(manifest)):

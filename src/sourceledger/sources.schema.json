@@ -56,9 +56,15 @@
           "minimum": 1,
           "description": "The largest download fetch accepts. 200 MiB unless set."
         },
+        "timeout_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1.7976931348623157e308,
+          "description": "The time budget in seconds for a fetch, including retries and waits. 300 unless set."
+        },
         "format": {
-          "enum": ["csv", "json", "xlsx"],
-          "description": "How the default reader reads the file. Otherwise from the URL's extension."
+          "enum": ["csv", "json", "xlsx", "file"],
+          "description": "file: keep the original bytes without a table. Otherwise choose the reader, or infer it from the URL extension."
         },
         "sheet": { "type": "string", "description": "The Excel sheet to read. The first unless set." },
         "headers": {

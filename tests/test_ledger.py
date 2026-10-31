@@ -895,7 +895,8 @@ def test_a_download_that_outlasts_its_budget_fails(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A server trickling bytes inside every socket timeout is still stopped."""
-    monkeypatch.setattr(ledger, "_BUDGET_S", -1)
+    clock = iter([0, 0, 301, 301])
+    monkeypatch.setattr(time, "monotonic", lambda: next(clock))
     _serve(monkeypatch, _Response(FIXTURE.encode()))
     assert _run("fetch") == [1]
     assert "unfinished after" in capsys.readouterr().err
@@ -928,6 +929,40 @@ def test_a_server_trickling_bytes_is_stopped_near_the_budget(
     assert time.monotonic() - start < 1.5 + 0.5
     assert "unfinished after 0.5 s" in capsys.readouterr().err
     listener.close()
+
+
+@pytest.mark.parametrize("timeout", ["0", "-1", "true", '"30"', "nan", "inf", "-inf"])
+@pytest.mark.usefixtures("upstream")
+def test_invalid_source_timeouts_are_manifest_errors(tmp_path: Path, timeout: str) -> None:
+    _manifest(tmp_path, "https://example.org/data.csv", terms=f"{TERMS}\ntimeout_s = {timeout}")
+    with pytest.raises(ValueError, match=r"timeout_s.*positive finite number"):
+        ledger.load_manifest()
+
+
+@pytest.mark.parametrize("timeout", [1, 0.5, 600])
+@pytest.mark.usefixtures("upstream")
+def test_source_timeout_bounds_the_socket(monkeypatch: pytest.MonkeyPatch, timeout: float) -> None:
+    calls = _serve(monkeypatch, _Response(FIXTURE.encode()))
+    sources = ledger.load_manifest()
+    sources[0]["timeout_s"] = timeout
+    ledger.fetch(sources)
+    assert calls[0].timeout is not None
+    assert 0 < calls[0].timeout <= min(timeout, 30)
+
+
+@pytest.mark.parametrize("timeout", [1, 5])
+@pytest.mark.usefixtures("upstream")
+def test_source_timeout_includes_retry_waits(
+    monkeypatch: pytest.MonkeyPatch, sleeps: list[float], timeout: int
+) -> None:
+    calls = _serve(monkeypatch, _http_error(503, Retry_After="2"), _Response(FIXTURE.encode()))
+    sources = ledger.load_manifest()
+    sources[0]["timeout_s"] = timeout
+    monkeypatch.setattr(time, "monotonic", lambda: 0)
+    with pytest.raises(ledger.FetchError, match="503"):
+        ledger.fetch(sources)
+    assert len(calls) == 1
+    assert sleeps == []
 
 
 def test_a_redirect_from_a_public_host_is_marked_public_only() -> None:
@@ -1105,6 +1140,12 @@ class _Publisher(http.server.BaseHTTPRequestHandler):
     """A real HTTP server: /data.csv with an ETag and 304s, and /old.csv redirecting to it."""
 
     def do_GET(self) -> None:
+        if self.path == "/unreadable-redirect.csv":
+            self.send_response(302)
+            self.send_header("Location", "/data.csv")
+            self.send_header("Content-Length", "1024")
+            self.end_headers()
+            return
         if self.path == "/old.csv":
             self.send_response(302)
             self.send_header("Location", "/data.csv")
@@ -1114,12 +1155,15 @@ class _Publisher(http.server.BaseHTTPRequestHandler):
             self.send_response(304)
             self.end_headers()
             return
-        body = FIXTURE.encode()
+        body = b"\x00\xfffirst\x80second" if self.path == "/data.bin" else FIXTURE.encode()
         self.send_response(200)
         self.send_header("ETag", '"v1"')
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        self.wfile.write(body[:7])
+        self.wfile.flush()
+        threading.Event().wait(0.05)
+        self.wfile.write(body[7:])
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002  # the base class names it
         """Keep test output quiet."""
@@ -1134,6 +1178,7 @@ def publisher(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     monkeypatch.chdir(tmp_path)
     yield f"http://127.0.0.1:{server.server_address[1]}"
     server.shutdown()
+    server.server_close()
 
 
 def test_real_http_fetches_redirects_and_304s(publisher: str, tmp_path: Path) -> None:
@@ -1374,6 +1419,8 @@ _GOOD = f'[[source]]\nid = "a"\nstatus = "implemented"\nurl = "https://example.o
         _GOOD + 'sha256 = "' + "A" * 64 + '"\nmax_bytes = 10\nformat = "json"\nsheet = "x"\nvintage = "2024"\n',
         _GOOD + 'headers = { Authorization = "env:TOKEN" }\ncolumn_map = "kept for the project\'s own reader"\n',
         _GOOD + "archive = true\n",
+        _GOOD + 'format = "file"\n',
+        *[_GOOD + f"timeout_s = {value}\n" for value in ["1", "0.5", "0", "true", '"1"']],
         _GOOD + 'archive = "yes"\n',
         '[[source]]\nid = "b"\nstatus = "unimplemented"\nreason = "later"\n',
         _GOOD.replace('id = "a"', 'id = "a/b"'),
@@ -2076,7 +2123,10 @@ def test_json_numbers_are_kept_as_written() -> None:
 @pytest.mark.parametrize(
     ("extra", "expected"),
     [
-        ('format = "parquet"', "example: format in sources.toml must be one of ['csv', 'json', 'xlsx'], not 'parquet'"),
+        (
+            'format = "parquet"',
+            "example: format in sources.toml must be one of ['csv', 'file', 'json', 'xlsx'], not 'parquet'",
+        ),
         ('headers = "x"', "example: headers in sources.toml must be a table"),
         (
             'headers = { Authorization = "Bearer x" }',
@@ -2538,3 +2588,153 @@ def test_a_streamed_build_writes_or_refuses_what_the_list_path_does(raw: bytes) 
     assert _run("fetch") == [0]
     streamed, listed = _both_paths(raw)
     assert streamed == listed
+
+
+@pytest.mark.parametrize("suffix", [".bin", ".csv", ""])
+@pytest.mark.parametrize("redistribute", [True, False])
+def test_file_sources_build_without_a_parser(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    suffix: str,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    redistribute: bool,
+) -> None:
+    payload = b"\x00\xff\x80binary\n"
+    upstream = tmp_path / f"input{suffix}"
+    upstream.write_bytes(payload)
+    monkeypatch.chdir(tmp_path)
+    terms = TERMS.replace("redistribute = true", f"redistribute = {str(redistribute).lower()}")
+    _manifest(tmp_path, upstream.as_uri(), terms=f'{terms}\nformat = "file"')
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    out = Path("data/processed") / f"example{suffix}"
+    assert out.read_bytes() == payload
+    if suffix != ".csv":
+        assert not OUT.exists()
+    assert f"{len(payload)} bytes -> {out}" in capsys.readouterr().out
+    package = json.loads((out.parent / ledger.DATAPACKAGE).read_text())
+    (resource,) = package["resources"]
+    assert "type" not in resource
+    assert resource["path"] == out.name
+    assert resource["sourceledger"]["redistribute"] is redistribute
+    assert "schema" not in resource
+    assert "encoding" not in resource
+    assert resource["hash"] == "sha256:" + hashlib.sha256(payload).hexdigest()
+    assert ledger.verify(out.parent) == []
+    out.write_bytes(b"edited")
+    assert any("earlier build" in p for p in ledger.validate(ledger.load_manifest()))
+    resource["hash"] = "sha256:" + hashlib.sha256(out.read_bytes()).hexdigest()
+    (out.parent / ledger.DATAPACKAGE).write_text(json.dumps(package))
+    assert any("differs from the fetched file" in p for p in ledger.validate(ledger.load_manifest()))
+    out.unlink()
+    assert any("missing" in p for p in ledger.validate(ledger.load_manifest()))
+
+
+def test_a_file_source_checks_its_raw_hash_before_building(upstream: Path, tmp_path: Path) -> None:
+    _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nformat = "file"')
+    assert _run("fetch") == [0]
+    RAW.write_bytes(b"changed")
+    with pytest.raises(ValueError, match="changed since it was fetched"):
+        ledger.build(ledger.load_manifest())
+    assert not OUT.exists()
+
+
+def test_a_two_chunk_file_uses_its_source_timeout(publisher: str, tmp_path: Path) -> None:
+    _manifest(tmp_path, f"{publisher}/data.bin", terms=f'{TERMS}\nformat = "file"\ntimeout_s = 1')
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    assert Path("data/processed/example.bin").read_bytes() == b"\x00\xfffirst\x80second"
+    assert not OUT.exists()
+    assert ledger.verify(Path("data/processed")) == []
+
+
+def test_partial_build_keeps_file_resources(upstream: Path, tmp_path: Path) -> None:
+    _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nformat = "file"')
+    assert _run("fetch", "build") == [0, 0]
+    sources = ledger.load_manifest()
+    assert ledger.build(sources, only=[]) == []
+    assert ledger.validate(sources) == []
+    assert ledger.verify(Path("data/processed")) == []
+    sources[0]["status"] = "unimplemented"
+    assert any("unimplemented" in problem for problem in ledger.validate(sources))
+    assert any("no source" in problem for problem in ledger.validate([]))
+
+
+def test_parse_source_reports_that_files_have_no_table() -> None:
+    with pytest.raises(ValueError, match="format file has no table"):
+        ledger.parse_source({"id": "example", "format": "file"}, b"anything")
+
+
+@pytest.mark.parametrize(
+    ("budget", "elapsed", "success"), [(1, 0.5, True), (1, 1, False), (1, 2, False), (600, 301, True)]
+)
+@pytest.mark.usefixtures("upstream")
+def test_the_download_uses_the_source_budget(
+    monkeypatch: pytest.MonkeyPatch, budget: int, elapsed: float, *, success: bool
+) -> None:
+    _serve(monkeypatch, _Response(FIXTURE.encode()))
+    sources = ledger.load_manifest()
+    sources[0]["timeout_s"] = budget
+    clock = iter([0, 0, elapsed, elapsed])
+    monkeypatch.setattr(time, "monotonic", lambda: next(clock))
+    if success:
+        assert len(ledger.fetch(sources)) == 1
+    else:
+        with pytest.raises(ledger.FetchError, match=f"unfinished after {budget} s"):
+            ledger.fetch(sources)
+
+
+@pytest.mark.parametrize("suffix", [".json", ".JSON"])
+@pytest.mark.usefixtures("upstream")
+def test_a_file_output_cannot_overwrite_the_package(suffix: str) -> None:
+    sources = ledger.load_manifest()
+    source = sources[0]
+    source.update(id="datapackage", format="file", url=source["url"].removesuffix(".csv") + suffix)
+    Path(source["url"].removeprefix("file://")).write_bytes(b"raw")
+    ledger.fetch(sources)
+    with pytest.raises(ValueError, match=r"datapackage\.json.*reserved"):
+        ledger.build(sources)
+
+
+@pytest.mark.parametrize("field", ["vintage", "url", "redistribute"])
+def test_validate_requires_current_file_metadata(upstream: Path, field: str) -> None:
+    sources = ledger.load_manifest()
+    source = sources[0]
+    source.update(format="file", vintage="2024")
+    ledger.fetch(sources)
+    ledger.build(sources)
+    assert ledger.validate(sources) == []
+    original = OUT.read_bytes()
+    if field == "url":
+        mirror = upstream.with_name("mirror.csv")
+        mirror.write_bytes(upstream.read_bytes())
+        source["url"] = mirror.as_uri()
+    elif field == "vintage":
+        source["vintage"] = "2025"
+    else:
+        source["redistribute"] = False
+    if field != "redistribute":
+        ledger.fetch(sources)
+    assert OUT.read_bytes() == original
+    assert any("re-run build" in problem for problem in ledger.validate(sources))
+    assert any("re-run build" in problem for problem in ledger.validate(sources, only=["example"]))
+    ledger.build(sources)
+    assert ledger.validate(sources) == []
+    assert OUT.read_bytes() == original
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("status", ["implemented", "unimplemented"])
+def test_unselected_reserved_file_names_do_not_block_validation(status: str) -> None:
+    sources = ledger.load_manifest()
+    sources.append({"id": "datapackage", "status": status, "format": "file", "url": "https://example.org/a.json"})
+    ledger.fetch(sources, only=["example"])
+    ledger.build(sources, only=["example"])
+    assert ledger.validate(sources, only=["example"]) == []
+    if status == "unimplemented":
+        assert ledger.validate(sources) == []
+
+
+def test_redirects_do_not_need_the_redirect_response_body(publisher: str, tmp_path: Path) -> None:
+    _manifest(tmp_path, f"{publisher}/unreadable-redirect.csv", terms=f"{TERMS}\nmax_bytes = {len(FIXTURE)}")
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    assert RAW.read_text() == FIXTURE

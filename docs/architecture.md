@@ -27,7 +27,8 @@ and command option. This page explains how the parts fit together.
 | `data/raw/<id>.<ext>.fetch.json` | `fetch` | `fetch`, `build`, `validate` | no |
 | `data/raw/.lock` | `fetch` | `fetch` | no |
 | `data/fetches.jsonl` | `fetch` | `fetch`, `status`, `revisions` | yes |
-| `data/processed/<id>.csv` | `build` | `validate` | no |
+| `data/processed/<id>.csv` | `build` (tables) | `validate` | no |
+| `data/processed/<id>.<ext>` | `build` (`format = "file"`) | `validate`, `verify` | no |
 | `data/processed/datapackage.json` | `build` | `build --only`, `validate`, `verify` | no |
 
 `<ext>` is the extension of the source's URL. The README says
@@ -76,13 +77,23 @@ only). `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
 The same records give the same files, byte for byte: nothing in an output depends on the
 time of the build.
 
+For `format = "file"`, build copies the checked raw file into `data/processed/`,
+without calling a reader. Its package resource has its size and hash, and the same
+source, licence and fetch metadata. It omits `type` to describe a generic file,
+as the [Data Resource standard](https://datapackage.org/standard/data-resource/#type) defines.
+It has no table schema.
+
 ### validate
 
 `validate` checks the outputs against the manifest and the records, and lists every
 problem instead of stopping at the first. It re-hashes each raw file in blocks and reads
 each output one row at a time, so memory stays small. It compares each row's provenance
-columns with the record. It also reports a source without reuse terms, an output that no source owns, and a `datapackage.json` that
-no longer matches the outputs. It exits 1 if it finds any problem.
+columns with the record. For a file source, it compares the output's hash with the fetch
+record and checks that its package entry has the current provenance and reuse terms.
+It also reports a source without reuse terms, an output that no source owns, and a
+`datapackage.json` that no longer matches the outputs. Every file in `data/processed/`,
+including non-CSV files, must belong to a source or be the package descriptor.
+It exits 1 if it finds any problem.
 
 ### The other commands
 
