@@ -1140,6 +1140,12 @@ class _Publisher(http.server.BaseHTTPRequestHandler):
     """A real HTTP server: /data.csv with an ETag and 304s, and /old.csv redirecting to it."""
 
     def do_GET(self) -> None:
+        if self.path == "/unreadable-redirect.csv":
+            self.send_response(302)
+            self.send_header("Location", "/data.csv")
+            self.send_header("Content-Length", "1024")
+            self.end_headers()
+            return
         if self.path == "/old.csv":
             self.send_response(302)
             self.send_header("Location", "/data.csv")
@@ -1169,6 +1175,7 @@ def publisher(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     monkeypatch.chdir(tmp_path)
     yield f"http://127.0.0.1:{server.server_address[1]}"
     server.shutdown()
+    server.server_close()
 
 
 def test_real_http_fetches_redirects_and_304s(publisher: str, tmp_path: Path) -> None:
@@ -2710,3 +2717,48 @@ def test_file_sources_can_build_for_private_use() -> None:
     (resource,) = json.loads((OUT.parent / ledger.DATAPACKAGE).read_text())["resources"]
     assert resource["sourceledger"]["redistribute"] is False
     assert ledger.verify(OUT.parent) == []
+
+
+@pytest.mark.parametrize("field", ["vintage", "url", "redistribute"])
+def test_validate_requires_current_file_metadata(upstream: Path, field: str) -> None:
+    sources = ledger.load_manifest()
+    source = sources[0]
+    source.update(format="file", vintage="2024")
+    ledger.fetch(sources)
+    ledger.build(sources)
+    assert ledger.validate(sources) == []
+    original = OUT.read_bytes()
+    if field == "url":
+        mirror = upstream.with_name("mirror.csv")
+        mirror.write_bytes(upstream.read_bytes())
+        source["url"] = mirror.as_uri()
+    elif field == "vintage":
+        source["vintage"] = "2025"
+    else:
+        source["redistribute"] = False
+    if field != "redistribute":
+        ledger.fetch(sources)
+    assert OUT.read_bytes() == original
+    assert any("re-run build" in problem for problem in ledger.validate(sources))
+    assert any("re-run build" in problem for problem in ledger.validate(sources, only=["example"]))
+    ledger.build(sources)
+    assert ledger.validate(sources) == []
+    assert OUT.read_bytes() == original
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("status", ["implemented", "unimplemented"])
+def test_unselected_reserved_file_names_do_not_block_validation(status: str) -> None:
+    sources = ledger.load_manifest()
+    sources.append({"id": "datapackage", "status": status, "format": "file", "url": "https://example.org/a.json"})
+    ledger.fetch(sources, only=["example"])
+    ledger.build(sources, only=["example"])
+    assert ledger.validate(sources, only=["example"]) == []
+    if status == "unimplemented":
+        assert ledger.validate(sources) == []
+
+
+def test_redirects_do_not_need_the_redirect_response_body(publisher: str, tmp_path: Path) -> None:
+    _manifest(tmp_path, f"{publisher}/unreadable-redirect.csv", terms=f"{TERMS}\nmax_bytes = {len(FIXTURE)}")
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    assert RAW.read_text() == FIXTURE

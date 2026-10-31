@@ -89,8 +89,11 @@ It has no table schema.
 problem instead of stopping at the first. It re-hashes each raw file in blocks and reads
 each output one row at a time, so memory stays small. It compares each row's provenance
 columns with the record. For a file source, it compares the output's hash with the fetch
-record. It also reports a source without reuse terms, an output that no source owns, and a `datapackage.json` that
-no longer matches the outputs. It exits 1 if it finds any problem.
+record and checks that its package entry has the current provenance and reuse terms.
+It also reports a source without reuse terms, an output that no source owns, and a
+`datapackage.json` that no longer matches the outputs. Every file in `data/processed/`,
+including non-CSV files, must belong to a source or be the package descriptor.
+It exits 1 if it finds any problem.
 
 ### The other commands
 

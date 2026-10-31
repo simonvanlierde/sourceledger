@@ -155,9 +155,10 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   504, network errors and a body cut short. A `Retry-After` header, in seconds or as a
   date, raises the wait to at most 120 s. Any other error status fails at once.
 - One source's download has a `timeout_s` budget, 300 s unless set, including retries and waits.
-  Each connect and read times out after the smaller of 30 s and the budget left at the
-  start of that attempt. A slow stream can exceed the budget by one socket timeout.
-  An optional archive request has the separate timeout below.
+  It is checked before each attempt and after each body read. Each socket operation times
+  out after the smaller of 30 s and the budget left at the start of that attempt.
+  DNS lookup and HTTP header parsing can exceed the budget, so it is not a hard time limit.
+  Redirects discard their unused response bodies. An optional archive request has the separate timeout below.
 - Every source is tried. When some fail, the others are still written, and the run
   exits 1 with one line per failed source.
 - A second fetch in the same project, while one runs, exits at once (a lock on

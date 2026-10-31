@@ -8,13 +8,25 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+Move manually added files out of `data/processed/` before running `validate`.
+
 ### Added
 
 - Per-source `timeout_s` sets the fetch budget, including retries and waits. The default
   remains 300 seconds; see [How fetch behaves](README.md#how-fetch-behaves).
-- `format = "file"` fetches and verifies files without parsing them as tables. Build
-  keeps their bytes unchanged and describes them as non-tabular resources in
-  `datapackage.json`; see [How build works](docs/architecture.md#build).
+- `format = "file"` keeps files unchanged and validates their bytes, provenance and
+  reuse metadata. Build describes them as non-tabular resources in `datapackage.json`;
+  see [How build works](docs/architecture.md#build).
+
+### Changed
+
+- **Breaking:** `validate` reports unclaimed non-CSV files in `data/processed/`, alongside
+  unclaimed CSV files. See [validation](docs/architecture.md#validate).
+
+### Security
+
+- Fetch follows redirects without reading their unused response bodies, avoiding an
+  unbounded read. See [Use sourceledger safely](docs/secure-use.md#use-https).
 
 ## [0.3.1] - 2026-10-27
 

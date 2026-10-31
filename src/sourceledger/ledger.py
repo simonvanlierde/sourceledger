@@ -304,11 +304,7 @@ def raw_name(source: Source) -> str:
 
 def _output_name(source: Source) -> str:
     """The built file's name; an unimplemented source may have no URL yet."""
-    name = raw_name(source) if source.get("format") == FILE_FORMAT and source.get("url") else f"{source['id']}.csv"
-    if name.lower() == DATAPACKAGE:
-        msg = f"{DATAPACKAGE} is reserved for the package descriptor; choose another source id"
-        raise ValueError(msg)
-    return name
+    return raw_name(source) if source.get("format") == FILE_FORMAT and source.get("url") else f"{source['id']}.csv"
 
 
 def _write_atomic(path: Path, data: bytes) -> None:
@@ -381,6 +377,8 @@ class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
         # changes the scheme, host or port keeps only the harmless ones.
         if urlsplit(newurl)[:2] != urlsplit(req.full_url)[:2]:
             new.headers = {k: v for k, v in new.headers.items() if k.lower() in _SAFE_ON_REDIRECT}
+        # urllib drains this body before redirecting; closing it avoids an unbounded read.
+        fp.close()
         return new
 
 
@@ -520,8 +518,9 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
 
     429, 500, 502, 503 and 504, network errors and a body shorter than its Content-Length
     are retried with exponential backoff, waiting at least the server's Retry-After (up to
-    120 s). The whole fetch stops after `timeout_s` (default 300 s), give or take one
-    socket timeout. Any other error status is raised at once.
+    120 s). The `timeout_s` budget (default 300 s) is checked before attempts and after
+    body reads. DNS lookup and HTTP header parsing can exceed it; it is not a hard
+    time limit. Any other error status is raised at once.
 
     Raises ValueError for a body over the source's `max_bytes` (default 200 MiB), or one
     served compressed.
@@ -1162,6 +1161,9 @@ def build(
                 resources.append(earlier[source["id"]])
             continue
         out = processed / _output_name(source)
+        if out.name.lower() == DATAPACKAGE:
+            msg = f"{DATAPACKAGE} is reserved for the package descriptor; choose another source id"
+            raise ValueError(msg)
         record, fields = _build_one(source, raw, out, parse)
         written.append(out)
         resources.append(_resource(source, record, fields, out))
@@ -1306,6 +1308,7 @@ def validate(
     """
     selected = _select(sources, only)
     problems = []
+    listed = _listed(processed / DATAPACKAGE)
     outputs = {_output_name(source) for source in sources}
     # Output of a source since removed or renamed would otherwise pass as published data.
     if only is None:
@@ -1318,23 +1321,29 @@ def validate(
         sid, status = source["id"], source.get("status")
         out = processed / _output_name(source)
         if status == UNIMPLEMENTED:
-            if out.exists():
+            if out.name.lower() != DATAPACKAGE and out.exists():
                 problems.append(f"{sid}: status is unimplemented, but {out} exists")
             continue
         if status != IMPLEMENTED:
             problems.append(f"{sid}: status must be {IMPLEMENTED!r} or {UNIMPLEMENTED!r}, not {status!r}")
             continue
         problems += _terms_problems(source)
-        problems += _output_problems(source, raw, out)
+        problems += _output_problems(source, raw, out, listed.get(sid))
     return problems + _package_problems(sources, processed, only)
 
 
-def _output_problems(source: Source, raw: Path, out: Path) -> list[str]:
-    """Whether one built file still matches the current fetch."""
+def _output_problems(source: Source, raw: Path, out: Path, resource: dict[str, Any] | None) -> list[str]:
+    """Whether one built file and its metadata still match the current fetch."""
     try:
         record = _current(source, raw)
         if source.get("format") == FILE_FORMAT:
-            return [f"{out}: differs from the fetched file; re-run build"] if _digest(out) != record.sha256 else []
+            expected = _resource(source, record, [], out)
+            problems = []
+            if expected["hash"] != f"sha256:{record.sha256}":
+                problems.append(f"{out}: differs from the fetched file; re-run build")
+            if resource is not None and resource != expected:
+                problems.append(f"{out.parent / DATAPACKAGE} describes an earlier build of {out}; re-run build")
+            return problems
         rows, stale = _scan(out, _stamp(record))
     except (OSError, ValueError, csv.Error) as error:
         return [one_line(error)]

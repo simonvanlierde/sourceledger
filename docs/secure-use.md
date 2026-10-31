@@ -31,6 +31,8 @@ These checks apply to every fetch:
 - A redirect that changes the scheme, host or port drops the `headers` from the manifest.
   An API key meant for one host never goes to another, and never goes out over http after
   a redirect from https.
+- Redirects discard their unused response bodies, so a redirect cannot make urllib
+  buffer an unlimited body before following the destination URL.
 - The file is requested and stored uncompressed, so the SHA-256 is always that of the file
   as published.
 
