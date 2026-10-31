@@ -186,6 +186,7 @@ def test_file_sources_keep_every_byte(payload: bytes) -> None:
 @settings(deadline=None)
 @given(value=st.integers() | st.floats() | st.booleans() | st.text(alphabet="abcXYZ012_-", max_size=10))
 @example(value=10**400)
+@example(value=sys.float_info.max)
 def test_timeout_values_are_positive_finite_numbers(*, value: float | bool | str) -> None:
     encoded = json.dumps(value, ensure_ascii=False) if isinstance(value, str) else str(value).lower()
     with tempfile.TemporaryDirectory() as folder:

@@ -1155,12 +1155,15 @@ class _Publisher(http.server.BaseHTTPRequestHandler):
             self.send_response(304)
             self.end_headers()
             return
-        body = FIXTURE.encode()
+        body = b"\x00\xfffirst\x80second" if self.path == "/data.bin" else FIXTURE.encode()
         self.send_response(200)
         self.send_header("ETag", '"v1"')
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        self.wfile.write(body[:7])
+        self.wfile.flush()
+        threading.Event().wait(0.05)
+        self.wfile.write(body[7:])
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002  # the base class names it
         """Keep test output quiet."""
@@ -2588,14 +2591,21 @@ def test_a_streamed_build_writes_or_refuses_what_the_list_path_does(raw: bytes) 
 
 
 @pytest.mark.parametrize("suffix", [".bin", ".csv", ""])
+@pytest.mark.parametrize("redistribute", [True, False])
 def test_file_sources_build_without_a_parser(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, suffix: str, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    suffix: str,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    redistribute: bool,
 ) -> None:
     payload = b"\x00\xff\x80binary\n"
     upstream = tmp_path / f"input{suffix}"
     upstream.write_bytes(payload)
     monkeypatch.chdir(tmp_path)
-    _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nformat = "file"')
+    terms = TERMS.replace("redistribute = true", f"redistribute = {str(redistribute).lower()}")
+    _manifest(tmp_path, upstream.as_uri(), terms=f'{terms}\nformat = "file"')
     assert _run("fetch", "build", "validate") == [0, 0, 0]
     out = Path("data/processed") / f"example{suffix}"
     assert out.read_bytes() == payload
@@ -2606,6 +2616,7 @@ def test_file_sources_build_without_a_parser(
     (resource,) = package["resources"]
     assert "type" not in resource
     assert resource["path"] == out.name
+    assert resource["sourceledger"]["redistribute"] is redistribute
     assert "schema" not in resource
     assert "encoding" not in resource
     assert resource["hash"] == "sha256:" + hashlib.sha256(payload).hexdigest()
@@ -2628,35 +2639,12 @@ def test_a_file_source_checks_its_raw_hash_before_building(upstream: Path, tmp_p
     assert not OUT.exists()
 
 
-def test_a_two_chunk_file_uses_its_source_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    listener = socket.create_server(("127.0.0.1", 0))
-    payload = b"\x00\xfffirst\x80second"
-
-    def serve() -> None:
-        connection, _ = listener.accept()
-        with connection:
-            connection.recv(4096)
-            connection.sendall(f"HTTP/1.1 200 OK\r\nContent-Length: {len(payload)}\r\n\r\n".encode())
-            connection.sendall(payload[:7])
-            threading.Event().wait(0.05)
-            connection.sendall(payload[7:])
-
-    worker = threading.Thread(target=serve, daemon=True)
-    worker.start()
-    monkeypatch.chdir(tmp_path)
-    _manifest(
-        tmp_path,
-        f"http://127.0.0.1:{listener.getsockname()[1]}/data.bin",
-        terms=f'{TERMS}\nformat = "file"\ntimeout_s = 1',
-    )
-    try:
-        assert _run("fetch", "build", "validate") == [0, 0, 0]
-        assert Path("data/processed/example.bin").read_bytes() == payload
-        assert not OUT.exists()
-        assert ledger.verify(Path("data/processed")) == []
-    finally:
-        listener.close()
-        worker.join(timeout=2)
+def test_a_two_chunk_file_uses_its_source_timeout(publisher: str, tmp_path: Path) -> None:
+    _manifest(tmp_path, f"{publisher}/data.bin", terms=f'{TERMS}\nformat = "file"\ntimeout_s = 1')
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    assert Path("data/processed/example.bin").read_bytes() == b"\x00\xfffirst\x80second"
+    assert not OUT.exists()
+    assert ledger.verify(Path("data/processed")) == []
 
 
 def test_partial_build_keeps_file_resources(upstream: Path, tmp_path: Path) -> None:
@@ -2705,18 +2693,6 @@ def test_a_file_output_cannot_overwrite_the_package(suffix: str) -> None:
     ledger.fetch(sources)
     with pytest.raises(ValueError, match=r"datapackage\.json.*reserved"):
         ledger.build(sources)
-
-
-@pytest.mark.usefixtures("upstream")
-def test_file_sources_can_build_for_private_use() -> None:
-    sources = ledger.load_manifest()
-    sources[0].update(format="file", redistribute=False)
-    ledger.fetch(sources)
-    assert ledger.build(sources) == [OUT]
-    assert ledger.validate(sources) == []
-    (resource,) = json.loads((OUT.parent / ledger.DATAPACKAGE).read_text())["resources"]
-    assert resource["sourceledger"]["redistribute"] is False
-    assert ledger.verify(OUT.parent) == []
 
 
 @pytest.mark.parametrize("field", ["vintage", "url", "redistribute"])

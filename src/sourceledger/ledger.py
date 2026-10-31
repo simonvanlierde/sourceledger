@@ -196,11 +196,10 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
     if bad_archive := [s["id"] for s in sources if not isinstance(s.get("archive", False), bool)]:
         msg = f"sources {bad_archive} in sources.toml need archive to be true or false"
         raise ValueError(msg)
-    timeouts = {s["id"]: s.get("timeout_s", _BUDGET_S) for s in sources}
     if bad_timeout := [
-        sid
-        for sid, timeout in timeouts.items()
-        if type(timeout) not in (int, float) or not 0 < timeout <= sys.float_info.max
+        s["id"]
+        for s in sources
+        if type(timeout := s.get("timeout_s", _BUDGET_S)) not in (int, float) or not 0 < timeout <= sys.float_info.max
     ]:
         msg = f"sources {bad_timeout} in sources.toml need timeout_s to be a positive finite number"
         raise ValueError(msg)
@@ -1372,8 +1371,8 @@ def _package_problems(sources: list[Source], processed: Path, only: Collection[s
     With `only`, whether it lists those of them, each with its output's current hash.
     """
     path = processed / DATAPACKAGE
-    expected = {source["id"] for source in implemented(sources)}
-    checked = expected if only is None else expected & set(only)
+    expected = {source["id"]: source for source in implemented(sources)}
+    checked = expected.keys() if only is None else expected.keys() & set(only)
     try:
         package = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -1381,15 +1380,13 @@ def _package_problems(sources: list[Source], processed: Path, only: Collection[s
     except ValueError as error:
         return [f"{path} is not JSON ({error}); re-run build"]
     listed = _by_name(package)
-    if only is None and set(listed) != expected:
+    if only is None and listed.keys() != expected.keys():
         return [
             f"{path} lists {sorted(map(str, listed))}, not the implemented sources {sorted(expected)}; re-run build"
         ]
     problems = []
-    by_id = {source["id"]: source for source in sources}
     for sid in sorted(checked):
-        source = by_id[sid]
-        out = processed / _output_name(source)
+        out = processed / _output_name(expected[sid])
         if sid not in listed:
             problems.append(f"{path} does not list {sid}; re-run build")
         elif out.exists() and listed[sid].get("hash") != f"sha256:{_digest(out)}":
