@@ -16,5 +16,4 @@ the old one's status to `superseded by 0007`, naming the new record's number.
 
 ## Index
 
-No records yet. Add each one as a line, oldest first, such as
-`- [0001. One parser](0001-one-parser.md): accepted`.
+- [0001. Local builds and redistribution](0001-local-builds-and-redistribution.md): accepted

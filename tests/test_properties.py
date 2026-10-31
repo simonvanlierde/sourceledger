@@ -4,10 +4,12 @@ import csv
 import dataclasses
 import io
 import json
+import sys
 import tempfile
 from email.message import Message
 from pathlib import Path
 
+import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
@@ -154,3 +156,44 @@ def test_json_rows_survive_build_and_read_output(items: list[dict[str, object]])
     """What parse_json reads is what the published output holds, field for field."""
     parsed, read = _built("s.json", json.dumps(items).encode(), ledger.parse_json)
     assert read == parsed
+
+
+@settings(deadline=None)
+@given(st.binary(max_size=1024))
+def test_file_sources_keep_every_byte(payload: bytes) -> None:
+    with tempfile.TemporaryDirectory() as folder:
+        root = Path(folder)
+        upstream = root / "input.bin"
+        upstream.write_bytes(payload)
+        source = {
+            "id": "example",
+            "status": "implemented",
+            "url": upstream.as_uri(),
+            "format": "file",
+            "redistribute": True,
+            "license": "CC0-1.0",
+            "terms": "CC0-1.0",
+            "terms_url": "https://example.org/terms",
+        }
+        raw, processed = root / "raw", root / "processed"
+        ledger.fetch([source], raw=raw, log=root / "fetches.jsonl")
+        assert ledger.build([source], raw=raw, processed=processed) == [processed / "example.bin"]
+        assert (processed / "example.bin").read_bytes() == payload
+        assert ledger.validate([source], raw=raw, processed=processed) == []
+        assert ledger.verify(processed) == []
+
+
+@settings(deadline=None)
+@given(value=st.integers() | st.floats() | st.booleans() | st.text(alphabet="abcXYZ012_-", max_size=10))
+@example(value=10**400)
+def test_timeout_values_are_positive_finite_numbers(*, value: float | bool | str) -> None:
+    encoded = json.dumps(value, ensure_ascii=False) if isinstance(value, str) else str(value).lower()
+    with tempfile.TemporaryDirectory() as folder:
+        manifest = Path(folder) / "sources.toml"
+        manifest.write_text(f'[[source]]\nid = "example"\nstatus = "unimplemented"\ntimeout_s = {encoded}\n')
+        valid = isinstance(value, (int, float)) and not isinstance(value, bool) and 0 < value <= sys.float_info.max
+        if valid:
+            assert ledger.load_manifest(manifest)[0]["timeout_s"] == value
+        else:
+            with pytest.raises(ValueError, match="timeout_s"):
+                ledger.load_manifest(manifest)

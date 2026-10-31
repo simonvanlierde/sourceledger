@@ -82,6 +82,11 @@ publishes anything itself. It records `redistribute` in `datapackage.json`, and 
 the `status` and `attribution` reports. The README tells you to keep `data/raw/` and
 `data/processed/` out of git, so a push never republishes them.
 
+`build` prepares a local working dataset. For `format = "file"` it copies the original
+file into `data/processed/`, even when `redistribute = false`. That flag records reuse
+terms; it does not prevent private local processing. A successful `validate` or `verify`
+checks integrity and does not clear the dataset for publication.
+
 Before you publish a dataset, check the sources marked `redistribute = false`. Leave their
 raw files out of the release. Your outputs still hold their values, so check the terms
 for those too.

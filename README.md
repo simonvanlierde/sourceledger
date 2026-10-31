@@ -18,7 +18,8 @@ terms, and whether the raw file may be republished. sourceledger runs three stag
   `data/fetches.jsonl`.
 - `build` writes `data/processed/<id>.csv` with five provenance columns in front, and a
   [Frictionless Data Package](https://datapackage.org), `datapackage.json`, that describes
-  every output. The same records always give the same files.
+  every output. `format = "file"` copies the original file instead of making a table.
+  The same records always give the same files.
 - `validate` re-reads the outputs and lists every problem it finds, such as an output from
   an older fetch, an edited raw file, or a source without reuse terms.
 
@@ -97,12 +98,16 @@ sourceledger validate
 ```
 
 `sourceledger` reads CSV (gzipped or not), JSON and Excel, by each source's `format` or its
-URL's extension. For other formats, see [Your own readers](#your-own-readers).
+URL's extension. Set `format = "file"` to keep a raster, archive or other file unchanged.
+For another table format, see [Your own readers](#your-own-readers).
 
 ## What to commit
 
 Commit `sources.toml` and `data/fetches.jsonl`. The log holds checksums and URLs, not
 data: it's the history of every version you have fetched.
+
+Build output is a local working dataset. A file source is copied unchanged, including
+when `redistribute = false`. Check [reuse terms before publication](docs/secure-use.md#check-redistribute-before-you-publish-raw-files).
 
 Keep `data/raw/` and `data/processed/` out of git, so the repository never redistributes
 a publisher's data. The `.fetch.json` records live in `data/raw/` too, so a fresh clone
@@ -124,7 +129,8 @@ Each `[[source]]` table takes these keys:
 | `vintage` | no | The edition you expect, such as `"2024 release"` or a TOML date. Recorded with each fetch and stamped on each row. `"not stated"` when absent. The old name `release` is refused. |
 | `sha256` | no | The SHA-256 the download must have. Pin it for a fixed release, and `fetch` refuses bytes that changed upstream. |
 | `max_bytes` | no | The largest download `fetch` accepts. 200 MiB unless set. A gzipped file or Excel workbook that unpacks past it is refused. |
-| `format` | no | `"csv"`, `"json"` (an array of objects) or `"xlsx"`. Otherwise from the URL's extension: `.json`, `.xlsx`, and CSV for anything else. A gzipped CSV or JSON file is decompressed, within `max_bytes`. JSON numbers are written as they appear in the file (`1e5` stays `1e5`, `1.10` stays `1.10`). |
+| `timeout_s` | no | A positive finite number of seconds for one source's download, retries and waits included. 300 unless set. |
+| `format` | no | `"file"` keeps the original bytes without parsing them; `"csv"`, `"json"` (an array of objects) or `"xlsx"`. Otherwise from the URL's extension: `.json`, `.xlsx`, and CSV for anything else. A gzipped CSV or JSON file is decompressed, within `max_bytes`. JSON numbers are written as they appear in the file (`1e5` stays `1e5`, `1.10` stays `1.10`). |
 | `sheet` | no | The Excel sheet to read. The first unless set. A cell right of the last header cell is refused, and a missing cell in a row reads as `""`. |
 | `headers` | no | Extra request headers, such as an API key, each value naming an environment variable: `{ Authorization = "env:EIA_TOKEN" }`. A literal value is refused, and so is a `url` that is not https. The record keeps the header names, not the values. A redirect to another scheme, host or port drops them. |
 | `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for http and https URLs, and not for a source that needs `headers`: the archive's request sends none. |
@@ -148,8 +154,10 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 - It tries four times, waiting 5, 10 and 20 s between attempts, on 429, 500, 502, 503,
   504, network errors and a body cut short. A `Retry-After` header, in seconds or as a
   date, raises the wait to at most 120 s. Any other error status fails at once.
-- Each connect and read times out after 30 s, and one source's whole fetch after 300 s. The
-  300 s holds against a server that sends bytes slowly, give or take one 30 s socket timeout.
+- One source's download has a `timeout_s` budget, 300 s unless set, including retries and waits.
+  Each connect and read times out after the smaller of 30 s and the budget left at the
+  start of that attempt. A slow stream can exceed the budget by one socket timeout.
+  An optional archive request has the separate timeout below.
 - Every source is tried. When some fail, the others are still written, and the run
   exits 1 with one line per failed source.
 - A second fetch in the same project, while one runs, exits at once (a lock on
@@ -198,8 +206,8 @@ The data folder stays `data/` in the current directory either way.
 
 ## Your own readers
 
-`sourceledger` reads every source with `parse_source`, which hands it to `parse_csv`,
-`parse_json` or `parse_xlsx`. For another format, a project writes its own reader, a
+`sourceledger` copies a `format = "file"` source unchanged. It reads table sources with
+`parse_source`, which hands them to `parse_csv`, `parse_json` or `parse_xlsx`. For another format, a project writes its own reader, a
 function from a source's manifest table and raw bytes to columns and rows, and its own
 command:
 
