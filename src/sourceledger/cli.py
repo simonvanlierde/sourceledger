@@ -86,7 +86,7 @@ def main(
         "--manifest", type=Path, default=manifest, metavar="PATH", help="the manifest to read (default: %(default)s)"
     )
     parser.add_argument("--json", action="store_true", help="status, validate and revisions: print JSON")
-    args = parser.parse_args(argv)
+    args = parser.parse_intermixed_args(argv)
     if args.json and args.stage not in _JSON_STAGES:
         parser.error(f"--json works with {', '.join(_JSON_STAGES)}, not {args.stage}")
     if args.only is not None and args.stage not in _SELECTABLE:

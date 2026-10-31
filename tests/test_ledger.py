@@ -2777,7 +2777,17 @@ def test_json_status_keeps_types_and_full_hashes(capsys: pytest.CaptureFixture[s
     assert report["sources"][0]["retrieved_at"] == record["retrieved_at"]
 
 
-def test_json_revisions_describes_changed_bytes(upstream: Path, capsys: pytest.CaptureFixture[str]) -> None:
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["revisions", "before.jsonl", "--json"],
+        ["revisions", "--json", "before.jsonl"],
+        ["--json", "revisions", "before.jsonl"],
+    ],
+)
+def test_json_revisions_describes_changed_bytes(
+    upstream: Path, capsys: pytest.CaptureFixture[str], args: list[str]
+) -> None:
     assert _run("fetch") == [0]
     before = Path("before.jsonl")
     shutil.copyfile(LOG, before)
@@ -2786,7 +2796,7 @@ def test_json_revisions_describes_changed_bytes(upstream: Path, capsys: pytest.C
     assert _run("fetch") == [0]
     new = json.loads(LOG.read_text().splitlines()[-1])
     capsys.readouterr()
-    assert main(["revisions", str(before), "--json"]) == 0
+    assert main(args) == 0
     assert json.loads(capsys.readouterr().out) == {
         "stage": "revisions",
         "errors": [],

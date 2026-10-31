@@ -26,6 +26,11 @@ Move manually added files out of `data/processed/` before running `validate`.
 - **Breaking:** `validate` reports unclaimed non-CSV files in `data/processed/`, alongside
   unclaimed CSV files. See [validation](docs/architecture.md#validate).
 
+### Fixed
+
+- Command options can appear between the stage and its path on Python 3.12, including
+  `revisions --json OLD_LOG`. See the [command reference](docs/reference.md#other-commands).
+
 ### Security
 
 - Fetch follows redirects without reading their unused response bodies, avoiding an
