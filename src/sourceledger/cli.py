@@ -35,8 +35,9 @@ from sourceledger.ledger import (
     validate,
     verify,
 )
+from sourceledger.report import report
 
-_STAGES = ("init", "fetch", "build", "validate", "status", "attribution", "revisions", "verify")
+_STAGES = ("init", "fetch", "build", "validate", "status", "attribution", "revisions", "verify", "report")
 # Stages that take --only.
 _SELECTABLE = ("fetch", "build", "validate")
 _JSON_STAGES = ("status", "validate", "revisions")
@@ -60,8 +61,9 @@ def main(
     user_agent: str = USER_AGENT,
     manifest: Path = MANIFEST,
 ) -> int:
-    """Run one stage: init, fetch, build, validate, status, attribution, revisions or verify.
+    """Run one stage: init, fetch, build, validate, status, attribution, revisions, verify or report.
 
+    `report` writes standalone HTML to stdout for the current dataset.
     `--json` prints structured status, validate and revisions reports, including runtime errors.
     `revisions` takes an earlier copy of the fetch log, and `verify` the folder of a published
     dataset. `--only ID`, repeatable, restricts fetch, build and validate to those sources.
@@ -150,8 +152,8 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
     """Run `stage`, print its report, and return its problems: only validate and verify have any.
 
     fetch first fills `logged` with what the log held before this run, so each fetch line can
-    say new or unchanged. Only fetch, status and revisions read the log, so a damaged one
-    breaks only those.
+    say new or unchanged. Fetch, status, revisions and report read the log; a damaged log
+    breaks those stages.
     """
     match stage, path:
         case "init", _:
@@ -161,6 +163,8 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
             # Not a failure: a revised source is news, and the tripwire test decides whether it breaks anything.
             for line in revisions(path):
                 print(line)
+        case "report", _:
+            print(report(load_manifest(manifest)), end="")
         case "verify", Path():
             problems = verify(path)
             print(f"{len(problems)} problems")

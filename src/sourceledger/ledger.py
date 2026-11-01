@@ -88,10 +88,10 @@ _STARTER = f"""#:schema {_SCHEMA_URL}
 IMPLEMENTED = "implemented"
 UNIMPLEMENTED = "unimplemented"
 FILE_FORMAT = "file"
-# Bounds each connect and each read. A server that trickles bytes is stopped by _BUDGET_S.
+# Bounds each connect and read; the source's budget is checked between reads.
 _SOCKET_TIMEOUT_S = 30
-# One source's download, every attempt and wait included, so a stalled publisher costs
-# at most 5 minutes of a CI job unless timeout_s overrides it.
+# One source's download budget includes attempts and waits. DNS lookup and HTTP header
+# parsing can exceed it.
 _BUDGET_S = 300
 # Waits of 5, 10 and 20 s between four attempts ride out a brief publisher outage.
 _ATTEMPTS = 4
@@ -1246,7 +1246,11 @@ def _listed(path: Path) -> dict[str, Any]:
 def _by_name(package: object) -> dict[str, Any]:
     """A parsed data package's resources, by name: none when it is not an object with a list of them."""
     resources = package.get("resources") if isinstance(package, dict) else None
-    return {r.get("name"): r for r in resources if isinstance(r, dict)} if isinstance(resources, list) else {}
+    return (
+        {r["name"]: r for r in resources if isinstance(r, dict) and isinstance(r.get("name"), str)}
+        if isinstance(resources, list)
+        else {}
+    )
 
 
 def _package_name() -> str:
@@ -1397,7 +1401,12 @@ def _package_problems(sources: list[Source], processed: Path, only: Collection[s
         out = processed / _output_name(expected[sid])
         if sid not in listed:
             problems.append(f"{path} does not list {sid}; re-run build")
-        elif out.exists() and listed[sid].get("hash") != f"sha256:{_digest(out)}":
+        # File outputs already have their full resource checked by _output_problems.
+        elif (
+            expected[sid].get("format") != FILE_FORMAT
+            and out.exists()
+            and listed[sid].get("hash") != f"sha256:{_digest(out)}"
+        ):
             problems.append(f"{path} describes an earlier build of {out}; re-run build")
     return problems
 
@@ -1439,7 +1448,7 @@ def _status_records(sources: list[Source], *, log: Path = FETCH_LOG) -> list[dic
     return [
         {
             "source_id": source["id"],
-            "status": source.get("status"),
+            "status": str(source["status"]) if source.get("status") is not None else None,
             "vintage": _vintage(source),
             "retrieved_at": last.get(source["id"], {}).get("retrieved_at"),
             "sha256": last.get(source["id"], {}).get("sha256"),

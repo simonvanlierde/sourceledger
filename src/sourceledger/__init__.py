@@ -29,6 +29,7 @@ from sourceledger.ledger import (
     verified,
     verify,
 )
+from sourceledger.report import report
 
 __all__ = [
     "USER_AGENT",
@@ -46,6 +47,7 @@ __all__ = [
     "parse_source",
     "parse_xlsx",
     "read_output",
+    "report",
     "revisions",
     "status",
     "validate",

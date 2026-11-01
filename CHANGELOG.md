@@ -8,13 +8,17 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-01
+
 Move manually added files out of `data/processed/` before running `validate`.
 
 ### Added
 
+- `report` creates a [standalone HTML provenance report](docs/provenance-report.md) that recipients can read offline. It links outputs to their sources and lists integrity problems without including raw data.
+- An [assurance case](docs/assurance-case.md) explains the trust assumptions, safeguards and limits behind integrity and provenance checks.
 - `status`, `validate` and `revisions` accept `--json` for scripts and CI. See [JSON reports](docs/reports.md).
 - Per-source `timeout_s` sets the fetch budget, including retries and waits. The default
-  remains 300 seconds; see [How fetch behaves](README.md#how-fetch-behaves).
+  remains 300 seconds; see [download limits and retries](docs/fetching.md).
 - `format = "file"` keeps files unchanged and validates their bytes, provenance and
   reuse metadata. Build describes them as non-tabular resources in `datapackage.json`;
   see [How build works](docs/architecture.md#build).
@@ -29,6 +33,16 @@ Move manually added files out of `data/processed/` before running `validate`.
   unclaimed CSV files. See [validation](docs/architecture.md#validate).
 
 ### Fixed
+
+- [JSON status reports](docs/reports.md#source-status) render non-text status values as text instead of crashing on TOML dates and times.
+
+- [File validation](docs/architecture.md#validate) checks each output hash once while preserving the checks of its provenance and package metadata.
+
+- The [HTML provenance report](docs/provenance-report.md) flags missing, duplicate or no-longer-implemented outputs instead of reporting successful checks for an incomplete package.
+
+- The citation helper removes old Zenodo version, date and DOI overrides so each release can receive its own archive metadata. See [release verification](docs/releases.md).
+
+- A malformed resource name in `datapackage.json` produces [validation problems](docs/reports.md#problems-failures-and-exit-codes) instead of an uncaught error.
 
 - Command options can appear between the stage and its path on Python 3.12, including
   `revisions --json OLD_LOG`. See the [command reference](docs/reference.md#other-commands).
@@ -244,7 +258,8 @@ Upgrade steps:
   vintage or pin.
 - Manifest key `vintage`. The key `release` is still read, with a warning.
 
-[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/simonvanlierde/sourceledger/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.1.0...v0.2.0

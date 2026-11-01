@@ -43,10 +43,10 @@ keys are checked when the manifest loads. Keys not listed here are kept for your
 
 For checks in an editor with a TOML language server (Tombi, Taplo), put this line at the
 top of `sources.toml`. `init` writes it, with the version you have installed in place of
-`v0.3.1`:
+`v0.4.0`:
 
 ```toml
-#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.3.1/src/sourceledger/sources.schema.json
+#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.4.0/src/sourceledger/sources.schema.json
 ```
 
 The schema accepts exactly what sourceledger accepts. A test keeps the two in step.
@@ -65,6 +65,9 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 - `attribution` prints a Markdown table of the implemented sources, in manifest order:
   name, terms in the publisher's words, licence, terms URL, and whether the raw file may be
   republished. Paste it into a dataset's README or release notes.
+- `report` writes a [standalone HTML provenance report](provenance-report.md) to stdout.
+  Save it with `sourceledger report > provenance.html`. It works offline and returns 0
+  when it produces a report, including one that lists integrity problems.
 - `verify DIR` is for someone who downloaded a published dataset. It reads
   `DIR/datapackage.json` and checks that each file it lists exists, with the size and
   SHA-256 it gives. It prints one line per problem and exits 1 if there are any. It needs
