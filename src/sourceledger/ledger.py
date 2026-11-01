@@ -1401,7 +1401,12 @@ def _package_problems(sources: list[Source], processed: Path, only: Collection[s
         out = processed / _output_name(expected[sid])
         if sid not in listed:
             problems.append(f"{path} does not list {sid}; re-run build")
-        elif out.exists() and listed[sid].get("hash") != f"sha256:{_digest(out)}":
+        # File outputs already have their full resource checked by _output_problems.
+        elif (
+            expected[sid].get("format") != FILE_FORMAT
+            and out.exists()
+            and listed[sid].get("hash") != f"sha256:{_digest(out)}"
+        ):
             problems.append(f"{path} describes an earlier build of {out}; re-run build")
     return problems
 
@@ -1443,7 +1448,7 @@ def _status_records(sources: list[Source], *, log: Path = FETCH_LOG) -> list[dic
     return [
         {
             "source_id": source["id"],
-            "status": source.get("status"),
+            "status": str(source["status"]) if source.get("status") is not None else None,
             "vintage": _vintage(source),
             "retrieved_at": last.get(source["id"], {}).get("retrieved_at"),
             "sha256": last.get(source["id"], {}).get("sha256"),

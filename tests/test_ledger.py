@@ -2891,3 +2891,47 @@ def test_json_validate_reports_a_malformed_resource_name(capsys: pytest.CaptureF
     assert main(["validate", "--json"]) == 1
     result = json.loads(capsys.readouterr().out)
     assert result["problems"]
+
+
+@pytest.mark.parametrize("value", ["2026-11-01", "03:04:05", "2026-11-01T03:04:05Z"])
+def test_json_status_describes_non_text_status_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], value: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("sources.toml").write_text(f'[[source]]\nid = "example"\nstatus = {value}\n')
+    assert main(["status", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["sources"][0]["status"] == str(ledger.load_manifest()[0]["status"])
+    assert result["errors"] == []
+
+
+@pytest.mark.parametrize("count", [1, 10])
+def test_validate_hashes_each_file_output_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, count: int) -> None:
+    monkeypatch.chdir(tmp_path)
+    upstream = tmp_path / "input.bin"
+    upstream.write_bytes(b"binary fixture")
+    sources = [
+        {
+            "id": f"source-{number}",
+            "status": "implemented",
+            "url": upstream.as_uri(),
+            "format": "file",
+            "terms": "CC0-1.0",
+            "terms_url": "https://example.org/terms",
+            "license": "CC0-1.0",
+            "redistribute": True,
+        }
+        for number in range(count)
+    ]
+    ledger.fetch(sources)
+    ledger.build(sources)
+    hashed = []
+    original = ledger._digest  # noqa: SLF001
+
+    def digest(path: Path) -> str:
+        hashed.append(path)
+        return original(path)
+
+    monkeypatch.setattr(ledger, "_digest", digest)
+    assert ledger.validate(sources) == []
+    assert len([p for p in hashed if p.parent == Path("data/processed")]) == count

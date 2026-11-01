@@ -34,6 +34,10 @@ Move manually added files out of `data/processed/` before running `validate`.
 
 ### Fixed
 
+- [JSON status reports](docs/reports.md#source-status) render non-text status values as text instead of crashing on TOML dates and times.
+
+- [File validation](docs/architecture.md#validate) checks each output hash once while preserving the checks of its provenance and package metadata.
+
 - The [HTML provenance report](docs/provenance-report.md) flags missing, duplicate or no-longer-implemented outputs instead of reporting successful checks for an incomplete package.
 
 - The citation helper removes old Zenodo version, date and DOI overrides so each release can receive its own archive metadata. See [release verification](docs/releases.md).

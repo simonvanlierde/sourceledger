@@ -28,7 +28,8 @@ Other commands do not accept `--json`.
 Each `sources` object has `source_id`, `status`, `vintage`, `retrieved_at`, `sha256`,
 `license` and `redistribute`. Hashes have all 64 characters. Missing fetch information
 is `null`; an absent licence or unknown redistribution flag is also `null`.
-`redistribute` is otherwise a JSON boolean. `status` reads no raw files and makes no network requests.
+`redistribute` is otherwise a JSON boolean. The `status` field is text, or `null` when absent.
+The command reads no raw files and makes no network requests.
 
 ## Revisions
 

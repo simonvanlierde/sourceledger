@@ -21,14 +21,14 @@ The [reference](reference.md) lists the manifest keys and command options. This 
 
 | Path | Written by | Read by | In git |
 | --- | --- | --- | --- |
-| `sources.toml` | you (`init` writes a starter) | every stage | yes |
+| `sources.toml` | you (`init` writes a starter) | stages that use a manifest | yes |
 | `data/raw/<id>.<ext>` | `fetch` | `build`, `validate` | no |
 | `data/raw/<id>.<ext>.fetch.json` | `fetch` | `fetch`, `build`, `validate` | no |
 | `data/raw/.lock` | `fetch` | `fetch` | no |
-| `data/fetches.jsonl` | `fetch` | `fetch`, `status`, `revisions` | yes |
-| `data/processed/<id>.csv` | `build` (tables) | `validate` | no |
-| `data/processed/<id>.<ext>` | `build` (`format = "file"`) | `validate`, `verify` | no |
-| `data/processed/datapackage.json` | `build` | `build --only`, `validate`, `verify` | no |
+| `data/fetches.jsonl` | `fetch` | `fetch`, `status`, `revisions`, `report` | yes |
+| `data/processed/<id>.csv` | `build` (tables) | `validate`, `verify`, `report` | no |
+| `data/processed/<id>.<ext>` | `build` (`format = "file"`) | `validate`, `verify`, `report` | no |
+| `data/processed/datapackage.json` | `build` | `build --only`, `validate`, `verify`, `report` | no |
 
 `<ext>` is the extension of the source's URL. The README says
 [what to commit](https://github.com/simonvanlierde/sourceledger#what-to-commit).
@@ -99,13 +99,15 @@ It exits 1 if it finds any problem.
 - `status`, `attribution` and `revisions` read the manifest and the log only.
 - `verify` reads only a published `datapackage.json` and the files it lists. It is for
   someone who downloaded your dataset and has neither your manifest nor your log.
+- `report` reads the manifest, fetch log, package and outputs to create a
+  [standalone HTML provenance report](provenance-report.md).
 - `init` writes a starter `sources.toml`.
 
 ## Where the code lives
 
-- `src/sourceledger/ledger.py`: every stage, the readers, and the fetch logic. One module,
-  read top to bottom: manifest checks, HTTP, the log, fetch, the readers, build, validate,
-  and the reports.
+- `src/sourceledger/ledger.py`: the pipeline stages, readers, fetch logic and integrity checks.
+- `src/sourceledger/report.py`: the standalone HTML provenance report; it reuses the
+  pipeline's fetch records and integrity checks.
 - `src/sourceledger/cli.py`: the command line. It parses the arguments, runs one stage,
   and reports expected errors with exit code 1. JSON reports put errors in the document on stdout.
 - `src/sourceledger/sources.schema.json`: the JSON Schema for `sources.toml`, for editors.

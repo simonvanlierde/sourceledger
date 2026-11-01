@@ -200,14 +200,21 @@ def test_timeout_values_are_positive_finite_numbers(*, value: float | bool | str
                 ledger.load_manifest(manifest)
 
 
-@given(vintage=st.dates(), licence=st.text(), redistribute=st.booleans())
-def test_status_metadata_is_json_serializable(vintage: object, licence: str, *, redistribute: bool) -> None:
+@given(
+    status=st.none() | st.text() | st.dates() | st.times() | st.datetimes(),
+    vintage=st.dates(),
+    licence=st.text(),
+    redistribute=st.booleans(),
+)
+def test_status_metadata_is_json_serializable(
+    status: object, vintage: object, licence: str, *, redistribute: bool
+) -> None:
     with tempfile.TemporaryDirectory() as folder:
         rows = ledger._status_records(  # noqa: SLF001
             [
                 {
                     "id": "example",
-                    "status": "unimplemented",
+                    "status": status,
                     "vintage": vintage,
                     "license": licence,
                     "redistribute": redistribute,
@@ -216,6 +223,7 @@ def test_status_metadata_is_json_serializable(vintage: object, licence: str, *, 
             log=Path(folder) / "missing.jsonl",
         )
     (row,) = json.loads(json.dumps(rows, ensure_ascii=False))
+    assert row["status"] == (str(status) if status is not None else None)
     assert row["vintage"] == str(vintage)
     assert row["license"] == (licence or None)
     assert row["redistribute"] is redistribute
