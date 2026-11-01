@@ -71,7 +71,7 @@ runs `fetch` before `build` and `validate`.
 
 ## Documentation
 
-- [Worked example](docs/index.md): notice a revised source and rebuild the dataset.
+- [Worked example](docs/getting-started.md): notice a revised source and rebuild the dataset.
 - [Reference](docs/reference.md): manifest keys, commands, selection and exit codes.
 - [JSON reports](docs/reports.md): consume status, validation and revisions in CI.
 - [How it works](docs/architecture.md) and [safe use](docs/secure-use.md): files, checks and limits.

@@ -21,6 +21,8 @@ Move manually added files out of `data/processed/` before running `validate`.
 
 ### Changed
 
+- The [documentation website](https://simonvanlierde.com/sourceledger/) uses a navy and lime reading layout, responsive navigation and copyable code. A connected provenance diagram and revision comparison use an example checked against the pipeline. The [full tutorial](docs/getting-started.md) has its own page.
+
 - Documentation separates the quick start from the [manifest and command reference](docs/reference.md), custom readers and release verification.
 
 - **Breaking:** `validate` reports unclaimed non-CSV files in `data/processed/`, alongside

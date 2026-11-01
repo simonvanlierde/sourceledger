@@ -1,0 +1,33 @@
+<section class="revision-example" data-revision-example aria-label="A publisher revision and its provenance">
+  <div class="provenance-flow" aria-labelledby="provenance-title">
+    <h2 id="provenance-title">From published bytes to a built dataset</h2>
+    <ol aria-label="Original dataset provenance">
+      <li><h3>Published source</h3><p>annual.csv · declared in sources.toml</p><code>2023 · 419.31 ppm</code></li>
+      <li><h3>Recorded download</h3><p>SHA-256 · first 12 characters</p><code>{{ site.data.revision.before_sha256 | slice: 0, 12 }}</code></li>
+      <li><h3>Built output</h3><p>data/processed/co2.csv</p><code>Linked to the original download</code></li>
+    </ol>
+  </div>
+  <div class="revision-comparison">
+    <div class="revision-heading">
+      <h2>A one-value change leaves a trail.</h2>
+      <div class="revision-controls" hidden>
+        <button type="button" data-version="before" aria-controls="version-before" aria-pressed="false">Original download</button>
+        <button type="button" data-version="after" aria-controls="version-after" aria-pressed="true">After the revision</button>
+      </div>
+    </div>
+    <div id="version-before" data-version-panel="before">
+      {% include revision-table.html revised=false %}
+      <p class="revision-result">The built output matches the original download. <strong>Validation passes.</strong></p>
+    </div>
+    <div id="version-after" data-version-panel="after">
+      {% include revision-table.html revised=true %}
+      <p class="revision-result">The publisher changes 2023’s value: <strong>419.31 → 419.32</strong>. After a fresh fetch, validation reports that the existing output needs rebuilding.</p>
+    </div>
+  </div>
+  <details>
+    <summary>Read the recorded checksums and validation report</summary>
+    <p>Original SHA-256: <code>{{ site.data.revision.before_sha256 }}</code></p>
+    <p>Revised SHA-256: <code>{{ site.data.revision.after_sha256 }}</code></p>
+    <pre><code>{{ site.data.revision.problem | escape }}</code></pre>
+  </details>
+</section>

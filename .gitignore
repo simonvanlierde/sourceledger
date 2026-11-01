@@ -37,3 +37,7 @@ coverage/
 target/
 mutants/
 reports/mutation/
+
+# Local documentation build
+_site/
+.jekyll-cache/

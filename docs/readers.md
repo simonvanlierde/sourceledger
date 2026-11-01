@@ -2,9 +2,7 @@
 title: Write a custom reader
 ---
 
-[Documentation](index.md) · [Reference](reference.md)
-
-## Write a custom reader
+# Write a custom reader
 
 For a file you want to keep unchanged, set `format = "file"`; you do not need a reader.
 For tables, `parse_source` chooses `parse_csv`, `parse_json` or `parse_xlsx`.

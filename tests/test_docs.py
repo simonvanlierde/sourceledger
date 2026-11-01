@@ -53,7 +53,7 @@ def test_the_quick_start_runs() -> None:
 def test_the_own_reader_example_runs(project: Path) -> None:
     """The project entry point in "Your own readers" runs every stage with its reader."""
     module = project / "pipeline.py"
-    module.write_text(_block(READERS, "## Write a custom reader", "python"), encoding="utf-8")
+    module.write_text(_block(READERS, "# Write a custom reader", "python"), encoding="utf-8")
     entry = runpy.run_path(str(module))["main"]
     assert [entry([stage]) for stage in ("fetch", "build", "validate")] == [0, 0, 0]
 
@@ -78,3 +78,44 @@ def test_the_reference_names_every_stage_and_key() -> None:
     """A stage or manifest key added without docs fails here."""
     names = [*cli._STAGES, *SCHEMA["$defs"]["source"]["properties"]]  # noqa: SLF001
     assert [name for name in names if not re.search(rf"`{name}[` ]", REFERENCE)] == []
+
+
+def test_the_website_revision_example_matches_the_pipeline(project: Path) -> None:
+    """The browser's recorded example must agree with real fetch/build/validate results."""
+    example = json.loads((ROOT / "docs" / "_data" / "revision.json").read_text())
+    guide = (ROOT / "docs" / "getting-started.md").read_text()
+    assert example["before_sha256"][:12] in guide
+    assert example["after_sha256"] in guide
+    upstream = project / "upstream" / "co2-annmean-mlo.csv"
+    sources = ledger.load_manifest()
+    upstream.write_text(example["before"], encoding="utf-8")
+    (before,) = ledger.fetch(sources)
+    ledger.build(sources)
+    assert ledger.validate(sources) == []
+    assert before.sha256 == example["before_sha256"]
+    upstream.write_text(example["after"], encoding="utf-8")
+    (after,) = ledger.fetch(sources)
+    assert after.sha256 == example["after_sha256"]
+    assert before.sha256 != after.sha256
+    assert ledger.validate(sources) == [example["problem"]]
+    ledger.build(sources)
+    assert ledger.validate(sources) == []
+
+
+def test_the_publisher_revision_tutorial_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The tutorial creates its own input and manifest, then rebuilds after an edit."""
+    guide = (ROOT / "docs" / "getting-started.md").read_text()
+    monkeypatch.chdir(tmp_path)
+    for heading in ("## Create a small source", "## Revise the publisher's file"):
+        script = tmp_path / "example.py"
+        script.write_text(_block(guide, heading, "python"))
+        if "Revise" in heading:
+            (tmp_path / "before.jsonl").write_bytes(Path("data/fetches.jsonl").read_bytes())
+        runpy.run_path(str(script))
+        if "Create" in heading:
+            assert [main([stage]) for stage in ("fetch", "build", "validate")] == [0, 0, 0]
+        else:
+            assert [main([stage]) for stage in ("fetch", "validate")] == [0, 1]
+            assert main(["revisions", "before.jsonl"]) == 0
+            assert [main([stage]) for stage in ("build", "validate")] == [0, 0]
+    assert ledger.read_output(Path("data/processed/co2.csv"))[-1]["co2_ppm"] == "419.32"

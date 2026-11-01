@@ -1,0 +1,25 @@
+title: sourceledger
+description: Build a dataset from published sources and keep the downloads behind it.
+url: https://simonvanlierde.com
+baseurl: /sourceledger
+repository: simonvanlierde/sourceledger
+lang: en
+plugins:
+  - jekyll-relative-links
+  - jekyll-seo-tag
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+navigation:
+  - title: Start here
+    path: /
+  - title: Worked example
+    path: /getting-started.html
+  - title: Manifest and commands
+    path: /reference.html
+  - title: How it works
+    path: /architecture.html
+  - title: Safe use
+    path: /secure-use.html

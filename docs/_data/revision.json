@@ -1,0 +1,7 @@
+{
+  "before": "year,co2_ppm\n2022,417.06\n2023,419.31\n",
+  "after": "year,co2_ppm\n2022,417.06\n2023,419.32\n",
+  "before_sha256": "943000a3ec89b4be3372b10e0f904c45cef4f9168aa728639e0eb7e9d2747505",
+  "after_sha256": "b5e4e235da3066bccd4bf836b9f823b45709fb5e06afdb2b5328210c62c796e5",
+  "problem": "data/processed/co2.csv: rows come from an earlier fetch than co2.csv; re-run build"
+}
