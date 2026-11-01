@@ -3,18 +3,18 @@ title: Use sourceledger safely
 description: What sourceledger checks for you when it downloads and builds data, and what it leaves to you.
 ---
 
-## Use sourceledger safely
+# Use sourceledger safely
 
 sourceledger downloads files from servers you don't control, and you may publish what it
 builds. This page lists what it checks for you, and what you still have to do.
 
-### Treat sources.toml as code
+## Treat sources.toml as code
 
 sourceledger trusts the manifest as much as your code: it downloads every URL in it. It
 also follows `file://` URLs, which the tests use. Review a change to `sources.toml` as you
 would a code change.
 
-### Use https
+## Use https
 
 Write each `url` as `https://` where the publisher serves it. sourceledger accepts `http://`
 for a source without `headers`, but then anyone on the network path can change the bytes.
@@ -36,7 +36,7 @@ These checks apply to every fetch:
 - The file is requested and stored uncompressed, so the SHA-256 is always that of the file
   as published.
 
-### Keep API keys in environment variables
+## Keep API keys in environment variables
 
 A source that needs a key names an environment variable in `headers`:
 
@@ -54,7 +54,7 @@ headers = { Authorization = "env:EIA_TOKEN" }
 In CI, put the key in a repository secret and pass it to the job as an environment
 variable.
 
-### Pin the SHA-256 of a fixed release
+## Pin the SHA-256 of a fixed release
 
 For a file that should never change, such as a dated release, set `sha256` in the
 manifest:
@@ -67,7 +67,7 @@ sha256 = "38fe14e8b0ed..."  # all 64 characters, as sha256sum prints them
 that no longer matches. Without a pin, a change upstream is recorded as a new version and
 shown by `revisions`, but not refused.
 
-### Limit what a download can cost
+## Limit what a download can cost
 
 - `max_bytes` caps each download, 200 MiB unless set. A gzipped file or an Excel
   workbook is also refused when it unpacks past the cap, so a small file cannot expand
@@ -76,7 +76,7 @@ shown by `revisions`, but not refused.
 - The download budget is checked before attempts and after body reads. DNS lookup and HTTP
   header parsing can exceed it. See [download limits and retries](fetching.md).
 
-### Check redistribute before you publish raw files
+## Check redistribute before you publish raw files
 
 Every implemented source must say whether its terms let you republish the raw file:
 `redistribute = true` or `false`. `validate` fails without it. sourceledger never
@@ -93,18 +93,18 @@ Before you publish a dataset, check the sources marked `redistribute = false`. L
 raw files out of the release. Your outputs still hold their values, so check the terms
 for those too.
 
-### Check a dataset you downloaded
+## Check a dataset you downloaded
 
 `sourceledger verify DIR` checks each file a published `datapackage.json` lists against
 the size and SHA-256 it gives. It needs no network, no manifest and no log. It refuses a
 path that leads out of the folder, including through a symlink.
 
-### Check a sourceledger release
+## Check a sourceledger release
 
 Each release on PyPI comes with signed provenance that ties it to the workflow that built
 it. [Release verification](releases.md) shows how to check it.
 
-### How dependencies are chosen
+## How dependencies are chosen
 
 sourceledger has no runtime dependencies, so installing it pulls in no other code. The
 optional `xlsx` extra adds openpyxl. [CONTRIBUTING.md](https://github.com/simonvanlierde/sourceledger/blob/main/.github/CONTRIBUTING.md#dependencies)
@@ -112,7 +112,7 @@ explains how the development tools are locked and audited.
 
 [What the checks establish](assurance-case.md) explains their trust assumptions, evidence and limits.
 
-### Report a problem
+## Report a problem
 
 Report a vulnerability privately, as
 [SECURITY.md](https://github.com/simonvanlierde/sourceledger/blob/main/.github/SECURITY.md)

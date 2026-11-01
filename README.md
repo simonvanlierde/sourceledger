@@ -57,7 +57,7 @@ sourceledger validate
 URL's extension. Set `format = "file"` to keep a raster, archive or other file unchanged.
 For another table format, see [custom readers](docs/readers.md).
 
-## What to commit
+### What to commit
 
 Commit `sources.toml` and `data/fetches.jsonl`. The log holds checksums and URLs, not
 data: it's the history of every version you have fetched.
@@ -71,50 +71,28 @@ runs `fetch` before `build` and `validate`.
 
 ## Documentation
 
-- [Worked example](docs/index.md): notice a revised source and rebuild the dataset.
-- [Reference](docs/reference.md): manifest keys, commands, selection and exit codes.
-- [JSON reports](docs/reports.md): consume status, validation and revisions in CI.
-- [How it works](docs/architecture.md) and [safe use](docs/secure-use.md): files, checks and limits.
-- [Comparison](docs/comparison.md): where sourceledger fits alongside other tools.
+- **Get started:** follow the [worked example](docs/getting-started.md) to notice a revised
+  source and rebuild the dataset.
+- **Configure and run:** use the [manifest and command reference](docs/reference.md),
+  [download limits and retries](docs/fetching.md), and [custom readers](docs/readers.md).
+- **Inspect and share:** consume [JSON reports](docs/reports.md) in CI, or create a
+  [standalone HTML provenance report](docs/provenance-report.md) for dataset recipients
+  with `sourceledger report > provenance.html`.
+- **Understand the checks:** read [how it works](docs/architecture.md),
+  [safe use](docs/secure-use.md), and [what the checks establish](docs/assurance-case.md).
+- **Choose and verify:** compare [related tools](docs/comparison.md), or check a
+  sourceledger release's [signed provenance and reproducible build](docs/releases.md).
 
-Create a [standalone HTML provenance report](docs/provenance-report.md) with
-`sourceledger report > provenance.html` for someone who receives your dataset.
+## Project status
 
-See [what the checks establish](docs/assurance-case.md) for trust assumptions and limits.
-
-### Verify a release
-
-See [release verification](docs/releases.md) for signed provenance and rebuilding from a tag.
-
-## sources.toml
-
-See the [manifest reference](docs/reference.md#sourcestoml) for every key and editor checks.
-
-## How fetch behaves
-
-See [download limits and retries](docs/fetching.md).
-
-## Other commands
-
-See the [command reference](docs/reference.md#other-commands) for `init`, `status`, `attribution`,
-`verify`, `revisions` and `report`. `status`, `validate` and `revisions` also accept `--json`.
-
-## Your own readers
-
-See [custom readers](docs/readers.md) to integrate another table format or use the Python API.
-
-## Compared with
-
-See the [comparison](docs/comparison.md) with pooch, DVC, DataLad and frictionless-py.
-
-## Stability
+### Stability
 
 Until 1.0, the public API is `sourceledger`'s `__all__`, the keys of `sources.toml`, and
 the format of fetch records and the log. A breaking change to any of them comes only in a
 minor version, listed in [CHANGELOG.md](CHANGELOG.md), with a warning first where that's
 cheap. Older fetch logs stay readable.
 
-## Roadmap
+### Roadmap
 
 - A `release` stage that writes the metadata for a dataset release (RO-Crate, Croissant,
   CodeMeta, Zenodo and a `SHA256SUMS` file), checks each with its official validator, and

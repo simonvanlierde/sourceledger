@@ -2,9 +2,7 @@
 title: Verify a sourceledger release
 ---
 
-[Documentation](index.md) · [Reference](reference.md)
-
-## Verify a sourceledger release
+# Verify a sourceledger release
 
 Each release is built and published by the
 [release workflow](../.github/workflows/python-release.yml), with no API token. PyPI keeps a

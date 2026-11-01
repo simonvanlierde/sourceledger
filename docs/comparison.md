@@ -2,9 +2,7 @@
 title: Compare sourceledger with other tools
 ---
 
-[Documentation](index.md) · [Reference](reference.md)
-
-## Compared with
+# Compared with
 
 Other tools cover parts of this. Use one of them when that part is all you need.
 

@@ -15,9 +15,10 @@ outputs described by the data package. Open `provenance.html` in a browser. It u
 scripts, remote styles, fonts or network requests.
 
 The command reads `sources.toml`, `data/fetches.jsonl` and the built package in
-`data/processed/`. It checks the listed files against the package and flags a build that
-predates the last logged revision. It links each output to its source details: URL,
-vintage, fetch timestamp, raw and output hashes, licence and reuse terms.
+`data/processed/`. It checks that the listed outputs match the implemented manifest
+sources and that their files match the package. It also flags a build that predates the
+last logged revision. Each output links to its source details: URL, vintage, fetch
+timestamp, raw and output hashes, licence and reuse terms.
 
 Source details come from the current manifest; the fetch stamps describe the last build.
 If a file or its provenance is stale, the report lists the problem. The command returns 0

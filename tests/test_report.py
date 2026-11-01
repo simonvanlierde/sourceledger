@@ -278,3 +278,27 @@ def test_report_refuses_invalid_resource_paths(dataset: list[ledger.Source], pat
     path.write_text(json.dumps(package))
     with pytest.raises(ValueError, match="relative files"):
         report(dataset)
+
+
+@pytest.mark.parametrize("change", ["omit one", "omit all", "unimplement", "duplicate"])
+def test_report_flags_incomplete_or_obsolete_packages(dataset: list[ledger.Source], change: str) -> None:
+    path = Path("data/processed/datapackage.json")
+    package = json.loads(path.read_text())
+    if change == "omit one":
+        package["resources"].pop()
+    elif change == "omit all":
+        package["resources"] = []
+    elif change == "unimplement":
+        dataset[0]["status"] = "unimplemented"
+    else:
+        package["resources"].append(package["resources"][0])
+    path.write_text(json.dumps(package))
+    page = report(dataset)
+    assert "Integrity checks passed" not in page
+    assert "not the implemented sources" in page
+    assert "re-run build" in page
+
+
+def test_report_accepts_a_genuinely_empty_dataset(tmp_path: Path) -> None:
+    (tmp_path / "datapackage.json").write_text('{"resources": []}')
+    assert "Integrity checks passed" in report([], processed=tmp_path, log=tmp_path / "missing.jsonl")

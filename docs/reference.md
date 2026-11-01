@@ -2,7 +2,10 @@
 title: Manifest and command reference
 ---
 
-[Documentation](index.md) · [Reference](reference.md)
+# Manifest and commands
+
+For [JSON reports](reports.md), [custom readers](readers.md) and [download behavior](fetching.md),
+follow the linked guides.
 
 ## sources.toml
 

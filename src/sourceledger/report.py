@@ -8,7 +8,7 @@ from html import escape
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-from sourceledger.ledger import DATAPACKAGE, FETCH_LOG, PROCESSED, Source, _last_records, verify
+from sourceledger.ledger import DATAPACKAGE, FETCH_LOG, PROCESSED, Source, _last_records, implemented, verify
 
 
 def _url(value: object) -> str:
@@ -56,6 +56,10 @@ def report(sources: list[Source], *, processed: Path = PROCESSED, log: Path = FE
             raise ValueError(msg)
     records = _last_records(log)
     problems = verify(processed)
+    listed = sorted(str(resource.get("name")) for resource in resources)
+    expected = sorted(source["id"] for source in implemented(sources))
+    if listed != expected:
+        problems.append(f"The package lists {listed}, not the implemented sources {expected}; re-run build")
     by_id = {source["id"]: source for source in sources}
     sections = []
     for number, resource in enumerate(resources):

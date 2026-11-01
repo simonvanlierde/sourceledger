@@ -3,7 +3,7 @@ title: How sourceledger works
 description: The three main stages, the files each one reads and writes, and where the code lives.
 ---
 
-## How sourceledger works
+# How sourceledger works
 
 sourceledger turns a list of public sources into a dataset in three stages: `fetch`,
 `build` and `validate`. Each stage is a function in `sourceledger.ledger` and a command
@@ -17,7 +17,7 @@ sources.toml ──fetch──> data/raw/        ──build──> data/process
 
 The [reference](reference.md) lists the manifest keys and command options. This page explains how the parts fit together.
 
-### The files on disk
+## The files on disk
 
 | Path | Written by | Read by | In git |
 | --- | --- | --- | --- |
@@ -38,7 +38,7 @@ then renamed into place, so a crash never leaves half a file. The log is appende
 instead, one line per new version. A last line cut off by a crash is dropped on the next fetch. A complete record that only
 lacks its final newline is kept.
 
-### fetch
+## fetch
 
 `fetch` reads `sources.toml` and downloads each implemented source:
 
@@ -57,7 +57,7 @@ sees no matching record and fetches in full, so no version is lost. A lock on
 `data/raw/.lock` stops a second fetch in the same project while one runs (Linux and macOS
 only). `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
 
-### build
+## build
 
 `build` makes the outputs from the raw files. It never uses the network.
 
@@ -82,7 +82,7 @@ source, licence and fetch metadata. It omits `type` to describe a generic file,
 as the [Data Resource standard](https://datapackage.org/standard/data-resource/#type) defines.
 It has no table schema.
 
-### validate
+## validate
 
 `validate` checks the outputs against the manifest and the records, and lists every
 problem instead of stopping at the first. It re-hashes each raw file in blocks and reads
@@ -94,14 +94,14 @@ It also reports a source without reuse terms, an output that no source owns, and
 including non-CSV files, must belong to a source or be the package descriptor.
 It exits 1 if it finds any problem.
 
-### The other commands
+## The other commands
 
 - `status`, `attribution` and `revisions` read the manifest and the log only.
 - `verify` reads only a published `datapackage.json` and the files it lists. It is for
   someone who downloaded your dataset and has neither your manifest nor your log.
 - `init` writes a starter `sources.toml`.
 
-### Where the code lives
+## Where the code lives
 
 - `src/sourceledger/ledger.py`: every stage, the readers, and the fetch logic. One module,
   read top to bottom: manifest checks, HTTP, the log, fetch, the readers, build, validate,
@@ -116,7 +116,7 @@ HTTP is the standard library's `urllib`, so there are no runtime dependencies. s
 adds the retries, the size cap, the time budget, the redirect check and the conditional
 requests itself.
 
-### Extending it
+## Extending it
 
 A project that needs another file format writes its own reader: a function that takes the
 source's manifest table and the raw bytes, and returns columns and rows. It passes the

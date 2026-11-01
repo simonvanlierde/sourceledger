@@ -18,12 +18,14 @@ Move manually added files out of `data/processed/` before running `validate`.
 - An [assurance case](docs/assurance-case.md) explains the trust assumptions, safeguards and limits behind integrity and provenance checks.
 - `status`, `validate` and `revisions` accept `--json` for scripts and CI. See [JSON reports](docs/reports.md).
 - Per-source `timeout_s` sets the fetch budget, including retries and waits. The default
-  remains 300 seconds; see [How fetch behaves](README.md#how-fetch-behaves).
+  remains 300 seconds; see [download limits and retries](docs/fetching.md).
 - `format = "file"` keeps files unchanged and validates their bytes, provenance and
   reuse metadata. Build describes them as non-tabular resources in `datapackage.json`;
   see [How build works](docs/architecture.md#build).
 
 ### Changed
+
+- The [documentation website](https://simonvanlierde.com/sourceledger/) uses a navy and lime reading layout, responsive navigation and copyable code. A connected provenance diagram and revision comparison use an example checked against the pipeline. The [full tutorial](docs/getting-started.md) has its own page.
 
 - Documentation separates the quick start from the [manifest and command reference](docs/reference.md), custom readers and release verification.
 
@@ -31,6 +33,8 @@ Move manually added files out of `data/processed/` before running `validate`.
   unclaimed CSV files. See [validation](docs/architecture.md#validate).
 
 ### Fixed
+
+- The [HTML provenance report](docs/provenance-report.md) flags missing, duplicate or no-longer-implemented outputs instead of reporting successful checks for an incomplete package.
 
 - The citation helper removes old Zenodo version, date and DOI overrides so each release can receive its own archive metadata. See [release verification](docs/releases.md).
 
