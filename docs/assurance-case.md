@@ -31,7 +31,8 @@ they do not sign your dataset or its fetch records.
 ## Claims and evidence
 
 The evidence below is executable regression coverage in
-[`tests/test_ledger.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_ledger.py).
+[`tests/test_ledger.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_ledger.py)
+and [`tests/test_report.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_report.py).
 It supports the stated behavior; it is not an independent security certification.
 
 | Claim | Safeguard | Regression evidence |
@@ -43,6 +44,7 @@ It supports the stated behavior; it is not an independent security certification
 | Downloads have bounded body size and a checked time budget. | Streaming reads enforce `max_bytes`; socket waits and retry waits use the remaining `timeout_s`. Redirect bodies are closed without draining. | `test_fetch_refuses_a_download_over_the_size_cap`, `test_a_server_trickling_bytes_is_stopped_near_the_budget`, `test_source_timeout_includes_retry_waits`, `test_redirects_do_not_need_the_redirect_response_body` |
 | A failed write does not expose a partially written replacement file. | A fresh temporary file is flushed and renamed into place. Fetch serializes writers with a lock, logs before writing the record and recovers a cut-off last log line. | `test_a_failed_write_raises_its_own_error_and_leaves_no_temp_file`, `test_a_cut_off_last_log_line_is_dropped_not_fatal`, `test_a_whole_last_log_line_without_its_newline_is_kept` |
 | A recipient can check a package without fetching its sources. | Verify checks listed files against size and SHA-256, and refuses paths that escape the dataset folder, including through symlinks. | `test_verify_checks_a_published_dataset_against_its_package`, `test_verify_reports_a_package_it_cannot_check` |
+| A provenance report can be read offline without executing displayed metadata. | Standalone HTML escapes metadata, omits raw values and headers, redacts HTTP URL credentials, queries and fragments, and blocks remote assets and scripts. Free text and URL paths still need review before sharing. | `test_report_escapes_metadata_and_omits_credentials`, `test_report_displays_the_built_metadata_and_security_policy`, `test_report_does_not_echo_credentials_from_an_invalid_file_url` |
 | The same input records give repeatable build outputs. | Build writes no current timestamps into outputs or package metadata. | `test_the_same_records_build_the_same_package`, `test_the_package_is_written_exactly` |
 
 ## Where these claims stop

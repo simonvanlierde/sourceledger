@@ -77,6 +77,9 @@ runs `fetch` before `build` and `validate`.
 - [How it works](docs/architecture.md) and [safe use](docs/secure-use.md): files, checks and limits.
 - [Comparison](docs/comparison.md): where sourceledger fits alongside other tools.
 
+Create a [standalone HTML provenance report](docs/provenance-report.md) with
+`sourceledger report > provenance.html` for someone who receives your dataset.
+
 See [what the checks establish](docs/assurance-case.md) for trust assumptions and limits.
 
 ### Verify a release
@@ -94,7 +97,7 @@ See [download limits and retries](docs/fetching.md).
 ## Other commands
 
 See the [command reference](docs/reference.md#other-commands) for `init`, `status`, `attribution`,
-`verify` and `revisions`. `status`, `validate` and `revisions` also accept `--json`.
+`verify`, `revisions` and `report`. `status`, `validate` and `revisions` also accept `--json`.
 
 ## Your own readers
 

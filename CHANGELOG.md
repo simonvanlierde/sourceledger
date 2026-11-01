@@ -14,6 +14,7 @@ Move manually added files out of `data/processed/` before running `validate`.
 
 ### Added
 
+- `report` creates a [standalone HTML provenance report](docs/provenance-report.md) that recipients can read offline. It links outputs to their sources and lists integrity problems without including raw data.
 - An [assurance case](docs/assurance-case.md) explains the trust assumptions, safeguards and limits behind integrity and provenance checks.
 - `status`, `validate` and `revisions` accept `--json` for scripts and CI. See [JSON reports](docs/reports.md).
 - Per-source `timeout_s` sets the fetch budget, including retries and waits. The default

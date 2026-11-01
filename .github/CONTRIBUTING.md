@@ -70,6 +70,10 @@ just check
   log should not slow them down unexplained. Without `--codspeed` each benchmark runs once
   as a plain test.
 
+The HTML report baseline allows changes to HTML formatting and fallback or diagnostic wording.
+It also allows equivalent ways to split a URL. Tests still check integrity, HTML escaping
+and credential omission.
+
 ## Dependencies
 
 sourceledger has no runtime dependencies. It reads CSV and JSON with the standard

@@ -33,3 +33,6 @@
 3 sourceledger.ledger.xǁ_HTTPSHandlerǁhttps_open
 5 sourceledger.ledger.xǁ_NoRedirectInwardǁredirect_request
 2 sourceledger.ledger.xǁ_PeerCheckǁconnect
+5 sourceledger.report.x__fields
+2 sourceledger.report.x__url
+61 sourceledger.report.x_report
