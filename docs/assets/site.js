@@ -10,6 +10,7 @@ const status = document.querySelector(".copy-status");
 let statusTimer;
 for (const pre of document.querySelectorAll("pre")) {
   const code = pre.querySelector("code");
+  if (code) code.tabIndex = 0;
   if (!code || !navigator.clipboard || code.classList.contains("language-console")) continue;
   const button = document.createElement("button");
   button.type = "button";
@@ -44,5 +45,5 @@ if (example) {
   };
   controls.hidden = false;
   for (const button of buttons) button.addEventListener("click", () => selectVersion(button.dataset.version));
-  selectVersion("before");
+  selectVersion("after");
 }

@@ -1,5 +1,6 @@
 ---
 title: sourceledger
+home: true
 description: Build a dataset from published sources and check when they change.
 ---
 
@@ -8,13 +9,12 @@ description: Build a dataset from published sources and check when they change.
 Build a dataset from published sources. Keep a record of each download, trace the outputs back to it,
 and check when the publisher changes the file.
 
-```sh
-uv tool install sourceledger
-```
-
-Python 3.12+ · Linux and macOS · [Installation options](https://github.com/simonvanlierde/sourceledger#install)
+{% include home-install.html %}
 
 {% include revision-example.html %}
+
+Follow the [complete example](getting-started.md), or review the
+[installation options](https://github.com/simonvanlierde/sourceledger#install).
 
 ## Use sourceledger in your project
 

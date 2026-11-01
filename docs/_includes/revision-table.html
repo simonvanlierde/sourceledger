@@ -1,0 +1,19 @@
+{% assign original_rows = site.data.revision.before | newline_to_br | split: '<br />' %}
+{% if include.revised %}
+  {% assign fetched_rows = site.data.revision.after | newline_to_br | split: '<br />' %}
+{% else %}
+  {% assign fetched_rows = original_rows %}
+{% endif %}
+<table>
+  <caption>Synthetic example · CO₂ concentration, ppm</caption>
+  <thead><tr><th scope="col">Year</th><th scope="col">Original</th><th scope="col">{% if include.revised %}Revised{% else %}Fetched{% endif %}</th></tr></thead>
+  <tbody>
+    {% for line in original_rows offset:1 %}
+      {% assign original = line | strip | split: ',' %}
+      {% assign fetched = fetched_rows[forloop.index] | strip | split: ',' %}
+      {% if original.size == 2 %}
+        <tr><th scope="row">{{ original[0] | escape }}</th><td>{{ original[1] | escape }}</td><td>{% if original[1] != fetched[1] %}<mark>{{ fetched[1] | escape }}</mark>{% else %}{{ fetched[1] | escape }}{% endif %}</td></tr>
+      {% endif %}
+    {% endfor %}
+  </tbody>
+</table>

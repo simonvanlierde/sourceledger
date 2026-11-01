@@ -23,6 +23,3 @@ navigation:
     path: /architecture.html
   - title: Safe use
     path: /secure-use.html
-exclude:
-  - DESIGN.md
-  - PRODUCT.md

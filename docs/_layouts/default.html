@@ -8,11 +8,10 @@
     <link rel="stylesheet" href="{{ '/assets/site.css' | relative_url }}">
     <script src="{{ '/assets/site.js' | relative_url }}" defer></script>
   </head>
-  <body>
+  <body{% if page.home %} class="home"{% endif %}>
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
-      <a class="wordmark" href="{{ '/' | relative_url }}">sourceledger<span aria-hidden="true">.</span></a>
-      <p>Keep the sources behind your dataset.</p>
+      <a class="wordmark" href="{{ '/' | relative_url }}">sourceledger</a>
       <a class="source-link" href="https://github.com/simonvanlierde/sourceledger">Source on GitHub</a>
     </header>
     <div class="reading-layout">
