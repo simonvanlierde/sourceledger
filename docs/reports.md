@@ -2,9 +2,7 @@
 title: JSON reports for scripts and CI
 ---
 
-[Documentation](index.md) · [Reference](reference.md)
-
-## JSON reports
+# JSON reports
 
 Use `--json` when a script needs to read a report:
 
@@ -25,21 +23,21 @@ Other commands do not accept `--json`.
 | `validate` | `problems` | The same list of problem messages the Python function returns. |
 | `revisions` | `revisions` | One object per changed source, in current-log order. New sources are excluded, as in text output. |
 
-### Source status
+## Source status
 
 Each `sources` object has `source_id`, `status`, `vintage`, `retrieved_at`, `sha256`,
 `license` and `redistribute`. Hashes have all 64 characters. Missing fetch information
 is `null`; an absent licence or unknown redistribution flag is also `null`.
 `redistribute` is otherwise a JSON boolean. `status` reads no raw files and makes no network requests.
 
-### Revisions
+## Revisions
 
 Each revision has `source_id`, `before_sha256` and `after`.
 `before_sha256` is the earlier full hash. `after` is the complete latest fetch record,
 with the same fields as a line in `data/fetches.jsonl`.
 The two logs must exist. An empty `revisions` list means no existing source changed bytes.
 
-### Problems, failures and exit codes
+## Problems, failures and exit codes
 
 A validation run with no problems prints:
 

@@ -10,7 +10,7 @@ const status = document.querySelector(".copy-status");
 let statusTimer;
 for (const pre of document.querySelectorAll("pre")) {
   const code = pre.querySelector("code");
-  if (!code || !navigator.clipboard) continue;
+  if (!code || !navigator.clipboard || code.classList.contains("language-console")) continue;
   const button = document.createElement("button");
   button.type = "button";
   button.className = "code-copy";

@@ -11,9 +11,9 @@
     <p class="revision-result">The built output matches this download. Validation passes.</p>
   </div>
   <div id="version-after" data-version-panel="after">
-    <pre><code>{{ site.data.revision.after | escape }}</code></pre>
+    <pre><code>{{ site.data.revision.after | escape | replace: '419.32', '<mark>419.32</mark>' }}</code></pre>
     <p class="revision-hash">SHA-256 (first 12 characters) <code>{{ site.data.revision.after_sha256 | slice: 0, 12 }}</code></p>
-    <p class="revision-result">The changed bytes have a new checksum. After a fresh fetch, validation reports that the existing output needs rebuilding.</p>
+    <p class="revision-result">2023’s value changed: <strong>419.31 → 419.32</strong>. The changed bytes have a new checksum. After a fresh fetch, validation reports that the existing output needs rebuilding.</p>
     <details>
       <summary>Read the validation report</summary>
       <pre><code>{{ site.data.revision.problem | escape }}</code></pre>

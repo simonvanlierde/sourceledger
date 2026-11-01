@@ -2,3 +2,7 @@
   # READMEs have long badge and link lines that don't wrap, so MD013 would flag nearly every line.
   disable = ["MD013"]
   flavor  = "gfm"
+
+[MD025]
+  # Jekyll's front-matter title is metadata; the Markdown supplies the visible heading.
+  front-matter-title = ""

@@ -25,14 +25,13 @@
             {% endfor %}
           </nav>
         </details>
-        <p class="requirements">Python 3.12+<br>Linux and macOS</p>
       </aside>
       <main id="main" tabindex="-1">
         <article>
-          {{ content | replace_first: '<h2', '<h1' | replace_first: '</h2>', '</h1>' | replace: '<table>', '<div class="table-scroll" tabindex="0" role="region" aria-label="Data table; scroll horizontally to read all columns"><table>' | replace: '</table>', '</table></div>' }}
+          {{ content | replace: '<table>', '<div class="table-scroll" tabindex="0" role="region" aria-label="Data table; scroll horizontally to read all columns"><table>' | replace: '</table>', '</table></div>' }}
         </article>
         <footer class="page-footer">
-          <p>sourceledger records provenance and reuse terms. Check those terms before publishing data.</p>
+          <p>These docs may include unreleased features. Check source terms before publishing data.</p>
           <div>
             <a href="https://pypi.org/project/sourceledger/">PyPI</a>
             <a href="https://github.com/simonvanlierde/sourceledger/issues">Issues</a>

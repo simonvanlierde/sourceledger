@@ -2,9 +2,7 @@
 title: Download limits and retries
 ---
 
-[Documentation](index.md) · [Reference](reference.md)
-
-## How fetch behaves
+# How fetch behaves
 
 - It tries four times, waiting 5, 10 and 20 s between attempts, on 429, 500, 502, 503,
   504, network errors and a body cut short. A `Retry-After` header, in seconds or as a

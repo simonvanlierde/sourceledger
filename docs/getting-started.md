@@ -3,101 +3,129 @@ title: Follow a publisher revision
 description: Fetch a source, notice changed bytes, and rebuild the output.
 ---
 
-## A worked example
+# Follow a publisher revision
 
-This example follows one source through a publisher's revision. A local file stands in for
-the publisher, so you can reproduce the revision. The output is from an actual run,
-with the file path shortened.
+This example uses a fictional two-row dataset. A local file stands in for a publisher,
+so you can change its contents and see what sourceledger reports. Nothing is downloaded
+from the internet.
 
-### 1. Declare the source
+Install [sourceledger](https://github.com/simonvanlierde/sourceledger#install) first.
+The setup commands below also use Python through `uv`.
 
-`sources.toml`, in the project root:
+## Create a small source
 
-```toml
-[[source]]
+Start in a new directory:
+
+```sh
+mkdir sourceledger-example
+cd sourceledger-example
+```
+
+Save this as `setup.py`. It creates the publisher's file and a manifest with its full
+local URL:
+
+```python
+from pathlib import Path
+
+publisher = Path("publisher/annual.csv")
+publisher.parent.mkdir()
+publisher.write_text("year,co2_ppm\n2022,417.06\n2023,419.31\n", encoding="utf-8")
+Path("sources.toml").write_text(
+    f'''[[source]]
 id = "co2"
 status = "implemented"
-url = "file:///…/publisher/annual.csv"
-vintage = "2025 release"
-terms = "Public domain (US government work)"
-terms_url = "https://gml.noaa.gov/about/disclaimer.html"
-license = "LicenseRef-us-government-public-domain"
+url = "{publisher.resolve().as_uri()}"
+vintage = "fictional example"
+terms = "Fictional example data, dedicated to the public domain under CC0."
+terms_url = "https://creativecommons.org/publicdomain/zero/1.0/"
+license = "CC0-1.0"
 redistribute = true
+''',
+    encoding="utf-8",
+)
 ```
 
-### 2. Fetch, build and validate
+Run it once:
 
-```console
-$ sourceledger fetch
-co2  new               37 B  943000a3ec89  2025 release  file:///…/publisher/annual.csv
-$ sourceledger build
-2 rows -> data/processed/co2.csv
-package -> data/processed/datapackage.json
-$ sourceledger validate
-0 problems
+```sh
+uv run --no-project python setup.py
 ```
 
-`fetch` saved the file to `data/raw/` with a record beside it, and logged the version in
-`data/fetches.jsonl`. `build` wrote the output with its provenance columns, and the data
-package that describes it.
+## Fetch, build and validate
 
-### 3. Fetch again: nothing changed
-
-```console
-$ sourceledger fetch
-co2  unchanged         37 B  943000a3ec89  2025 release  file:///…/publisher/annual.csv
+```sh
+sourceledger fetch
+sourceledger build
+sourceledger validate
 ```
 
-Over HTTP, this fetch sends the ETag and Last-Modified back and the server answers that
-nothing changed, so nothing is downloaded. The log stays unchanged.
+Fetch records 37 bytes with a checksum starting `943000a3ec89`. Build writes
+`data/processed/co2.csv` and `datapackage.json`; validation reports `0 problems`.
+The output has the source's columns plus provenance columns naming its download.
 
-### 4. The publisher revises a value
+Run `sourceledger fetch` again. It reports `unchanged`: the bytes still match.
+For HTTP sources, a publisher that supports conditional requests can answer without
+sending the file again. See [download behavior](fetching.md).
 
-The publisher changes 2023's value from 419.31 to 419.32, without saying so. Copy the log
-before you fetch, so you can compare against it:
+## Revise the publisher's file
 
-```console
-$ cp data/fetches.jsonl before.jsonl
-$ sourceledger fetch
-co2  new               37 B  b5e4e235da30  2025 release  file:///…/publisher/annual.csv
-$ sourceledger validate
+Keep the old log so you can compare versions:
+
+```sh
+cp data/fetches.jsonl before.jsonl
+```
+
+Save this as `revise.py`, then run it:
+
+```python
+from pathlib import Path
+
+publisher = Path("publisher/annual.csv")
+publisher.write_text(
+    publisher.read_text(encoding="utf-8").replace("419.31", "419.32"),
+    encoding="utf-8",
+)
+```
+
+```sh
+uv run --no-project python revise.py
+sourceledger fetch
+sourceledger validate
+```
+
+The new checksum starts `b5e4e235da30`. Fetch adds a record to the log. Validation exits
+with code 1 because the existing output was built from the earlier download:
+
+```text
 data/processed/co2.csv: rows come from an earlier fetch than co2.csv; re-run build
-1 problems
-$ sourceledger revisions before.jsonl
-- `co2`: 943000a3ec89 -> b5e4e235da30, 37 bytes, fetched 2026-10-18T03:38:33Z from <file:///…/publisher/annual.csv>
 ```
 
-The new bytes have a new checksum, so the fetch line says `new` and the log gains a second
-line. `validate` now refuses the output built from the old download. `revisions`, given
-`before.jsonl`, names the source that changed. It exits 0 here, since a test decides what a
-revision breaks. The
-[project-templates](https://github.com/simonvanlierde/project-templates) `data-pipeline`
-kind runs this check weekly in CI and comments on an issue when a source changes.
+Compare the logs to see which source changed:
 
-### 5. Rebuild
-
-After `sourceledger build`, each row carries the new download's provenance:
-
-```csv
-source_id,source_url,retrieved_at,vintage,raw_sha256,year,co2_ppm
-co2,file:///…/publisher/annual.csv,2026-10-18T03:38:33Z,2025 release,b5e4e235da3066bccd4bf836b9f823b45709fb5e06afdb2b5328210c62c796e5,2023,419.32
+```sh
+sourceledger revisions before.jsonl
 ```
 
-## What to commit
+`revisions` reports the old and new hashes. It exits 0: a revision is information;
+your project's tests decide whether it changes the scientific result.
 
-See [what to commit](https://github.com/simonvanlierde/sourceledger/blob/main/README.md#what-to-commit) for the manifest, log and local data directories.
+## Rebuild from the revision
 
-## Check a dataset you downloaded
-
-Someone who downloads a published dataset can check it against its package, offline:
-
-```console
-$ sourceledger verify my-dataset/
-0 problems
+```sh
+sourceledger build
+sourceledger validate
 ```
 
-Each file the package lists must exist, with the size and SHA-256 it gives.
+Validation reports `0 problems` again. The 2023 row now contains `419.32` and names the
+new download's full SHA-256:
 
-## Check a manifest as you type
+```text
+b5e4e235da3066bccd4bf836b9f823b45709fb5e06afdb2b5328210c62c796e5
+```
 
-The [manifest reference](reference.md#sourcestoml) shows the schema line for your editor.
+Keep `sources.toml` and the fetch log in version control. Keep the raw and processed
+files out of git; [what to commit](https://github.com/simonvanlierde/sourceledger#what-to-commit)
+explains why.
+
+For your own sources, use the [manifest and command reference](reference.md).
+To check a dataset someone sent you, follow [offline verification](secure-use.md#check-a-dataset-you-downloaded).

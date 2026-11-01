@@ -19,20 +19,10 @@ navigation:
     path: /getting-started.html
   - title: Manifest and commands
     path: /reference.html
-  - title: JSON reports
-    path: /reports.html
-  - title: Custom readers
-    path: /readers.html
-  - title: Download behavior
-    path: /fetching.html
   - title: How it works
     path: /architecture.html
   - title: Safe use
     path: /secure-use.html
-  - title: Verify a release
-    path: /releases.html
-  - title: Compare tools
-    path: /comparison.html
 exclude:
   - DESIGN.md
   - PRODUCT.md
