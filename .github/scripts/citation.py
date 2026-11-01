@@ -54,15 +54,15 @@ def zenodo(cff: dict, lic: str | None) -> dict:
         "upload_type": "software",
         "title": cff["title"],
         "description": cff.get("abstract") or cff["title"],
-        # NOTE: no version or date either. A version left stale in CITATION.cff would
-        # label every later archive wrong; without one Zenodo takes the release's tag.
+        # Zenodo takes these from the new release, even when an old file declared them.
+        "version": None,
+        "publication_date": None,
+        "doi": None,
         "creators": creators,
         # Without a licence Zenodo would publish the files as CC-BY-4.0. `closed`
         # publishes the metadata and DOI, but not the files.
         "access_right": "open" if lic else "closed",
         "license": lic and lic.lower(),
-        # NOTE: no `doi` key. Zenodo reads one as a DOI the release already has, and
-        # would then not mint the new version's own.
     }
 
 

@@ -88,10 +88,10 @@ _STARTER = f"""#:schema {_SCHEMA_URL}
 IMPLEMENTED = "implemented"
 UNIMPLEMENTED = "unimplemented"
 FILE_FORMAT = "file"
-# Bounds each connect and each read. A server that trickles bytes is stopped by _BUDGET_S.
+# Bounds each connect and read; the source's budget is checked between reads.
 _SOCKET_TIMEOUT_S = 30
-# One source's download, every attempt and wait included, so a stalled publisher costs
-# at most 5 minutes of a CI job unless timeout_s overrides it.
+# One source's download budget includes attempts and waits. DNS lookup and HTTP header
+# parsing can exceed it.
 _BUDGET_S = 300
 # Waits of 5, 10 and 20 s between four attempts ride out a brief publisher outage.
 _ATTEMPTS = 4
@@ -1246,7 +1246,11 @@ def _listed(path: Path) -> dict[str, Any]:
 def _by_name(package: object) -> dict[str, Any]:
     """A parsed data package's resources, by name: none when it is not an object with a list of them."""
     resources = package.get("resources") if isinstance(package, dict) else None
-    return {r.get("name"): r for r in resources if isinstance(r, dict)} if isinstance(resources, list) else {}
+    return (
+        {r["name"]: r for r in resources if isinstance(r, dict) and isinstance(r.get("name"), str)}
+        if isinstance(resources, list)
+        else {}
+    )
 
 
 def _package_name() -> str:

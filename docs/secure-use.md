@@ -110,6 +110,8 @@ sourceledger has no runtime dependencies, so installing it pulls in no other cod
 optional `xlsx` extra adds openpyxl. [CONTRIBUTING.md](https://github.com/simonvanlierde/sourceledger/blob/main/.github/CONTRIBUTING.md#dependencies)
 explains how the development tools are locked and audited.
 
+[What the checks establish](assurance-case.md) explains their trust assumptions, evidence and limits.
+
 ### Report a problem
 
 Report a vulnerability privately, as

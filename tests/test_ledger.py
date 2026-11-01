@@ -2875,3 +2875,19 @@ def test_help_explains_json_reports(capsys: pytest.CaptureFixture[str]) -> None:
         main(["--help"])
     line = next(line for line in capsys.readouterr().out.splitlines() if line.strip().startswith("--json"))
     assert " ".join(line.split()) == "--json status, validate and revisions: print JSON"
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("name", [[], {}, None])
+def test_json_validate_reports_a_malformed_resource_name(capsys: pytest.CaptureFixture[str], name: object) -> None:
+    """A damaged package remains a validation report, without an uncaught TypeError."""
+    assert main(["fetch"]) == 0
+    assert main(["build"]) == 0
+    path = Path("data/processed/datapackage.json")
+    package = json.loads(path.read_text())
+    package["resources"][0]["name"] = name
+    path.write_text(json.dumps(package))
+    capsys.readouterr()
+    assert main(["validate", "--json"]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["problems"]

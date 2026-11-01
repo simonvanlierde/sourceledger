@@ -1,6 +1,6 @@
 [project]
 name = "sourceledger"
-version = "0.3.1"
+version = "0.4.0"
 description = "Fetch, verify and validate the public sources a dataset is built from, with a provenance record for every download"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -127,6 +127,6 @@ exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
 # `just py-mutation` runs it. The docs tests read the README and docs/ from the copy.
 [tool.mutmut]
 source_paths = ["src"]
-also_copy = ["README.md", "docs"]
+also_copy = ["README.md", "docs", ".github/scripts"]
 # Log calls only change diagnostics; their mutants would all survive.
 do_not_mutate_patterns = ['^\s*_logger\.\w+\(']

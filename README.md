@@ -77,6 +77,8 @@ runs `fetch` before `build` and `validate`.
 - [How it works](docs/architecture.md) and [safe use](docs/secure-use.md): files, checks and limits.
 - [Comparison](docs/comparison.md): where sourceledger fits alongside other tools.
 
+See [what the checks establish](docs/assurance-case.md) for trust assumptions and limits.
+
 ### Verify a release
 
 See [release verification](docs/releases.md) for signed provenance and rebuilding from a tag.
