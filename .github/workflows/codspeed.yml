@@ -39,16 +39,16 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: true
           save-cache: ${{ github.event_name != 'pull_request' }}
-          version: "0.13.1"
+          version: "0.13.5"
 
       # The interpreter is the one .python-version names.
       - run: uv sync --locked
 
-      - uses: CodSpeedHQ/action@821a40cd6c80e3cfe387caf55668287addd808da # v5.5.0
+      - uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5.6.0
         with:
           mode: simulation
           run: uv run pytest tests/test_benchmarks.py --codspeed
