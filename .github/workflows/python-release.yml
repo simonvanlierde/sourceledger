@@ -49,10 +49,10 @@ jobs:
           persist-credentials: false
       # No cache: an entry written from any branch is restorable here, which
       # would put attacker-controlled bytes into the wheel this workflow signs.
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
-          version: "0.13.1"
+          version: "0.13.5"
 
       # Validate and save the notes before PyPI publishes anything.
       - run: '"$GITHUB_WORKSPACE/.github/scripts/release-notes.sh" "$GITHUB_REF_NAME" "$GITHUB_WORKSPACE/CHANGELOG.md" >"$RUNNER_TEMP/notes.md"'
