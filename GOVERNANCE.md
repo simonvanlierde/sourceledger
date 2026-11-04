@@ -17,9 +17,20 @@ stage or a breaking change, starts as an issue, so anyone can comment before the
 written. The reasons for a decision go in the issue or the pull request, where anyone can
 read them later.
 
-Two design choices hold unless an issue argues them away first: sourceledger has no
+Two design choices hold unless an issue argues them away first: sourceledger's core has no
 runtime dependencies, and every output row names the download it came from. The
 [architecture page](docs/architecture.md) shows how the code keeps them.
+
+## Python support
+
+We support released CPython versions from 3.12 onward while CPython still provides
+security fixes for them. We use the [CPython support schedule](https://devguide.python.org/versions/),
+not [Scientific Python SPEC 0](https://scientific-python.org/specs/spec-0000/), to decide when to drop a version.
+Raising the current minimum would remove no compatibility code.
+
+Python 3.12 remains the minimum until its scheduled end of life in October 2028.
+When a version reaches end of life, raise the minimum in the package metadata and CI
+together, and record the change in the changelog.
 
 ## Releases
 

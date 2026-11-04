@@ -18,3 +18,4 @@ the old one's status to `superseded by 0007`, naming the new record's number.
 
 - [0001. Local builds and redistribution](0001-local-builds-and-redistribution.md): accepted
 - [0002. URL templates and POST stay in each project's fetcher](0002-fetchers-stay-in-each-project.md): accepted
+- [0003. Keep HTTP fetching in the standard library](0003-stdlib-http.md): proposed
