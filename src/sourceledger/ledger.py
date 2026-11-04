@@ -51,6 +51,7 @@ from typing import IO, TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlsplit
 
 if TYPE_CHECKING:
+    import ssl
     from email.message import Message
 
 if sys.platform != "win32":  # noqa: PLR2004
@@ -88,6 +89,7 @@ _STARTER = f"""#:schema {_SCHEMA_URL}
 IMPLEMENTED = "implemented"
 UNIMPLEMENTED = "unimplemented"
 FILE_FORMAT = "file"
+_PARQUET_SUFFIX = ".parquet"
 # Bounds each connect and read; the source's budget is checked between reads.
 _SOCKET_TIMEOUT_S = 30
 # One source's download budget includes attempts and waits. DNS lookup and HTTP header
@@ -173,7 +175,9 @@ class FetchError(OSError):
 def load_manifest(path: Path = MANIFEST) -> list[Source]:
     """The `[[source]]` tables of sources.toml, after checking ids, URLs, caps, timeouts and pins."""
     with path.open("rb") as fh:
-        sources = tomllib.load(fh).get("source", [])
+        manifest = tomllib.load(fh)
+    _check_output_format(manifest.get("output_format", "csv"))
+    sources = manifest.get("source", [])
     if not isinstance(sources, list) or not all(isinstance(s, dict) and isinstance(s.get("id"), str) for s in sources):
         msg = "sources.toml: every [[source]] needs a string id"
         raise ValueError(msg)
@@ -209,6 +213,21 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
         _check_format(source)
         _check_headers(source)
     return sources
+
+
+def _check_output_format(output_format: str) -> None:
+    """Refuse unsupported table output formats before writing any files."""
+    if output_format not in ("csv", "parquet"):
+        msg = "output_format must be 'csv' or 'parquet'"
+        raise ValueError(msg)
+
+
+def _load_output_format(path: Path) -> str:
+    """The project's table format; library callers pass it to build and validate directly."""
+    with path.open("rb") as fh:
+        output_format = tomllib.load(fh).get("output_format", "csv")
+    _check_output_format(output_format)
+    return output_format
 
 
 def init(path: Path = MANIFEST) -> None:
@@ -301,9 +320,13 @@ def raw_name(source: Source) -> str:
     return source["id"] + PurePosixPath(urlsplit(source["url"]).path).suffix
 
 
-def _output_name(source: Source) -> str:
+def _output_name(source: Source, output_format: str) -> str:
     """The built file's name; an unimplemented source may have no URL yet."""
-    return raw_name(source) if source.get("format") == FILE_FORMAT and source.get("url") else f"{source['id']}.csv"
+    return (
+        raw_name(source)
+        if source.get("format") == FILE_FORMAT and source.get("url")
+        else f"{source['id']}.{output_format}"
+    )
 
 
 def _write_atomic(path: Path, data: bytes) -> None:
@@ -415,8 +438,12 @@ class _HTTPHandler(urllib.request.HTTPHandler):
 
 
 class _HTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, context: ssl.SSLContext | None = None) -> None:
+        super().__init__(context=context)
+        self.context = context
+
     def https_open(self, req: urllib.request.Request) -> http.client.HTTPResponse:
-        return self.do_open(functools.partial(_HTTPSPeerCheck, req=req), req, context=self._context)  # ty: ignore[unresolved-attribute]  # set by HTTPSHandler.__init__
+        return self.do_open(functools.partial(_HTTPSPeerCheck, req=req), req, context=self.context)
 
 
 _OPENER = urllib.request.build_opener(_NoRedirectInward(), _HTTPHandler(), _HTTPSHandler())
@@ -1144,11 +1171,14 @@ def build(
     processed: Path = PROCESSED,
     parse: Parser = parse_source,
     only: Collection[str] | None = None,
+    output_format: str = "csv",
 ) -> list[Path]:
     """Write implemented sources to `processed`: unchanged files, or tables stamped with their fetch records.
 
     `format = "file"` copies the original bytes to `processed/<raw_name>`, without parsing.
     For tables, `parse` reads each raw file; the default reads CSV, JSON and Excel by format.
+    `output_format` selects CSV (the default) or Parquet with zstd compression and an explicit
+    string schema. Parquet needs the parquet extra and holds each table in memory.
     Then writes `processed/datapackage.json`, a Frictionless Data Package (v2) describing every
     output: its columns, size and SHA-256, its source URL and licence, and its fetch record.
     The same records give the same file, byte for byte.
@@ -1157,6 +1187,7 @@ def build(
     entry as the last build wrote it. Raises ValueError for an id the manifest does not have,
     or a file output named `datapackage.json`, which is reserved for the descriptor.
     """
+    _check_output_format(output_format)
     selected = {s["id"] for s in _select(sources, only)}
     earlier = {} if only is None else _listed(processed / DATAPACKAGE)
     processed.mkdir(parents=True, exist_ok=True)
@@ -1167,7 +1198,7 @@ def build(
             if source["id"] in earlier:
                 resources.append(earlier[source["id"]])
             continue
-        out = processed / _output_name(source)
+        out = processed / _output_name(source, output_format)
         if out.name.lower() == DATAPACKAGE:
             msg = f"{DATAPACKAGE} is reserved for the package descriptor; choose another source id"
             raise ValueError(msg)
@@ -1221,10 +1252,23 @@ def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[Fet
 def _write_rows(
     source: Source, out: Path, stamp: dict[str, str], columns: list[str], rows: Iterable[dict[str, str]]
 ) -> None:
-    """Write `rows` to `out` as CSV, each with the provenance columns first, as it gets them."""
+    """Write CSV or Parquet, with provenance columns first and source values kept as text."""
     if clash := stamp.keys() & set(columns):
         msg = f"{source['id']}: source columns {sorted(clash)} collide with the provenance columns"
         raise ValueError(msg)
+    if out.suffix == _PARQUET_SUFFIX:
+        pl = _polars()
+        fields = [*stamp, *columns]
+        table = []
+        for row in rows:
+            if extra := row.keys() - set(fields):
+                msg = f"{source['id']}: row has fields not in the header: {sorted(extra)}"
+                raise ValueError(msg)
+            table.append({**dict.fromkeys(columns, ""), **row, **stamp})
+        frame = pl.DataFrame(table, schema=dict.fromkeys(fields, pl.String))
+        with _replacing(out) as fh:
+            frame.write_parquet(fh, compression="zstd")
+        return
     with _replacing(out) as fh:
         text = io.TextIOWrapper(fh, encoding="utf-8", newline="")
         writer = csv.DictWriter(text, fieldnames=[*stamp, *columns])
@@ -1275,6 +1319,9 @@ def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path)
     if source.get("format") == FILE_FORMAT:
         for key in ("type", "format", "mediatype", "encoding", "schema"):
             del resource[key]
+    elif out.suffix == _PARQUET_SUFFIX:
+        resource.update(format="parquet", mediatype="application/vnd.apache.parquet")
+        del resource["encoding"]
     if source.get("license"):
         licence = {"name": source["license"], "path": source.get("terms_url"), "title": source.get("terms")}
         resource["licenses"] = [{k: v for k, v in licence.items() if v}]
@@ -1290,9 +1337,33 @@ def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path)
 
 
 def read_output(path: Path) -> list[dict[str, str]]:
-    """A published output file, as written."""
+    """A published CSV or Parquet table, as written. Parquet needs the parquet extra."""
+    return list(_output_rows(path))
+
+
+def _polars() -> Any:  # noqa: ANN401  # optional dependency, imported only for Parquet
+    """Load the Parquet backend, with an actionable error when the extra is missing."""
+    try:
+        import polars as pl  # noqa: PLC0415
+    except ImportError as error:
+        msg = "Parquet needs the parquet extra: uv add 'sourceledger[parquet]'"
+        raise ValueError(msg) from error
+    return pl
+
+
+def _output_rows(path: Path) -> Iterator[dict[str, str]]:
+    """Read CSV one row at a time, or read a Parquet table with its optional backend."""
+    if path.suffix == _PARQUET_SUFFIX:
+        pl = _polars()
+        try:
+            frame = pl.read_parquet(path)
+        except pl.exceptions.PolarsError as error:
+            msg = f"{path}: not a readable Parquet table ({error})"
+            raise ValueError(msg) from error
+        yield from frame.iter_rows(named=True)
+        return
     with path.open(newline="", encoding="utf-8") as fh:
-        return list(csv.DictReader(fh))
+        yield from csv.DictReader(fh)
 
 
 def _terms_problems(source: Source) -> list[str]:
@@ -1309,18 +1380,25 @@ def _terms_problems(source: Source) -> list[str]:
 
 
 def validate(
-    sources: list[Source], *, raw: Path = RAW, processed: Path = PROCESSED, only: Collection[str] | None = None
+    sources: list[Source],
+    *,
+    raw: Path = RAW,
+    processed: Path = PROCESSED,
+    only: Collection[str] | None = None,
+    output_format: str = "csv",
 ) -> list[str]:
     """Check the published output against the manifest and the fetch records, and return one string per problem.
 
     `only` restricts the checks to those source ids, and skips the two that concern the whole
     output: files no source owns, and the package's list of sources. Raises ValueError for an
     id the manifest does not have.
+    `output_format` must match the build: CSV by default, or Parquet (needs the parquet extra).
     """
+    _check_output_format(output_format)
     selected = _select(sources, only)
     problems = []
     listed = _listed(processed / DATAPACKAGE)
-    outputs = {_output_name(source) for source in sources}
+    outputs = {_output_name(source, output_format) for source in sources}
     # Output of a source since removed or renamed would otherwise pass as published data.
     if only is None:
         problems += [
@@ -1330,7 +1408,7 @@ def validate(
         ]
     for source in selected:
         sid, status = source["id"], source.get("status")
-        out = processed / _output_name(source)
+        out = processed / _output_name(source, output_format)
         if status == UNIMPLEMENTED:
             if out.name.lower() != DATAPACKAGE and out.exists():
                 problems.append(f"{sid}: status is unimplemented, but {out} exists")
@@ -1340,7 +1418,7 @@ def validate(
             continue
         problems += _terms_problems(source)
         problems += _output_problems(source, raw, out, listed.get(sid))
-    return problems + _package_problems(sources, processed, only)
+    return problems + _package_problems(sources, processed, only, output_format)
 
 
 def _output_problems(source: Source, raw: Path, out: Path, resource: dict[str, Any] | None) -> list[str]:
@@ -1369,15 +1447,16 @@ def _output_problems(source: Source, raw: Path, out: Path, resource: dict[str, A
 def _scan(out: Path, stamp: dict[str, str]) -> tuple[bool, bool]:
     """Whether an output has rows, and whether any of them has another stamp, read one row at a time."""
     rows = stale = False
-    with out.open(newline="", encoding="utf-8") as fh:
-        # Read to the end even once stale, so a damaged file fails as csv.Error wherever it is damaged.
-        for row in csv.DictReader(fh):
-            rows = True
-            stale = stale or {column: row.get(column) for column in stamp} != stamp
+    # Read to the end even once stale, so damage anywhere in the table is reported.
+    for row in _output_rows(out):
+        rows = True
+        stale = stale or {column: row.get(column) for column in stamp} != stamp
     return rows, stale
 
 
-def _package_problems(sources: list[Source], processed: Path, only: Collection[str] | None) -> list[str]:
+def _package_problems(
+    sources: list[Source], processed: Path, only: Collection[str] | None, output_format: str
+) -> list[str]:
     """Whether datapackage.json lists exactly the implemented sources, each with its output's current hash.
 
     With `only`, whether it lists those of them, each with its output's current hash.
@@ -1398,7 +1477,7 @@ def _package_problems(sources: list[Source], processed: Path, only: Collection[s
         ]
     problems = []
     for sid in sorted(checked):
-        out = processed / _output_name(expected[sid])
+        out = processed / _output_name(expected[sid], output_format)
         if sid not in listed:
             problems.append(f"{path} does not list {sid}; re-run build")
         # File outputs already have their full resource checked by _output_problems.

@@ -12,6 +12,22 @@ follow the linked guides.
 A source is one file you download. A vintage is the edition you expect to use, such as a release year.
 The manifest records its reuse terms; it does not decide whether those terms permit your intended use.
 
+Set `output_format` before the first `[[source]]` table to choose the project's table outputs:
+
+```toml
+output_format = "parquet"
+```
+
+Install `uv add 'sourceledger[parquet]'` first. `build` writes `<id>.parquet` with zstd compression
+and an explicit string schema, including the five provenance columns. Values such as `001`, `1.10`
+and empty strings keep their spelling. `validate` and `read_output` read these tables with the same extra.
+Parquet builds and validation hold each table in memory. `datapackage.json` records the format and media type;
+`verify` checks the bytes without needing the extra.
+
+The default is `output_format = "csv"`. `format = "file"` sources keep their original bytes in either mode.
+When switching formats, move old outputs out of `data/processed/` before rebuilding; `validate` reports them as unclaimed files.
+Library callers pass `output_format="parquet"` to both `build` and `validate`; `load_manifest` returns only source tables.
+
 Each `[[source]]` table takes these keys:
 
 | Key | Required | Meaning |

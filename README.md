@@ -53,6 +53,10 @@ sourceledger build
 sourceledger validate
 ```
 
+For [Parquet outputs](docs/reference.md#sourcestoml), install `uv add 'sourceledger[parquet]'`
+and set `output_format = "parquet"` before the first `[[source]]` table in `sources.toml`.
+CSV remains the default.
+
 `sourceledger` reads CSV (gzipped or not), JSON and Excel, by each source's `format` or its
 URL's extension. Set `format = "file"` to keep a raster, archive or other file unchanged.
 For another table format, see [custom readers](docs/readers.md).

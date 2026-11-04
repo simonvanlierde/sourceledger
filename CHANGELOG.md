@@ -8,6 +8,14 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+### Added
+
+- [Parquet outputs](docs/reference.md#sourcestoml) through `sourceledger[parquet]` and the project-wide `output_format = "parquet"` setting. Tables use zstd compression and an explicit string schema, with the same provenance columns and validation as CSV.
+
+### Fixed
+
+- HTTPS downloads keep the SSL context on their own handler instead of reading a private standard-library attribute.
+
 ## [0.4.0] - 2026-11-01
 
 Move manually added files out of `data/processed/` before running `validate`.

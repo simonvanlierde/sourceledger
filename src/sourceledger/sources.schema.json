@@ -5,6 +5,10 @@
   "description": "The manifest sourceledger fetches, builds and validates: one [[source]] table per input.",
   "type": "object",
   "properties": {
+    "output_format": {
+      "enum": ["csv", "parquet"],
+      "description": "The project's table output format. CSV unless set; Parquet needs the parquet extra."
+    },
     "source": {
       "type": "array",
       "items": { "$ref": "#/$defs/source" }

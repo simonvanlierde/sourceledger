@@ -19,6 +19,8 @@ from sourceledger.ledger import (
     FetchError,
     FetchRecord,
     Parser,
+    _load_output_format,
+    _output_rows,
     _revision_records,
     _status_records,
     attribution,
@@ -130,7 +132,7 @@ def _json_run(stage: str, path: Path | None, only: list[str] | None, manifest: P
             case "revisions", Path():
                 report["revisions"] = _revision_records(path)
             case _:
-                problems = validate(load_manifest(manifest), only=only)
+                problems = validate(load_manifest(manifest), only=only, output_format=_load_output_format(manifest))
                 report["problems"] = problems
                 failed = bool(problems)
     except (OSError, ValueError) as error:
@@ -180,12 +182,11 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
                 for source in sources
                 if source.get("format") == FILE_FORMAT and source.get("url")
             }
-            for out in build(sources, parse=parse, only=only):
+            for out in build(sources, parse=parse, only=only, output_format=_load_output_format(manifest)):
                 if out in files:
                     print(f"{out.stat().st_size} bytes -> {out}")
                 else:
-                    with out.open(newline="", encoding="utf-8") as fh:
-                        rows = sum(1 for _ in csv.DictReader(fh))
+                    rows = sum(1 for _ in _output_rows(out))
                     print(f"{rows} rows -> {out}")
             print(f"package -> {PROCESSED / DATAPACKAGE}")
         case "status", _:
@@ -195,7 +196,7 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
             for line in attribution(load_manifest(manifest)):
                 print(line)
         case _:
-            problems = validate(load_manifest(manifest), only=only)
+            problems = validate(load_manifest(manifest), only=only, output_format=_load_output_format(manifest))
             print(f"{len(problems)} problems")
             return problems
     return []

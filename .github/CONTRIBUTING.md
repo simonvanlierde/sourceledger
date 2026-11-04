@@ -74,11 +74,14 @@ The HTML report baseline allows changes to HTML formatting and fallback or diagn
 It also allows equivalent ways to split a URL. Tests still check integrity, HTML escaping
 and credential omission.
 
+The table-reader baseline allows equivalent UTF-8 encodings. The Parquet writer allows
+omitting its compression argument because Polars defaults to zstd; tests compare the compressed bytes.
+
 ## Dependencies
 
 sourceledger has no runtime dependencies. It reads CSV and JSON with the standard
-library and fetches with `urllib`. Only the optional `xlsx` extra adds one package,
-openpyxl. Keep it that way: a new runtime dependency needs an issue first, saying why
+library and fetches with `urllib`. The optional `xlsx` extra adds openpyxl;
+the `parquet` extra adds Polars. A new runtime dependency needs an issue first, saying why
 the standard library cannot do the job.
 
 Development tools are in the `dev` dependency group. All versions are locked in
