@@ -66,6 +66,8 @@ sees no matching record and fetches in full, so no version is lost. A lock on
 `data/raw/.lock` stops a second fetch in the same project while one runs (Linux and macOS
 only). `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
 
+POST retrieves the response in full; see [download behavior](fetching.md).
+
 ## build
 
 `build` makes the outputs from the raw files. It never uses the network.

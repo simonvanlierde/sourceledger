@@ -20,6 +20,7 @@
 1 sourceledger.ledger.x__last_records
 2 sourceledger.ledger.x__listed
 1 sourceledger.ledger.x__log_new_version
+1 sourceledger.ledger.x__origin
 3 sourceledger.ledger.x__output_rows
 1 sourceledger.ledger.x__package_name
 2 sourceledger.ledger.x__package_problems
@@ -41,6 +42,8 @@
 5 sourceledger.report.x__fields
 2 sourceledger.report.x__url
 61 sourceledger.report.x_report
+5 sourceledger.retrieval.x__body
+3 sourceledger.retrieval.x__body_value
 2 sourceledger.retrieval.x__dimension
 5 sourceledger.retrieval.x__template
 1 sourceledger.update.x__attempt

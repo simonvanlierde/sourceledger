@@ -1,4 +1,4 @@
-"""Resolve finite GET request templates without interpreting publisher data."""
+"""Resolve finite retrieval requests without interpreting publisher data."""
 
 # ruff: noqa: PLR2004  # literal tokens define the manifest grammar
 
@@ -10,7 +10,7 @@ import json
 import re
 import string
 from typing import TYPE_CHECKING
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 
 if TYPE_CHECKING:
     from sourceledger.ledger import Source
@@ -64,6 +64,45 @@ def _template(template: object, parameters: dict[str, str | int], *, url: bool, 
     return "".join(parts)
 
 
+def _body_value(value: object, parameters: dict[str, str | int], used: set[str]) -> object:
+    """Body substitutions occupy whole values, so numbers keep their type."""
+    if isinstance(value, dict):
+        if any(not isinstance(k, str) or any(token in k for token in ("{", "}", "env:")) for k in value):
+            msg = "request body keys must be literal strings without templates or environment references"
+            raise ValueError(msg)
+        return {key: _body_value(item, parameters, used) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_body_value(item, parameters, used) for item in value]
+    if isinstance(value, str):
+        if "env:" in value:
+            msg = "request bodies cannot contain environment references"
+            raise ValueError(msg)
+        if "{" in value or "}" in value:
+            match = re.fullmatch(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", value)
+            if match is None or match[1] not in parameters:
+                msg = "request body substitutions must occupy a whole value and name a known parameter"
+                raise ValueError(msg)
+            used.add(match[1])
+            return parameters[match[1]]
+    return value
+
+
+def _body(request: Source, parameters: dict[str, str | int], used: set[str]) -> tuple[bytes, str, str]:
+    encoding = "json" if "json" in request else "form"
+    value = _body_value(request[encoding], parameters, used)
+    try:
+        serialized = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError, OverflowError) as error:
+        msg = "request body must contain finite JSON-compatible values"
+        raise ValueError(msg) from error
+    if encoding == "json":
+        return serialized.encode(), "application/json", encoding
+    if not isinstance(value, dict) or any(type(v) not in (str, int, float, bool) for v in value.values()):
+        msg = "request.form needs a table of scalar values"
+        raise ValueError(msg)
+    return urlencode(sorted(value.items())).encode(), "application/x-www-form-urlencoded", encoding
+
+
 def expand_requests(  # noqa: C901, PLR0912, PLR0915  # one bounded manifest grammar
     sources: list[Source], *, output_format: str | None = "csv"
 ) -> list[Source]:
@@ -86,13 +125,30 @@ def expand_requests(  # noqa: C901, PLR0912, PLR0915  # one bounded manifest gra
             "values",
             "expand",
             "sha256",
+            "retrieval_only",
+            "json",
+            "form",
         }:
-            msg = "request supports GET url, filename, values, expand and sha256 only"
+            msg = "request supports GET or retrieval-only POST with json or form bodies"
             raise ValueError(msg)
-        if request.get("method", "GET") != "GET" or "url" in source or "sha256" in source:
+        method = request.get("method", "GET")
+        if method not in ("GET", "POST") or "url" in source or "sha256" in source:
             msg = (
-                "declarative GET uses request.url and per-filename request.sha256, without source.url or source.sha256"
+                "declarative retrieval uses GET or POST, request.url and per-filename request.sha256, "
+                "without source.url or source.sha256"
             )
+            raise ValueError(msg)
+        if method == "POST":
+            if request.get("retrieval_only") is not True or ("json" in request) == ("form" in request):
+                msg = "request POST requires retrieval_only = true and exactly one json or form body"
+                raise ValueError(msg)
+            if source.get("archive") or any(
+                k.lower() in {"content-type", "content-length", "transfer-encoding"} for k in source.get("headers", {})
+            ):
+                msg = "POST does not support archiving or configured content headers"
+                raise ValueError(msg)
+        elif any(k in request for k in ("json", "form", "retrieval_only")):
+            msg = "GET does not accept a body or retrieval_only"
             raise ValueError(msg)
         values, dimensions = request.get("values", {}), request.get("expand", {})
         if not isinstance(values, dict) or not isinstance(dimensions, dict):
@@ -121,28 +177,37 @@ def expand_requests(  # noqa: C901, PLR0912, PLR0915  # one bounded manifest gra
             used: set[str] = set()
             url = _template(request.get("url"), parameters, url=True, used=used)
             filename = _template(request.get("filename"), parameters, url=False, used=used)
+            body = _body(request, parameters, used) if method == "POST" else None
             if used != parameters.keys():
                 msg = "request has unused parameters"
                 raise ValueError(msg)
             _check_filename(filename)
             split = urlsplit(url)
+            if method == "POST" and split.scheme not in ("http", "https"):
+                msg = "request POST needs an HTTP or HTTPS URL"
+                raise ValueError(msg)
             if split.username is not None or split.password is not None:
                 msg = "request URLs cannot contain credentials; use environment headers over HTTPS"
                 raise ValueError(msg)
             identity = {
                 "version": 1,
-                "method": "GET",
+                "method": method,
                 "url": url,
                 "parameters": parameters,
                 "headers": source.get("headers", {}),
             }
+            if body is not None:
+                identity.update(body=body[0].decode(), content_type=body[1], body_encoding=body[2])
             item = {
                 **source,
+                "method": method,
                 "url": url,
                 "filename": filename,
                 "parameters": parameters,
                 "request_id": hashlib.sha256(canonical(identity)).hexdigest(),
             }
+            if body is not None:
+                item.update(body=body[0], content_type=body[1], body_encoding=body[2])
             pins = request.get("sha256")
             if pins is not None:
                 if (

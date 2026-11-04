@@ -38,7 +38,7 @@ def _legacy_fields(record: ledger.FetchRecord) -> dict[str, object]:
     return {
         key: value
         for key, value in dataclasses.asdict(record).items()
-        if key not in {"request_id", "parameters", "header_refs"}
+        if key not in {"request_id", "parameters", "header_refs", "method", "body", "body_encoding", "content_type"}
     }
 
 

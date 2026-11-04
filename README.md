@@ -90,7 +90,7 @@ runs `fetch` before `build` and `validate`.
 - **Choose and verify:** compare [related tools](docs/comparison.md), or check a
   sourceledger release's [signed provenance and reproducible build](docs/releases.md).
 
-Finite GET templates and complete updates are described in [download behavior](docs/fetching.md#describe-a-finite-set-of-downloads).
+Finite GET and retrieval-only POST templates and complete updates are described in [download behavior](docs/fetching.md#describe-a-finite-set-of-downloads).
 
 ## Project status
 

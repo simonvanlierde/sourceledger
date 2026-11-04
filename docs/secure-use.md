@@ -28,9 +28,10 @@ These checks apply to every fetch:
   connection goes to the proxy, so the check is skipped there. That is the remaining gap.
   Without this, a third-party server could make the fetch save an internal service's
   response under the manifest's URL.
-- A redirect that changes the scheme, host or port drops the `headers` from the manifest.
+- A GET redirect that changes the scheme, host or effective port drops the `headers` from the manifest.
   An API key meant for one host never goes to another, and never goes out over http after
-  a redirect from https.
+  a redirect from https. POST refuses a cross-origin redirect before sending the body;
+  see [POST retrieval rules](fetching.md#retrieve-data-with-post).
 - Redirects discard their unused response bodies, so a redirect cannot make urllib
   buffer an unlimited body before following the destination URL.
 - The file is requested and stored uncompressed, so the SHA-256 is always that of the file

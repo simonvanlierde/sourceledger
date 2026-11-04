@@ -99,6 +99,30 @@
           { "required": ["request"], "not": { "required": ["url"] } }
         ]
       },
+      "allOf": [
+        {
+          "if": {
+            "required": ["request"],
+            "properties": {"request": {"required": ["method"], "properties": {"method": {"const": "POST"}}}}
+          },
+          "then": {
+            "properties": {
+              "archive": {"const": false},
+              "headers": {
+                "propertyNames": {
+                  "not": {
+                    "anyOf": [
+                      {"pattern": "^[Cc][Oo][Nn][Tt][Ee][Nn][Tt]-[Tt][Yy][Pp][Ee]$"},
+                      {"pattern": "^[Cc][Oo][Nn][Tt][Ee][Nn][Tt]-[Ll][Ee][Nn][Gg][Tt][Hh]$"},
+                      {"pattern": "^[Tt][Rr][Aa][Nn][Ss][Ff][Ee][Rr]-[Ee][Nn][Cc][Oo][Dd][Ii][Nn][Gg]$"}
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
       "dependentSchemas": {
         "headers": {
           "properties": {
@@ -118,7 +142,7 @@
       ],
       "properties": {
         "method": {
-          "const": "GET"
+          "enum": ["GET", "POST"]
         },
         "url": {
           "type": "string",
@@ -189,6 +213,16 @@
             ]
           }
         },
+        "retrieval_only": {
+          "const": true,
+          "description": "POST only: explicitly declare that repeating this request only retrieves data."
+        },
+        "json": {"$ref": "#/$defs/bodyValue"},
+        "form": {
+          "type": "object",
+          "propertyNames": {"pattern": "^(?!.*(?:env:|[{}])).*$"},
+          "additionalProperties": {"oneOf": [{"$ref": "#/$defs/bodyString"}, {"type": "number"}, {"type": "boolean"}]}
+        },
         "sha256": {
           "type": "object",
           "additionalProperties": {
@@ -196,7 +230,35 @@
             "pattern": "^[0-9A-Fa-f]{64}$"
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {"required": ["method"], "properties": {"method": {"const": "POST"}}},
+          "then": {
+            "required": ["retrieval_only"],
+            "oneOf": [
+              {"required": ["json"], "not": {"required": ["form"]}},
+              {"required": ["form"], "not": {"required": ["json"]}}
+            ]
+          },
+          "else": {
+            "not": {"anyOf": [{"required": ["retrieval_only"]}, {"required": ["json"]}, {"required": ["form"]}]}
+          }
+        }
+      ]
+    },
+    "bodyString": {"type": "string", "pattern": "^(?!.*env:)(?:[^{}]*|\\{[A-Za-z_][A-Za-z0-9_]*\\})$"},
+    "bodyValue": {
+      "oneOf": [
+        {"$ref": "#/$defs/bodyString"},
+        {"type": ["number", "boolean", "null"]},
+        {"type": "array", "items": {"$ref": "#/$defs/bodyValue"}},
+        {
+          "type": "object",
+          "propertyNames": {"pattern": "^(?!.*(?:env:|[{}])).*$"},
+          "additionalProperties": {"$ref": "#/$defs/bodyValue"}
+        }
+      ]
     }
   }
 }

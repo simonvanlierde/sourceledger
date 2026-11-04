@@ -10,6 +10,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Added
 
+- [Retrieval-only POST plans](docs/fetching.md#retrieve-data-with-post) support deterministic JSON or form bodies with per-body provenance. POST retries preserve request bytes; redirects preserve the body only within the same origin.
 - [Declarative GET plans and complete updates](docs/fetching.md#describe-a-finite-set-of-downloads): expand bounded lists or ranges into individual downloads with request provenance. `update` publishes only after the complete generation passes validation, retains verified successes for retry and keeps the previous complete generation available. Existing `fetch` and `build` APIs keep their paths and return types.
 - [Parquet outputs](docs/reference.md#sourcestoml) through `sourceledger[parquet]` and the project-wide `output_format = "parquet"` setting. Tables use zstd compression and an explicit string schema, with the same provenance columns and validation as CSV.
   Writing and validation use batches of at most 10,000 rows through PyArrow, including full-column decoding to detect corruption.

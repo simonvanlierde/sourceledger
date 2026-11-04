@@ -2,7 +2,7 @@
 
 - Status: accepted direction; supersedes 0002
 - Date: 2026-11-04
-- Implementation: bounded GET expansion and complete-update publication available; retrieval-only POST pending
+- Implementation: bounded GET expansion, retrieval-only POST and complete-update publication available
 
 ## Context
 
@@ -22,7 +22,7 @@ Add bounded declarative GET expansion, then retrieval-only POST with JSON or for
 Keep the existing transport and its safety limits.
 Do not add response-dependent pagination, submitted jobs, browser sessions or arbitrary workflows.
 The [WDI example](../examples/declarative-wdi.toml) describes the first adopter's requests.
-The GET syntax and publication mechanics below are implemented. POST remains the next implementation step.
+The request syntax and publication mechanics below are implemented.
 [Download behavior](../fetching.md) documents the shipped commands, API and staging budget.
 
 ### Expansion and naming

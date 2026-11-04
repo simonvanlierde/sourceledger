@@ -133,5 +133,51 @@ It requires an existing complete generation and unchanged definitions for all un
 Use a full update after changing another source. An incomplete first update publishes no dataset.
 
 A successful HTTP response proves transport completion only. A project reader must reject incomplete or
-multi-page responses before dataset publication. Pagination, submitted jobs, browser sessions and POST
-remain outside this GET implementation.
+multi-page responses before dataset publication. Pagination, submitted jobs and browser sessions
+remain in project code.
+
+## Retrieve data with POST
+
+Declare `retrieval_only = true` only when repeating the POST retrieves data without submitting a job or changing server state.
+Sourceledger uses that declaration to permit retries; it cannot infer whether a server operation is safe to repeat.
+
+```toml
+[[source]]
+id = "lookup"
+status = "implemented"
+format = "csv"
+terms = "CC0"
+terms_url = "https://example.org/terms"
+license = "CC0-1.0"
+redistribute = true
+
+[source.request]
+method = "POST"
+retrieval_only = true
+url = "https://example.org/lookup"
+filename = "lookup-{year}.csv"
+json = { year = "{year}", regions = ["north", "south"] }
+
+[source.request.expand]
+year = { start = 2022, stop = 2024 }
+```
+
+Choose exactly one body: `json` for JSON values, or `form` for a table of scalar fields.
+For example, replace `json` above with `form = { year = "{year}", region = "north" }`.
+Body substitutions must occupy entire string values. An integer parameter stays an integer in JSON.
+Keys are literal strings; key templates, embedded substitutions and environment references are refused.
+JSON supports nested objects and arrays. Form fields support strings, integers, finite numbers and booleans;
+booleans encode as `True` and `False`. Both encodings sort keys, and sourceledger sets the matching content type.
+Do not configure `Content-Type`, `Content-Length` or `Transfer-Encoding` headers for POST.
+
+The method, encoded body, encoding and content type affect request identity.
+Two different bodies at one URL produce distinct records and resources.
+Provenance stores the encoded body, so never put credentials or other private values in it.
+Use environment-variable headers over HTTPS for authentication; credential rotation prevents reuse of previous responses.
+The same response byte caps, deadlines, retry budget and worker bound apply to POST.
+Failed generations retain verified POST successes for retry, as they do GET successes.
+
+POST never sends conditional validators. HTTP 301, 302 and 303 redirects fail rather than switch to GET.
+HTTP 307 and 308 preserve the method and complete body only within the same origin: scheme, hostname and effective port.
+Cross-origin POST redirects fail before sending the body, even without authentication headers.
+POST cannot use `archive = true`: a GET snapshot of its URL would not capture the POST response.

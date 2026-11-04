@@ -39,7 +39,7 @@ Each `[[source]]` table takes these keys:
 | Key | Required | Meaning |
 | --- | --- | --- |
 | `id` | yes | ASCII letters, digits, `_` and `-`. Names the raw file (`id` plus the URL's extension) and the output. |
-| `request` | no | A finite GET plan in place of `url`: template URL, filename, fixed values and list or range dimensions. See [declarative downloads and complete updates](fetching.md#describe-a-finite-set-of-downloads). |
+| `request` | no | A finite GET or retrieval-only POST plan in place of `url`: template URL, filename, fixed values and list or range dimensions. POST requires `retrieval_only = true` and exactly one `json` or `form` body. See [declarative downloads and complete updates](fetching.md#describe-a-finite-set-of-downloads). |
 | `name` | no | A title for people. The data package and `attribution` show it in place of the id. |
 | `status` | yes | `"implemented"`, read by every stage, or `"unimplemented"`: a source you know about but don't read yet. `validate` fails if one of those has output. |
 | `url` | unless `request` is used | What `fetch` downloads. Change it and `build` refuses the old download until you fetch again. |
@@ -52,8 +52,8 @@ Each `[[source]]` table takes these keys:
 | `timeout_s` | no | A positive finite number of seconds for one source's download, retries and waits included. 300 unless set. |
 | `format` | no | `"file"` copies bytes unchanged. Table formats are `"csv"`, `"json"` and `"xlsx"`; see the details below. |
 | `sheet` | no | The Excel sheet to read. The first unless set. A cell right of the last header cell is refused, and a missing cell in a row reads as `""`. |
-| `headers` | no | Extra request headers, such as an API key, each value naming an environment variable: `{ Authorization = "env:EIA_TOKEN" }`. A literal value is refused, and so is a `url` that is not https. The record keeps the header names, not the values. A redirect to another scheme, host or port drops them. |
-| `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for http and https URLs, and not for a source that needs `headers`: the archive's request sends none. |
+| `headers` | no | Extra request headers, such as an API key, each value naming an environment variable: `{ Authorization = "env:EIA_TOKEN" }`. A literal value is refused, and so is a `url` that is not https. The record keeps the header names, not the values. A GET redirect to another scheme, host or port drops them. POST refuses cross-origin redirects. |
+| `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for GET with http and https URLs, and not for a source that needs `headers`: the archive's request sends none. |
 | `reason` | no | A note for people, such as why a source is unimplemented. sourceledger doesn't read it. |
 
 Without `format`, the URL extension selects JSON (`.json`) or Excel (`.xlsx`); other extensions select CSV.

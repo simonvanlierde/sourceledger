@@ -47,7 +47,7 @@ from collections.abc import Callable, Collection, Generator, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
-from http import HTTPStatus
+from http import HTTPMethod, HTTPStatus
 from importlib.metadata import version
 from pathlib import Path, PurePosixPath
 from typing import IO, TYPE_CHECKING, Any
@@ -171,6 +171,10 @@ class FetchRecord:
     request_id: str = ""
     parameters: dict[str, str | int] = dataclasses.field(default_factory=dict)
     header_refs: dict[str, str] = dataclasses.field(default_factory=dict)
+    method: str = "GET"
+    body: str = ""
+    body_encoding: str = ""
+    content_type: str = ""
 
 
 class FetchError(OSError):
@@ -287,7 +291,11 @@ def _check_headers(source: Source) -> None:
         msg = f"{source['id']}: headers in sources.toml need an https url, so the values are never sent in clear text"
         raise ValueError(msg)
     for name, value in headers.items():
-        if name.lower() in _RESERVED_HEADERS:
+        if name.lower() in _RESERVED_HEADERS or (
+            source.get("request_id")
+            and source.get("method") == HTTPMethod.POST
+            and name.lower() in {"content-type", "content-length", "transfer-encoding"}
+        ):
             msg = f"{source['id']}: sourceledger sets the {name} header itself"
             raise ValueError(msg)
         if not (isinstance(value, str) and _ENV_REF.fullmatch(value)):
@@ -384,6 +392,12 @@ class _InwardRedirectError(ValueError):
     """A redirect from a public host connected to a loopback, private or link-local address."""
 
 
+def _origin(url: str) -> tuple[str, str | None, int | None]:
+    split = urlsplit(url)
+    port = split.port if split.port is not None else {"http": 80, "https": 443}.get(split.scheme.lower())
+    return split.scheme.lower(), split.hostname, port
+
+
 class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
     """Refuses a redirect from a public host to a loopback, private or link-local one.
 
@@ -404,7 +418,26 @@ class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
         newurl: str,
     ) -> urllib.request.Request | None:
         """Follow the redirect as urllib does, marking it public-only when it comes from a public host."""
-        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if req.get_method() == HTTPMethod.POST:
+            fp.close()
+            # Dropping headers cannot protect private body fields sent to another origin.
+            if code not in (307, 308) or _origin(newurl) != _origin(req.full_url):
+                reason = (
+                    "POST redirect would change method"
+                    if code not in (307, 308)
+                    else "cross-origin POST redirect refused"
+                )
+                raise ValueError(reason)
+            new = urllib.request.Request(  # noqa: S310  # destination checked here and by the connected-peer handler
+                newurl.replace(" ", "%20"),
+                data=req.data,
+                method="POST",
+                headers=dict(req.headers),
+                origin_req_host=req.origin_req_host,
+                unverifiable=True,
+            )
+        else:
+            new = super().redirect_request(req, fp, code, msg, headers, newurl)
         if new is None:
             return None
         # Every later hop stays public-only, so a public host can't bounce through one that looks internal.
@@ -413,7 +446,7 @@ class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
         # urllib copies every header to the new request. A token meant for one host must not
         # reach another, nor go out in clear text after https -> http, so a redirect that
         # changes the scheme, host or port keeps only the harmless ones.
-        if urlsplit(newurl)[:2] != urlsplit(req.full_url)[:2]:
+        if _origin(newurl) != _origin(req.full_url):
             new.headers = {k: v for k, v in new.headers.items() if k.lower() in _SAFE_ON_REDIRECT}
         # urllib drains this body before redirecting; closing it avoids an unbounded read.
         fp.close()
@@ -555,8 +588,10 @@ def _time_left(source: Source, deadline: float) -> float:
     return remaining
 
 
-def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: Path) -> _Download | FetchRecord:
-    """GET one source's URL into a temp file in `folder`, retrying failures a publisher recovers from.
+def _get(  # noqa: C901  # one retry loop for both retrieval methods
+    source: Source, previous: FetchRecord | None, user_agent: str, folder: Path
+) -> _Download | FetchRecord:
+    """Retrieve one URL into a temp file, retrying failures a publisher recovers from.
 
     The request is conditional on the ETag and Last-Modified of a `previous` record, which
     is returned as it is when the server answers 304 Not Modified.
@@ -570,10 +605,28 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
     Raises ValueError for a body over the source's `max_bytes` (default 200 MiB), or one
     served compressed.
     """
-    conditional = {} if _authenticated(source) else _conditional(previous)
+    method = source.get("method", "GET") if source.get("request_id") else "GET"
+    declaration = source.get("request", {})
+    if method not in (HTTPMethod.GET, HTTPMethod.POST) or (
+        method == HTTPMethod.POST
+        and (
+            not isinstance(declaration, dict)
+            or declaration.get("method") != HTTPMethod.POST
+            or declaration.get("retrieval_only") is not True
+            or source.get("archive")
+            or urlsplit(source["url"]).scheme not in ("http", "https")
+        )
+    ):
+        msg = "request needs GET or explicitly declared retrieval-only POST without archiving"
+        raise ValueError(msg)
+    conditional = _conditional(previous) if method == HTTPMethod.GET and not _authenticated(source) else {}
     env_headers = _env_headers(source)
     headers = {"User-Agent": user_agent, "Accept-Encoding": "identity", **env_headers, **conditional}
-    request = urllib.request.Request(source["url"], headers=headers)  # noqa: S310  # see _open
+    if method == HTTPMethod.POST:
+        headers["Content-Type"] = source["content_type"]
+    request = urllib.request.Request(  # noqa: S310  # see _open
+        source["url"], headers=headers, method=method, data=source["body"] if method == HTTPMethod.POST else None
+    )
     deadline = time.monotonic() + source.get("timeout_s", _BUDGET_S)
     for attempt in range(1, _ATTEMPTS + 1):
         wait = _BACKOFF_S * 2 ** (attempt - 1)
@@ -684,6 +737,13 @@ def _is_record(fields: object) -> bool:
         and all(
             isinstance(k, str) and isinstance(v, str) and _ENV_REF.fullmatch(v)
             for k, v in fields.get("header_refs", {}).items()
+        )
+        and fields.get("method", "GET") in ("GET", "POST")
+        and all(isinstance(fields.get(k, ""), str) for k in ("body", "body_encoding", "content_type"))
+        and (
+            fields.get("method") != HTTPMethod.POST
+            or (fields.get("body_encoding"), fields.get("content_type"))
+            in (("json", "application/json"), ("form", "application/x-www-form-urlencoded"))
         )
     )
 
@@ -1022,6 +1082,14 @@ def _keep(
         request_id=source.get("request_id", ""),
         parameters=source.get("parameters", {}),
         header_refs=source.get("headers", {}) if source.get("request_id") else {},
+        method=source.get("method", "GET") if source.get("request_id") else "GET",
+        body=source["body"].decode() if source.get("request_id") and source.get("method") == HTTPMethod.POST else "",
+        body_encoding=source["body_encoding"]
+        if source.get("request_id") and source.get("method") == HTTPMethod.POST
+        else "",
+        content_type=source["content_type"]
+        if source.get("request_id") and source.get("method") == HTTPMethod.POST
+        else "",
     )
     name = raw_name(source)
     download.path.replace(raw / name)
@@ -1100,6 +1168,13 @@ def _record(source: Source, raw: Path) -> FetchRecord:
         and (record.parameters != source.get("parameters", {}) or record.header_refs != source.get("headers", {}))
     ):
         msg = f"{name}: request identity changed; re-run fetch"
+        raise ValueError(msg)
+    if record.method != (source.get("method", "GET") if source.get("request_id") else "GET") or (
+        record.method == HTTPMethod.POST
+        and (record.body, record.body_encoding, record.content_type)
+        != (source["body"].decode(), source["body_encoding"], source["content_type"])
+    ):
+        msg = f"{name}: request body or method changed; re-run fetch"
         raise ValueError(msg)
     if record.vintage != _vintage(source):
         msg = f"{name} was fetched as vintage {record.vintage!r}, not {_vintage(source)!r}; re-run fetch"
@@ -1559,6 +1634,10 @@ def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path)
         resource["sourceledger"].update(
             source_id=record.source_id, request_id=record.request_id, parameters=record.parameters
         )
+    if record.method == HTTPMethod.POST:
+        resource["sourceledger"].update(
+            method=record.method, body=record.body, body_encoding=record.body_encoding, content_type=record.content_type
+        )
     return resource
 
 
@@ -1902,6 +1981,9 @@ def _save_credential_marker(source: Source, raw: Path, *, headers: dict[str, str
 def _record_fields(record: FetchRecord) -> dict[str, Any]:
     """Keep legacy serialized records unchanged when no declarative request exists."""
     fields = dataclasses.asdict(record)
+    if record.method == HTTPMethod.GET:
+        for key in ("method", "body", "body_encoding", "content_type"):
+            fields.pop(key)
     if not record.request_id:
         for key in ("request_id", "parameters", "header_refs"):
             fields.pop(key)
