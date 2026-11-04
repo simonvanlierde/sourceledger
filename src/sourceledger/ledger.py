@@ -42,6 +42,7 @@ import zipfile
 import zlib
 from collections import Counter
 from collections.abc import Callable, Collection, Generator, Iterable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
@@ -652,6 +653,18 @@ def _is_record(fields: object) -> bool:
     )
 
 
+def _history_batches(log: Path) -> Iterator[tuple[list[str], bool]]:
+    """History batches with whether their last line may have been interrupted."""
+    with log.open(encoding="utf-8", errors="replace", newline="") as fh:
+        physical = fh.readlines(16 * 1024)
+        while physical:
+            terminated = physical[-1].endswith("\n")
+            # Look ahead so a CR-terminated batch is not mistaken for an interrupted file.
+            following = fh.readlines(16 * 1024)
+            yield "".join(physical).splitlines(), not following and not terminated
+            physical = following
+
+
 def _last_records(log: Path) -> dict[str, dict[str, Any]]:
     """The record most recently logged for each source id, from the fetch log.
 
@@ -660,27 +673,27 @@ def _last_records(log: Path) -> dict[str, dict[str, Any]]:
     """
     if not log.exists():
         return {}
-    # Bytes that are not UTF-8 become U+FFFD, so a damaged line is reported by its number below.
-    text = log.read_bytes().decode("utf-8", errors="replace")
-    lines = text.splitlines()
     records: dict[str, dict[str, Any]] = {}
     numbers: dict[str, int] = {}
-    for number, line in enumerate(lines, start=1):
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError as error:
-            if number == len(lines) and not text.endswith("\n"):
-                _logger.warning("%s: skipping a last line cut off by an interrupted fetch", log)
+    number = 0
+    for lines, interrupted in _history_batches(log):
+        for index, line in enumerate(lines):
+            number += 1
+            if not line.strip():
                 continue
-            msg = f"{log}:{number} is not a fetch record ({error})"
-            raise ValueError(msg) from error
-        if not (isinstance(record, dict) and isinstance(record.get("source_id"), str)):
-            msg = f"{log}:{number} is not a fetch record"
-            raise ValueError(msg)  # noqa: TRY004  # a damaged log: the CLI reports ValueError as one line
-        records[record["source_id"]] = record
-        numbers[record["source_id"]] = number
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as error:
+                if interrupted and index == len(lines) - 1:
+                    _logger.warning("%s: skipping a last line cut off by an interrupted fetch", log)
+                    continue
+                msg = f"{log}:{number} is not a fetch record ({error})"
+                raise ValueError(msg) from error
+            if not (isinstance(record, dict) and isinstance(record.get("source_id"), str)):
+                msg = f"{log}:{number} is not a fetch record"
+                raise ValueError(msg)  # noqa: TRY004  # a damaged log: the CLI reports ValueError as one line
+            records[record["source_id"]] = record
+            numbers[record["source_id"]] = number
     # Only the last record per source is used, so only those get the full check: it costs
     # more than reading the line, and a log has many lines per source.
     for sid, record in records.items():
@@ -791,6 +804,7 @@ def fetch(
     log: Path = FETCH_LOG,
     user_agent: str = USER_AGENT,
     only: Collection[str] | None = None,
+    workers: int = 1,
 ) -> list[FetchRecord]:
     """Download each implemented source into `raw`, with a fetch record beside it.
 
@@ -806,7 +820,27 @@ def fetch(
 
     `only` restricts the fetch to those source ids, and leaves the others as they are.
     Raises ValueError for an id the manifest does not have.
+    `workers=2` overlaps two downloads; the default is sequential. Completed pairs are
+    committed in manifest order. At most two capped temporary downloads exist at once,
+    and at most two source requests can reach any host, including through redirects.
     """
+    return _fetch(sources, raw=raw, log=log, user_agent=user_agent, only=only, workers=workers)
+
+
+def _fetch(
+    sources: list[Source],
+    *,
+    raw: Path = RAW,
+    log: Path = FETCH_LOG,
+    user_agent: str = USER_AGENT,
+    only: Collection[str] | None = None,
+    workers: int = 1,
+    before: dict[str, str] | None = None,
+) -> list[FetchRecord]:
+    """Fetch and optionally retain the pre-fetch hashes from the same locked history read."""
+    if type(workers) is not int or workers not in (1, 2):
+        msg = "workers must be 1 or 2"
+        raise ValueError(msg)
     sources = _select(sources, only)
     raw.mkdir(parents=True, exist_ok=True)
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -814,6 +848,11 @@ def fetch(
     failures: list[str] = []
     with _lock(raw):
         logged = _last_records(log)
+        if before is not None:
+            before.update((sid, record["sha256"]) for sid, record in logged.items())
+
+        if workers == 2:
+            return _fetch_parallel(implemented(sources), raw, log, logged, user_agent)
         for source in implemented(sources):
             try:
                 records.append(_fetch_one(source, raw, log, logged, user_agent))
@@ -821,6 +860,41 @@ def fetch(
                 failures.append(str(error))
             except _TRANSIENT as error:
                 failures.append(f"{source['id']}: fetching {source['url']} failed: {error}")
+    if failures:
+        raise FetchError(records, failures)
+    return records
+
+
+def _fetch_parallel(
+    sources: list[Source], raw: Path, log: Path, logged: dict[str, dict[str, Any]], user_agent: str
+) -> list[FetchRecord]:
+    """Download pairs concurrently, committing each pair in manifest order on the calling thread."""
+    records: list[FetchRecord] = []
+    failures: list[str] = []
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        for batch in itertools.batched(sources, 2):
+            previous = [_previous(source, raw) for source in batch]
+            futures = []
+            try:
+                for source, record in zip(batch, previous, strict=True):
+                    futures.append(executor.submit(_get, source, record, user_agent, raw))
+                for source, future in zip(batch, futures, strict=True):
+                    try:
+                        response = future.result()
+                        if isinstance(response, FetchRecord):
+                            _log_new_version(log, logged, response)
+                            records.append(response)
+                        else:
+                            records.append(_keep(source, response, raw, log, logged, user_agent))
+                    except ValueError as error:
+                        failures.append(str(error))
+                    except _TRANSIENT as error:
+                        failures.append(f"{source['id']}: fetching {source['url']} failed: {error}")
+            finally:
+                # Wait before cleanup: an unexpected coordinator failure can leave the other download running.
+                for future in futures:
+                    if future.exception() is None and isinstance(response := future.result(), _Download):
+                        response.path.unlink(missing_ok=True)
     if failures:
         raise FetchError(records, failures)
     return records
@@ -1021,6 +1095,31 @@ def _maybe_gunzip(source: Source, payload: bytes) -> bytes:
     return data
 
 
+class _CappedGzip(gzip.GzipFile):
+    """A gzip stream for TextIOWrapper, capped before decompressed bytes reach its buffer."""
+
+    def __init__(self, source: Source, fh: IO[bytes]) -> None:
+        super().__init__(fileobj=fh)
+        self.source = source
+        self.cap = source.get("max_bytes", _MAX_BYTES)
+        self.remaining = self.cap
+
+    def read1(self, size: int = -1) -> bytes:
+        size = min(size if size >= 0 else _CHUNK_BYTES, self.remaining + 1)
+        try:
+            data = super().read1(size)
+        except (EOFError, zlib.error, gzip.BadGzipFile) as error:
+            msg = f"{self.source['id']}: not a readable gzip file ({error})"
+            raise ValueError(msg) from error
+        self.remaining -= len(data)
+        if self.remaining < 0:
+            msg = (
+                f"{self.source['id']}: decompresses past {self.cap} bytes; raise max_bytes in sources.toml if expected"
+            )
+            raise ValueError(msg)
+        return data
+
+
 def _check_columns(source: Source, columns: list[str]) -> None:
     # A dict keeps only the last of two same-named columns, silently dropping the other.
     if dupes := sorted(c for c, n in Counter(columns).items() if n > 1):
@@ -1078,11 +1177,12 @@ def parse_json(source: Source, payload: bytes) -> tuple[list[str], list[dict[str
             msg = f"{source['id']}: expected a JSON array of objects"
             raise ValueError(msg)
         columns = list(dict.fromkeys(key for item in data for key in item))
-        rows = [{column: _cell(item.get(column)) for column in columns} for item in data]
+        for index, item in enumerate(data):
+            data[index] = {column: _cell(item.get(column)) for column in columns}
     except RecursionError as error:
         msg = f"{source['id']}: JSON nested too deeply to read"
         raise ValueError(msg) from error
-    return columns, rows
+    return columns, data
 
 
 def parse_xlsx(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
@@ -1187,6 +1287,24 @@ def build(
     entry as the last build wrote it. Raises ValueError for an id the manifest does not have,
     or a file output named `datapackage.json`, which is reserved for the descriptor.
     """
+    return [
+        out
+        for out, _count in _build(
+            sources, raw=raw, processed=processed, parse=parse, only=only, output_format=output_format
+        )
+    ]
+
+
+def _build(
+    sources: list[Source],
+    *,
+    raw: Path = RAW,
+    processed: Path = PROCESSED,
+    parse: Parser = parse_source,
+    only: Collection[str] | None = None,
+    output_format: str = "csv",
+) -> list[tuple[Path, int | None]]:
+    """Build outputs with row counts for tables, or None for unchanged file copies."""
     _check_output_format(output_format)
     selected = {s["id"] for s in _select(sources, only)}
     earlier = {} if only is None else _listed(processed / DATAPACKAGE)
@@ -1202,20 +1320,20 @@ def build(
         if out.name.lower() == DATAPACKAGE:
             msg = f"{DATAPACKAGE} is reserved for the package descriptor; choose another source id"
             raise ValueError(msg)
-        record, fields = _build_one(source, raw, out, parse)
-        written.append(out)
+        record, fields, count = _build_one(source, raw, out, parse)
+        written.append((out, count))
         resources.append(_resource(source, record, fields, out))
     package = {"$schema": _DATAPACKAGE_PROFILE, "name": _package_name(), "resources": resources}
     _write_atomic(processed / DATAPACKAGE, (json.dumps(package, indent=2, ensure_ascii=False) + "\n").encode())
     return written
 
 
-def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[FetchRecord, list[str]]:
-    """Write one source to `out`: the fetch record, and the columns written (none for a file).
+def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[FetchRecord, list[str], int | None]:
+    """Write one source to `out`: return its fetch record, columns and row count (None for a file).
 
     File sources are copied unchanged. Tables get their provenance columns first.
-    With the default parser and CSV output, a plain CSV file goes through a row at a time,
-    so memory stays near one row whatever the file's size.
+    With the default parser and CSV output, CSV files, gzipped or not, go through a row
+    at a time. Parquet output holds the complete table in memory.
     """
     record = _record(source, raw)
     stamp = _stamp(record)
@@ -1225,13 +1343,15 @@ def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[Fet
         if source.get("format") == FILE_FORMAT:
             with _replacing(out) as target:
                 shutil.copyfileobj(fh, target)
-            return record, []
-        if parse is parse_source and _PARSERS[_format(source)] is parse_csv and fh.read(2) != _GZIP_MAGIC:
+            return record, [], None
+        if parse is parse_source and _PARSERS[_format(source)] is parse_csv:
+            compressed = fh.read(2) == _GZIP_MAGIC
             fh.seek(0)
-            text = io.TextIOWrapper(fh, encoding="utf-8-sig", newline="")
+            stream = _CappedGzip(source, fh) if compressed else fh
+            text = io.TextIOWrapper(stream, encoding="utf-8-sig", newline="")
             try:
                 columns, rows = _csv_rows(source, text)
-                _write_rows(source, out, stamp, columns, rows)
+                count = _write_rows(source, out, stamp, columns, rows)
             except (ValueError, csv.Error):
                 # parse_csv decodes the whole file before it reads a row, so it can fail on another
                 # line, or name another byte offset. Reading the file whole gives exactly its error.
@@ -1240,19 +1360,21 @@ def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[Fet
                 raise
             finally:
                 text.detach()  # closing the wrapper would close fh
+                if compressed:
+                    stream.close()
         else:
-            # NOTE: other formats, gzipped CSV and custom parsers hold the whole file and its rows
+            # NOTE: other formats and custom parsers hold the whole file and its rows
             # in memory, as a Parser returns lists; stream them too once such sources outgrow memory.
             fh.seek(0)
             columns, rows = parse(source, fh.read())
-            _write_rows(source, out, stamp, columns, rows)
-    return record, [*stamp, *columns]
+            count = _write_rows(source, out, stamp, columns, rows)
+    return record, [*stamp, *columns], count
 
 
 def _write_rows(
     source: Source, out: Path, stamp: dict[str, str], columns: list[str], rows: Iterable[dict[str, str]]
-) -> None:
-    """Write CSV or Parquet, with provenance columns first and source values kept as text."""
+) -> int:
+    """Write CSV or Parquet with provenance columns first, and return the number of rows written."""
     if clash := stamp.keys() & set(columns):
         msg = f"{source['id']}: source columns {sorted(clash)} collide with the provenance columns"
         raise ValueError(msg)
@@ -1270,14 +1392,18 @@ def _write_rows(
         frame = pl.DataFrame(table_rows(), schema=dict.fromkeys(fields, pl.String))
         with _replacing(out) as fh:
             frame.write_parquet(fh, compression="zstd")
-        return
+        return frame.height
     with _replacing(out) as fh:
         text = io.TextIOWrapper(fh, encoding="utf-8", newline="")
         writer = csv.DictWriter(text, fieldnames=[*stamp, *columns])
         writer.writeheader()
         # The stamp last: a parser's row cannot overwrite a provenance column.
-        writer.writerows({**row, **stamp} for row in rows)
+        count = 0
+        for row in rows:
+            writer.writerow({**row, **stamp})
+            count += 1
         text.detach()  # flushes; _replacing closes fh
+    return count
 
 
 def _listed(path: Path) -> dict[str, Any]:

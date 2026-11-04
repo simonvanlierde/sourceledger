@@ -133,6 +133,6 @@ exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
 # Polars starts worker threads; forking after tests used them can deadlock a mutant.
 process_isolation = "forkserver"
 source_paths = ["src"]
-also_copy = ["README.md", "docs", ".github/scripts"]
+also_copy = ["README.md", "docs", ".github/scripts", "src/sourceledger/sources.schema.json"]
 # Log calls only change diagnostics; their mutants would all survive.
 do_not_mutate_patterns = ['^\s*_logger\.\w+\(']
