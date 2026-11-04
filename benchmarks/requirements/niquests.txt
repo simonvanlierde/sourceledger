@@ -1,0 +1,7 @@
+charset-normalizer==3.5.2
+h11==0.16.0
+jh2==5.0.15
+niquests==3.21.2
+qh3==2.1.0
+urllib3-future==2.25.905
+wassima==2.1.5

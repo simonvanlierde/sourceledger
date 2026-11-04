@@ -1,0 +1,277 @@
+[
+  {
+    "client": "urllib3",
+    "import_seconds": 0.0711118110048119,
+    "peak_rss_mib": 25.29296875,
+    "installed_mib": 0.4297609329223633,
+    "distributions": {
+      "urllib3": "2.8.0"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "httpx",
+    "import_seconds": 0.0904293530038558,
+    "peak_rss_mib": 26.80859375,
+    "installed_mib": 1.9053764343261719,
+    "distributions": {
+      "httpcore": "1.0.9",
+      "certifi": "2026.10.23",
+      "h11": "0.16.0",
+      "typing_extensions": "4.16.0",
+      "anyio": "4.15.1",
+      "idna": "3.20",
+      "httpx": "0.28.1"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "niquests",
+    "import_seconds": 0.3512412790005328,
+    "peak_rss_mib": 37.125,
+    "installed_mib": 13.061661720275879,
+    "distributions": {
+      "h11": "0.16.0",
+      "jh2": "5.0.15",
+      "wassima": "2.1.5",
+      "charset-normalizer": "3.5.2",
+      "niquests": "3.21.2",
+      "urllib3-future": "2.25.905",
+      "qh3": "2.1.0"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "curl_cffi",
+    "import_seconds": 0.1544765830039978,
+    "peak_rss_mib": 31.421875,
+    "installed_mib": 40.84662055969238,
+    "distributions": {
+      "certifi": "2026.10.23",
+      "pycparser": "3.12",
+      "cffi": "2.1.1",
+      "curl_cffi": "0.17.0"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "curl_cffi",
+    "import_seconds": 0.11385934200370684,
+    "peak_rss_mib": 31.01953125,
+    "installed_mib": 40.84662055969238,
+    "distributions": {
+      "certifi": "2026.10.23",
+      "pycparser": "3.12",
+      "cffi": "2.1.1",
+      "curl_cffi": "0.17.0"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "niquests",
+    "import_seconds": 0.16568616100994404,
+    "peak_rss_mib": 35.09765625,
+    "installed_mib": 13.061661720275879,
+    "distributions": {
+      "h11": "0.16.0",
+      "jh2": "5.0.15",
+      "wassima": "2.1.5",
+      "charset-normalizer": "3.5.2",
+      "niquests": "3.21.2",
+      "urllib3-future": "2.25.905",
+      "qh3": "2.1.0"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "httpx",
+    "import_seconds": 0.06105794598988723,
+    "peak_rss_mib": 26.51953125,
+    "installed_mib": 1.9053764343261719,
+    "distributions": {
+      "httpcore": "1.0.9",
+      "certifi": "2026.10.23",
+      "h11": "0.16.0",
+      "typing_extensions": "4.16.0",
+      "anyio": "4.15.1",
+      "idna": "3.20",
+      "httpx": "0.28.1"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "urllib3",
+    "import_seconds": 0.04261226199741941,
+    "peak_rss_mib": 24.7890625,
+    "installed_mib": 0.4297609329223633,
+    "distributions": {
+      "urllib3": "2.8.0"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "urllib3",
+    "import_seconds": 0.04175481000856962,
+    "peak_rss_mib": 24.62109375,
+    "installed_mib": 0.4297609329223633,
+    "distributions": {
+      "urllib3": "2.8.0"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "httpx",
+    "import_seconds": 0.0546004749921849,
+    "peak_rss_mib": 26.4140625,
+    "installed_mib": 1.9053764343261719,
+    "distributions": {
+      "httpcore": "1.0.9",
+      "certifi": "2026.10.23",
+      "h11": "0.16.0",
+      "typing_extensions": "4.16.0",
+      "anyio": "4.15.1",
+      "idna": "3.20",
+      "httpx": "0.28.1"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "niquests",
+    "import_seconds": 0.1600857590092346,
+    "peak_rss_mib": 35.02734375,
+    "installed_mib": 13.061661720275879,
+    "distributions": {
+      "h11": "0.16.0",
+      "jh2": "5.0.15",
+      "wassima": "2.1.5",
+      "charset-normalizer": "3.5.2",
+      "niquests": "3.21.2",
+      "urllib3-future": "2.25.905",
+      "qh3": "2.1.0"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "curl_cffi",
+    "import_seconds": 0.11976923298789188,
+    "peak_rss_mib": 31.21875,
+    "installed_mib": 40.84662055969238,
+    "distributions": {
+      "certifi": "2026.10.23",
+      "pycparser": "3.12",
+      "cffi": "2.1.1",
+      "curl_cffi": "0.17.0"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "curl_cffi",
+    "import_seconds": 0.11594896599126514,
+    "peak_rss_mib": 31.07421875,
+    "installed_mib": 40.84662055969238,
+    "distributions": {
+      "certifi": "2026.10.23",
+      "pycparser": "3.12",
+      "cffi": "2.1.1",
+      "curl_cffi": "0.17.0"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "niquests",
+    "import_seconds": 0.15791842200269457,
+    "peak_rss_mib": 35.2109375,
+    "installed_mib": 13.061661720275879,
+    "distributions": {
+      "h11": "0.16.0",
+      "jh2": "5.0.15",
+      "wassima": "2.1.5",
+      "charset-normalizer": "3.5.2",
+      "niquests": "3.21.2",
+      "urllib3-future": "2.25.905",
+      "qh3": "2.1.0"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "httpx",
+    "import_seconds": 0.054773522992036305,
+    "peak_rss_mib": 26.4609375,
+    "installed_mib": 1.9053764343261719,
+    "distributions": {
+      "httpcore": "1.0.9",
+      "certifi": "2026.10.23",
+      "h11": "0.16.0",
+      "typing_extensions": "4.16.0",
+      "anyio": "4.15.1",
+      "idna": "3.20",
+      "httpx": "0.28.1"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "urllib3",
+    "import_seconds": 0.04428398500022013,
+    "peak_rss_mib": 24.69921875,
+    "installed_mib": 0.4297609329223633,
+    "distributions": {
+      "urllib3": "2.8.0"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "urllib3",
+    "import_seconds": 0.041039439995074645,
+    "peak_rss_mib": 24.53125,
+    "installed_mib": 0.4297609329223633,
+    "distributions": {
+      "urllib3": "2.8.0"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "httpx",
+    "import_seconds": 0.056931724000605755,
+    "peak_rss_mib": 26.41796875,
+    "installed_mib": 1.9053764343261719,
+    "distributions": {
+      "httpcore": "1.0.9",
+      "certifi": "2026.10.23",
+      "h11": "0.16.0",
+      "typing_extensions": "4.16.0",
+      "anyio": "4.15.1",
+      "idna": "3.20",
+      "httpx": "0.28.1"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "niquests",
+    "import_seconds": 0.15510102499683853,
+    "peak_rss_mib": 35.20703125,
+    "installed_mib": 13.061661720275879,
+    "distributions": {
+      "h11": "0.16.0",
+      "jh2": "5.0.15",
+      "wassima": "2.1.5",
+      "charset-normalizer": "3.5.2",
+      "niquests": "3.21.2",
+      "urllib3-future": "2.25.905",
+      "qh3": "2.1.0"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  },
+  {
+    "client": "curl_cffi",
+    "import_seconds": 0.11423358200408984,
+    "peak_rss_mib": 31.06640625,
+    "installed_mib": 40.84662055969238,
+    "distributions": {
+      "certifi": "2026.10.23",
+      "pycparser": "3.12",
+      "cffi": "2.1.1",
+      "curl_cffi": "0.17.0"
+    },
+    "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]"
+  }
+]

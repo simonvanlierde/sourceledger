@@ -1,0 +1,338 @@
+{
+  "rate_mib_s": 32,
+  "cpu_affinity": [
+    2,
+    3,
+    4,
+    5
+  ],
+  "python": "3.12.12 (main, Feb  3 2026, 05:51:02) [GCC 12.2.0]",
+  "scope": "HTTP/1.1 localhost; same adapters and per-response fsync as main study; synthetic slow disk",
+  "rss_method": "Linux /proc/self/status VmHWM; ru_maxrss can inherit the parent high-water mark across exec",
+  "samples": [
+    {
+      "client": "httpx",
+      "elapsed_s": 3.2557817049964797,
+      "max_rss_mib": 38.34765625,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 1,
+      "size_mib": 80
+    },
+    {
+      "client": "curl_stream",
+      "elapsed_s": 3.1366858549881727,
+      "max_rss_mib": 119.1640625,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 1,
+      "size_mib": 80
+    },
+    {
+      "client": "httpx",
+      "elapsed_s": 0.32914856598654296,
+      "max_rss_mib": 38.48828125,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 3,
+      "size_mib": 8
+    },
+    {
+      "client": "curl_stream",
+      "elapsed_s": 0.3144658019882627,
+      "max_rss_mib": 48.52734375,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 2,
+      "size_mib": 8
+    },
+    {
+      "client": "niquests",
+      "elapsed_s": 0.3412574109970592,
+      "max_rss_mib": 43.91796875,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 1,
+      "size_mib": 8
+    },
+    {
+      "client": "httpx",
+      "elapsed_s": 0.3253224579966627,
+      "max_rss_mib": 38.33984375,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 1,
+      "size_mib": 8
+    },
+    {
+      "client": "niquests",
+      "elapsed_s": 0.33216825500130653,
+      "max_rss_mib": 43.87109375,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 2,
+      "size_mib": 8
+    },
+    {
+      "client": "httpx",
+      "elapsed_s": 3.311149214001489,
+      "max_rss_mib": 38.33984375,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 3,
+      "size_mib": 80
+    },
+    {
+      "client": "niquests",
+      "elapsed_s": 3.3095099999918602,
+      "max_rss_mib": 43.859375,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 1,
+      "size_mib": 80
+    },
+    {
+      "client": "urllib3",
+      "elapsed_s": 0.32937992199731525,
+      "max_rss_mib": 36.1875,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 1,
+      "size_mib": 8
+    },
+    {
+      "client": "niquests",
+      "elapsed_s": 0.35256812399893533,
+      "max_rss_mib": 43.87109375,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 3,
+      "size_mib": 8
+    },
+    {
+      "client": "urllib3",
+      "elapsed_s": 0.33372097900428344,
+      "max_rss_mib": 36.21875,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 2,
+      "size_mib": 8
+    },
+    {
+      "client": "curl_cffi",
+      "elapsed_s": 3.1895334560103947,
+      "max_rss_mib": 40.09765625,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 3,
+      "size_mib": 80
+    },
+    {
+      "client": "httpx",
+      "elapsed_s": 3.258789532992523,
+      "max_rss_mib": 38.3203125,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 2,
+      "size_mib": 80
+    },
+    {
+      "client": "curl_stream",
+      "elapsed_s": 3.0812109380058246,
+      "max_rss_mib": 119.23828125,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 3,
+      "size_mib": 80
+    },
+    {
+      "client": "curl_cffi",
+      "elapsed_s": 3.1865759610082023,
+      "max_rss_mib": 40.21484375,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 1,
+      "size_mib": 80
+    },
+    {
+      "client": "curl_stream",
+      "elapsed_s": 0.30981529399286956,
+      "max_rss_mib": 48.39453125,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 1,
+      "size_mib": 8
+    },
+    {
+      "client": "urllib3",
+      "elapsed_s": 0.3381638349965215,
+      "max_rss_mib": 36.21484375,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 3,
+      "size_mib": 8
+    },
+    {
+      "client": "urllib3",
+      "elapsed_s": 3.1481953150068875,
+      "max_rss_mib": 36.296875,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 1,
+      "size_mib": 80
+    },
+    {
+      "client": "niquests",
+      "elapsed_s": 3.2447643429914024,
+      "max_rss_mib": 43.8984375,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 2,
+      "size_mib": 80
+    },
+    {
+      "client": "niquests",
+      "elapsed_s": 3.207056327999453,
+      "max_rss_mib": 43.80859375,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 3,
+      "size_mib": 80
+    },
+    {
+      "client": "curl_cffi",
+      "elapsed_s": 0.31565878199762665,
+      "max_rss_mib": 40.21875,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 3,
+      "size_mib": 8
+    },
+    {
+      "client": "urllib",
+      "elapsed_s": 0.3284420819982188,
+      "max_rss_mib": 37.39453125,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 3,
+      "size_mib": 8
+    },
+    {
+      "client": "urllib3",
+      "elapsed_s": 3.2460684590041637,
+      "max_rss_mib": 36.1796875,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 2,
+      "size_mib": 80
+    },
+    {
+      "client": "urllib",
+      "elapsed_s": 3.1498047839995706,
+      "max_rss_mib": 37.3125,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 2,
+      "size_mib": 80
+    },
+    {
+      "client": "urllib",
+      "elapsed_s": 3.0899596660019597,
+      "max_rss_mib": 37.328125,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 1,
+      "size_mib": 80
+    },
+    {
+      "client": "curl_stream",
+      "elapsed_s": 0.31262773100752383,
+      "max_rss_mib": 48.28515625,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 3,
+      "size_mib": 8
+    },
+    {
+      "client": "curl_stream",
+      "elapsed_s": 3.064676309004426,
+      "max_rss_mib": 119.453125,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 2,
+      "size_mib": 80
+    },
+    {
+      "client": "urllib",
+      "elapsed_s": 0.29096391100028995,
+      "max_rss_mib": 37.3671875,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 1,
+      "size_mib": 8
+    },
+    {
+      "client": "curl_cffi",
+      "elapsed_s": 0.3156843500037212,
+      "max_rss_mib": 40.0078125,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 1,
+      "size_mib": 8
+    },
+    {
+      "client": "httpx",
+      "elapsed_s": 0.3018853359972127,
+      "max_rss_mib": 38.39453125,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 2,
+      "size_mib": 8
+    },
+    {
+      "client": "urllib",
+      "elapsed_s": 0.29649073600012343,
+      "max_rss_mib": 37.33203125,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 2,
+      "size_mib": 8
+    },
+    {
+      "client": "curl_cffi",
+      "elapsed_s": 3.141876230001799,
+      "max_rss_mib": 40.21484375,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 2,
+      "size_mib": 80
+    },
+    {
+      "client": "urllib3",
+      "elapsed_s": 2.8803452589927474,
+      "max_rss_mib": 36.23046875,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 3,
+      "size_mib": 80
+    },
+    {
+      "client": "urllib",
+      "elapsed_s": 2.949686923995614,
+      "max_rss_mib": 37.328125,
+      "bytes": 83886080,
+      "sha256": "14560b87fc53aae3b8b6967681b3fa5cbdf6322e99f4aa360ddf6e87c950d141",
+      "trial": 3,
+      "size_mib": 80
+    },
+    {
+      "client": "curl_cffi",
+      "elapsed_s": 0.3178119539952604,
+      "max_rss_mib": 40.22265625,
+      "bytes": 8388608,
+      "sha256": "7d212b9c884f5c77896de960ae17cc341cda43b14d6a971f34ca29ebd4badf7f",
+      "trial": 2,
+      "size_mib": 8
+    }
+  ]
+}

@@ -1,3 +1,7 @@
 [default]
 # Deliberate in tests/test_ledger.py: a mistyped status, and UTF-8 bytes of "café".
 extend-ignore-re = ["unimplmented", "caf\\\\xc3\\\\xa9"]
+
+[default.extend-words]
+# Package name in the recorded client dependency metadata.
+certifi = "certifi"

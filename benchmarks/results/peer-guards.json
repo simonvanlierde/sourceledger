@@ -1,0 +1,210 @@
+[
+  {
+    "python": "3.12",
+    "client": "urllib3",
+    "cases": [
+      {
+        "client": "urllib3",
+        "version": "2.8.0",
+        "case": "fresh",
+        "refused": true,
+        "request_bytes_observed": 0,
+        "pass": true
+      },
+      {
+        "client": "urllib3",
+        "version": "2.8.0",
+        "case": "pooled",
+        "refused": false,
+        "request_bytes_observed": 1,
+        "pass": false
+      }
+    ]
+  },
+  {
+    "python": "3.12",
+    "client": "urllib3-per-request",
+    "cases": [
+      {
+        "client": "urllib3-per-request",
+        "version": "2.8.0",
+        "case": "fresh",
+        "refused": true,
+        "request_bytes_observed": 0,
+        "pass": true
+      },
+      {
+        "client": "urllib3-per-request",
+        "version": "2.8.0",
+        "case": "pooled",
+        "refused": true,
+        "request_bytes_observed": 0,
+        "pass": true
+      }
+    ]
+  },
+  {
+    "python": "3.12",
+    "client": "httpx",
+    "cases": [
+      {
+        "client": "httpx",
+        "version": "0.28.1",
+        "case": "fresh",
+        "refused": true,
+        "request_bytes_observed": 0,
+        "pass": true
+      },
+      {
+        "client": "httpx",
+        "version": "0.28.1",
+        "case": "pooled",
+        "refused": false,
+        "request_bytes_observed": 1,
+        "pass": false
+      }
+    ]
+  },
+  {
+    "python": "3.12",
+    "client": "niquests",
+    "cases": [
+      {
+        "client": "niquests",
+        "version": "3.21.2",
+        "case": "fresh",
+        "refused": true,
+        "request_bytes_observed": 0,
+        "pass": true
+      },
+      {
+        "client": "niquests",
+        "version": "3.21.2",
+        "case": "pooled",
+        "refused": true,
+        "request_bytes_observed": 0,
+        "pass": true
+      }
+    ]
+  },
+  {
+    "python": "3.12",
+    "client": "curl_cffi",
+    "cases": [
+      {
+        "client": "curl_cffi",
+        "case": "fresh",
+        "unsupported": "Python pre-request callback unsupported"
+      },
+      {
+        "client": "curl_cffi",
+        "case": "pooled",
+        "unsupported": "Python pre-request callback unsupported"
+      }
+    ]
+  },
+  {
+    "python": "3.15",
+    "client": "urllib3",
+    "cases": [
+      {
+        "client": "urllib3",
+        "version": "2.8.0",
+        "case": "fresh",
+        "refused": true,
+        "request_bytes_observed": 0,
+        "pass": true
+      },
+      {
+        "client": "urllib3",
+        "version": "2.8.0",
+        "case": "pooled",
+        "refused": false,
+        "request_bytes_observed": 1,
+        "pass": false
+      }
+    ]
+  },
+  {
+    "python": "3.15",
+    "client": "urllib3-per-request",
+    "cases": [
+      {
+        "client": "urllib3-per-request",
+        "version": "2.8.0",
+        "case": "fresh",
+        "refused": true,
+        "request_bytes_observed": 0,
+        "pass": true
+      },
+      {
+        "client": "urllib3-per-request",
+        "version": "2.8.0",
+        "case": "pooled",
+        "refused": true,
+        "request_bytes_observed": 0,
+        "pass": true
+      }
+    ]
+  },
+  {
+    "python": "3.15",
+    "client": "httpx",
+    "cases": [
+      {
+        "client": "httpx",
+        "version": "0.28.1",
+        "case": "fresh",
+        "refused": true,
+        "request_bytes_observed": 0,
+        "pass": true
+      },
+      {
+        "client": "httpx",
+        "version": "0.28.1",
+        "case": "pooled",
+        "refused": false,
+        "request_bytes_observed": 1,
+        "pass": false
+      }
+    ]
+  },
+  {
+    "python": "3.15",
+    "client": "niquests",
+    "cases": [
+      {
+        "client": "niquests",
+        "version": "3.21.2",
+        "case": "fresh",
+        "refused": true,
+        "request_bytes_observed": 0,
+        "pass": true
+      },
+      {
+        "client": "niquests",
+        "version": "3.21.2",
+        "case": "pooled",
+        "refused": true,
+        "request_bytes_observed": 0,
+        "pass": true
+      }
+    ]
+  },
+  {
+    "python": "3.15",
+    "client": "curl_cffi",
+    "cases": [
+      {
+        "client": "curl_cffi",
+        "case": "fresh",
+        "unsupported": "Python pre-request callback unsupported"
+      },
+      {
+        "client": "curl_cffi",
+        "case": "pooled",
+        "unsupported": "Python pre-request callback unsupported"
+      }
+    ]
+  }
+]

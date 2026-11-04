@@ -1,0 +1,4 @@
+certifi==2026.10.23
+cffi==2.1.1
+curl-cffi==0.17.0
+pycparser==3.12
