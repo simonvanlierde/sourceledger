@@ -5,9 +5,10 @@
 
 ## Context
 
-sourceledger fetches sources sequentially with `urllib.request`. Its core has no
-runtime dependencies. The [standard library client](https://docs.python.org/3/library/urllib.request.html)
-also handles proxy settings from the environment and the `file://` inputs used by tests.
+sourceledger uses `urllib.request`. Fetching is sequential by default;
+`fetch --workers 2` overlaps two downloads without changing the transport.
+Its core has no runtime dependencies. The [standard library client](https://docs.python.org/3/library/urllib.request.html)
+also handles proxy settings from the environment and local file inputs.
 
 The fetcher in [`ledger.py`](../../src/sourceledger/ledger.py) adds behavior that a
 replacement must preserve:
@@ -20,9 +21,9 @@ replacement must preserve:
   DNS lookup and HTTP header parsing can exceed that budget; it is not a hard deadline.
 - Keep the publisher's bytes intact for hashing and retry transient failures with bounded waits.
 
-A higher-level client would change the transport, but we would still need to verify
-these rules. Connection pooling and concurrent requests could justify that work;
-the current sequential fetcher does not require them.
+A replacement must still preserve these rules. Bounded concurrency already works
+with the existing client; connection pooling remains a separate optimization to
+evaluate against measured workloads.
 
 ## Decision
 
@@ -40,9 +41,11 @@ not currently solve a missing feature or remove enough project-specific behavior
 
 The core keeps its dependency-free installation. We maintain retries, redirect
 checks and body handling ourselves. Any transport change must preserve the existing
-fetch tests, proxy behavior and `file://` fixtures, or explain an intentional change.
+fetch behavior, proxy support and supported inputs. Test fixtures may be adapted
+when those contracts remain covered.
 
 ## Revisit when
 
-Revisit this decision when a feature needs connection reuse or many concurrent fetches.
-Compare clients against that workload and the fetcher's existing safety checks.
+Revisit when representative workloads show that connection reuse or another
+transport feature would materially improve fetching. Compare candidates against
+the existing safety checks, proxy behavior and supported inputs.
