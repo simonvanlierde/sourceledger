@@ -1,6 +1,6 @@
 # 0004. Declarative retrieval with per-request provenance
 
-- Status: accepted direction; supersedes 0002
+- Status: superseded by 0005
 - Date: 2026-11-04
 - Implementation: not available
 

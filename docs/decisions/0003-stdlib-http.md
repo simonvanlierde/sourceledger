@@ -1,6 +1,6 @@
 # Keep HTTP fetching in the standard library
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-04
 
 ## Context
