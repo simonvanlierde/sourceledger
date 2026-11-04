@@ -31,6 +31,10 @@ The [reference](reference.md) lists the manifest keys and command options. This 
 | `data/processed/<id>.<ext>` | `build` (`format = "file"`) | `validate`, `verify`, `report` | no |
 | `data/processed/datapackage.json` | `build` | `build --only`, `validate`, `verify`, `report` | no |
 
+These paths describe the lower-level stages with plain source URLs. Declarative raw files use
+`request.filename`; built tables use that filename with the output extension.
+[`update`](fetching.md#publish-only-complete-updates) keeps its raw files, outputs and log together in a generation.
+
 `<ext>` is the extension of the source's URL. The README says
 [what to commit](https://github.com/simonvanlierde/sourceledger#what-to-commit).
 
@@ -41,19 +45,20 @@ lacks its final newline is kept.
 
 ## fetch
 
-`fetch` reads `sources.toml` and downloads each implemented source:
+`fetch` resolves the selected sources into requests, then downloads each response:
 
 1. It reads the source's last `.fetch.json`. When that record still matches the manifest
-   and the raw file, the request asks the server to send the file only if it changed
+   and the raw file, an eligible request asks the server to send the file only if it changed
    (`If-None-Match` with the ETag, `If-Modified-Since` with Last-Modified). A `304 Not Modified` keeps the old file and
-   record.
+   record. Declarative and update requests with environment headers omit validators and fetch in full
+   to avoid reflecting credentials in provenance.
 2. Otherwise it streams the body to a temporary file, hashing it on the way, within the
    source's size cap and the time budget.
 3. It checks the SHA-256 against the source's `sha256` pin, if there is one.
 4. It moves the file into place, appends a line to the log when the bytes are new for that
    source, and then writes the `.fetch.json` record.
 
-History reads retain only the latest record for each source and use small batches of complete lines. The CLI
+History reads retain only the latest record for each source/request pair and use small batches of complete lines. The CLI
 uses that same history read, under the fetch lock, to label downloads as new or unchanged.
 
 The log line goes in before the record. If a crash comes between the two, the next run
@@ -65,17 +70,18 @@ only). `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
 
 `build` makes the outputs from the raw files. It never uses the network.
 
-1. For each implemented source, it re-reads the `.fetch.json` record and re-hashes the raw
-   file. A record made for another URL, vintage or pin, or a raw file changed since, is
+1. For each implemented response, it re-reads the `.fetch.json` record and re-hashes the raw
+   file. A record made for another request identity, URL, vintage or pin, or a raw file changed since, is
    refused.
 2. It reads the raw file with the project's reader, a `Parser`, into columns and rows. With
    the default reader, CSV files, gzipped or not, are read one row at a time.
    JSON, Excel and custom readers hold the whole source in memory. JSON converts its
    decoded objects in place to avoid keeping a second list of rows. CSV output writes one row at a time;
    Parquet writes batches of at most 10,000 rows.
-3. It writes `data/processed/<id>.csv` with five provenance columns in front of the source's
-   own: `source_id`, `source_url`, `retrieved_at`, `vintage` and `raw_sha256`.
-   With `output_format = "parquet"`, it writes `<id>.parquet` with zstd compression and an explicit string schema.
+3. It writes one table per response with provenance columns before the source's own:
+   `source_id`, `source_url`, `retrieved_at`, `vintage` and `raw_sha256`.
+   Declarative responses also add `request_id`; [request naming](fetching.md#describe-a-finite-set-of-downloads) determines each output filename.
+   With `output_format = "parquet"`, it uses zstd compression and an explicit string schema.
 4. It writes `datapackage.json`, a Frictionless Data Package that lists every output with
    its size, SHA-256, source and licence.
 
@@ -113,6 +119,8 @@ It exits 1 if it finds any problem.
 ## Where the code lives
 
 - `src/sourceledger/ledger.py`: the pipeline stages, readers, fetch logic and integrity checks.
+- `src/sourceledger/retrieval.py`: finite GET expansion and request identities.
+- `src/sourceledger/update.py` and `budget.py`: [complete-generation publication](fetching.md#publish-only-complete-updates) and staging limits.
 - `src/sourceledger/report.py`: the standalone HTML provenance report; it reuses the
   pipeline's fetch records and integrity checks.
 - `src/sourceledger/cli.py`: the command line. It parses the arguments, runs one stage,
