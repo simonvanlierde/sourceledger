@@ -18,7 +18,9 @@ Set `output_format` before the first `[[source]]` table to choose the project's 
 output_format = "parquet"
 ```
 
-Install `uv add 'sourceledger[parquet]'` first. `build` writes `<id>.parquet` with zstd compression
+Install the CLI with `uv tool install 'sourceledger[parquet]'` first.
+For a Python project, use `uv add 'sourceledger[parquet]'` and run commands with `uv run sourceledger`.
+`build` writes `<id>.parquet` with zstd compression
 and an explicit string schema, including the five provenance columns. Values such as `001`, `1.10`
 and empty strings keep their spelling. `validate` and `read_output` read these tables with the same extra.
 Parquet builds and validation hold each table in memory. `datapackage.json` records the format and media type;

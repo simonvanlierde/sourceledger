@@ -97,8 +97,13 @@ def test_unknown_output_format_fails(value: str) -> None:
 def test_missing_extra_has_an_install_hint(monkeypatch: pytest.MonkeyPatch) -> None:
     assert main(["fetch"]) == 0
     monkeypatch.setitem(sys.modules, "polars", None)
-    with pytest.raises(ValueError, match=r"^Parquet needs the parquet extra: uv add 'sourceledger\[parquet\]'$"):
+    hint = (
+        "Parquet needs the parquet extra: uv tool install 'sourceledger[parquet]' (CLI) "
+        "or uv add 'sourceledger[parquet]' (project)"
+    )
+    with pytest.raises(ValueError, match="Parquet needs the parquet extra") as caught:
         ledger.build(ledger.load_manifest(), output_format="parquet")
+    assert str(caught.value) == hint
     assert not Path("data/processed/example.parquet").exists()
 
 

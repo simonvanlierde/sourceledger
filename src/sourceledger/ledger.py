@@ -1346,7 +1346,10 @@ def _polars() -> Any:  # noqa: ANN401  # optional dependency, imported only for 
     try:
         import polars as pl  # noqa: PLC0415
     except ImportError as error:
-        msg = "Parquet needs the parquet extra: uv add 'sourceledger[parquet]'"
+        msg = (
+            "Parquet needs the parquet extra: uv tool install 'sourceledger[parquet]' (CLI) "
+            "or uv add 'sourceledger[parquet]' (project)"
+        )
         raise ValueError(msg) from error
     return pl
 
