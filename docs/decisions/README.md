@@ -17,4 +17,5 @@ the old one's status to `superseded by 0007`, naming the new record's number.
 ## Index
 
 - [0001. Local builds and redistribution](0001-local-builds-and-redistribution.md): accepted
-- [0002. URL templates and POST stay in each project's fetcher](0002-fetchers-stay-in-each-project.md): accepted
+- [0002. URL templates and POST stay in each project's fetcher](0002-fetchers-stay-in-each-project.md): superseded by 0004
+- [0004. Declarative retrieval with per-request provenance](0004-declarative-retrieval.md): accepted direction; implementation contract draft, capability unavailable

@@ -1,0 +1,31 @@
+# PROPOSED CONTRACT: current sourceledger does not accept this request syntax.
+# Reproduces the five WDI requests in wise-pipeline's current 2018-2022 slice.
+# The WDI envelope still requires a project parser and a single-page check.
+
+[[source]]
+id           = "WB-WDI"
+name         = "World Bank World Development Indicators"
+status       = "implemented"
+format       = "json"
+terms        = "CC-BY-4.0 (World Bank Open Data terms of use)"
+terms_url    = "https://datacatalog.worldbank.org/public-licenses#cc-by"
+license      = "CC-BY-4.0"
+redistribute = true
+
+[source.request]
+method   = "GET"
+url      = "https://api.worldbank.org/v2/country/BRA;DEU;IND;KEN;NLD/indicator/{indicator}?date={year_from}:{year_to}&format=json&per_page=20000"
+filename = "WB-WDI_{indicator}.json"
+
+[source.request.values]
+year_from = 2018
+year_to   = 2022
+
+[source.request.expand]
+indicator = [
+  "NY.GDP.PCAP.KD",
+  "SP.DYN.LE00.IN",
+  "SE.XPD.TOTL.GD.ZS",
+  "EG.FEC.RNEW.ZS",
+  "EN.GHG.CO2.PC.CE.AR5",
+]
