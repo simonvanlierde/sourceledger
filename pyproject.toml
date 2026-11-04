@@ -35,6 +35,9 @@ Issues = "https://github.com/simonvanlierde/sourceledger/issues"
 xlsx = [
     "openpyxl>=3.1",
 ]
+parquet = [
+    "polars>=1.35",
+]
 
 [dependency-groups]
 dev = [
@@ -42,6 +45,7 @@ dev = [
   "hypothesis>=6.170.1",
   "jsonschema>=4.26",
   "openpyxl>=3.1",
+  "polars>=1.35",
   "pytest>=9.1.1",
   "pytest-codspeed>=5.0.3",
   "pytest-cov>=7.1.0",
@@ -126,6 +130,8 @@ exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
 
 # `just py-mutation` runs it. The docs tests read the README and docs/ from the copy.
 [tool.mutmut]
+# Polars starts worker threads; forking after tests used them can deadlock a mutant.
+process_isolation = "forkserver"
 source_paths = ["src"]
 also_copy = ["README.md", "docs", ".github/scripts"]
 # Log calls only change diagnostics; their mutants would all survive.
