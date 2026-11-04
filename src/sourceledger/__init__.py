@@ -30,8 +30,6 @@ from sourceledger.ledger import (
     verify,
 )
 from sourceledger.report import report
-from sourceledger.retrieval import expand_requests
-from sourceledger.update import published, update
 
 __all__ = [
     "USER_AGENT",
@@ -41,7 +39,6 @@ __all__ = [
     "Source",
     "attribution",
     "build",
-    "expand_requests",
     "fetch",
     "load_manifest",
     "main",
@@ -49,12 +46,10 @@ __all__ = [
     "parse_json",
     "parse_source",
     "parse_xlsx",
-    "published",
     "read_output",
     "report",
     "revisions",
     "status",
-    "update",
     "validate",
     "verified",
     "verify",

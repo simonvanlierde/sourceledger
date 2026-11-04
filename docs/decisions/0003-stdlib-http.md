@@ -1,12 +1,11 @@
 # Keep HTTP fetching in the standard library
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-04
 
 ## Context
 
-sourceledger uses `urllib.request`. Fetching is sequential by default;
-`fetch --workers 2` overlaps two downloads without changing the transport.
+sourceledger uses `urllib.request` and fetches one source at a time.
 Its core has no runtime dependencies. The [standard library client](https://docs.python.org/3/library/urllib.request.html)
 also handles proxy settings from the environment and local file inputs.
 
@@ -21,9 +20,8 @@ replacement must preserve:
   DNS lookup and HTTP header parsing can exceed that budget; it is not a hard deadline.
 - Keep the publisher's bytes intact for hashing and retry transient failures with bounded waits.
 
-A replacement must still preserve these rules. Bounded concurrency already works
-with the existing client; connection pooling remains a separate optimization to
-evaluate against measured workloads.
+A replacement must still preserve these rules. Connection pooling and concurrent
+downloads remain optimizations to evaluate against measured workloads.
 
 ## Decision
 

@@ -31,14 +31,10 @@ def main(argv: list[str] | None = None) -> int:
 my-dataset = "my_dataset.pipeline:main"
 ```
 
-`my-dataset build` and `my-dataset update` use your reader. The other stages keep their usual behavior.
+`my-dataset build` uses your reader. The other stages keep their usual behavior.
 Publishers see `my-dataset` as the User-Agent when you fetch. If your project ships `sources.toml` inside its package, pass the path as `manifest=Path(__file__).with_name("sources.toml")`. The
 [project-templates](https://github.com/simonvanlierde/project-templates) `data-pipeline`
 kind sets this up, with CI and a weekly revision report. The stages are also
 functions: `load_manifest`, `fetch`, `build`, `validate`, `revisions`, `status`,
 `attribution` and `verify`. `verified(source)` returns a source's fetch record and raw
 bytes after checking that both are current, for a reader that needs them.
-
-For a declarative source, the reader runs once per response in expansion order. Its source copy
-keeps the logical `id` and adds `request_id`, resolved `parameters` and `filename`. Keep publisher-specific
-units, vintage extraction and completeness checks here; a successful HTTP response does not prove a complete table.

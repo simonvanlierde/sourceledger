@@ -1,9 +1,9 @@
 # 0002. URL templates and POST stay in each project's fetcher
 
-- Status: superseded by 0004
+- Status: superseded by 0004, whose boundary 0005 reverses
 - Date: 2026-10-29
 
-[Decision 0004](0004-declarative-retrieval.md) replaces this boundary. Declarative fetching is not yet implemented.
+[Decision 0005](0005-provenance-core.md) restores this boundary and adds `record()` for files these fetchers download.
 
 ## Context
 

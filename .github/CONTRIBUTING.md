@@ -74,11 +74,6 @@ The HTML report baseline allows changes to HTML formatting and fallback or diagn
 It also allows equivalent ways to split a URL. Tests still check integrity, HTML escaping
 and credential omission.
 
-The request-template baseline allows diagnostic wording, redundant range bounds and encoding choices
-that leave safe ASCII filenames unchanged. The credential-cache baseline allows equivalent ASCII
-encodings and missing-file errors that its caller treats as a cache miss. The generation baseline
-allows an equivalent initial retry flag: a new generation has no cached responses.
-
 The table-reader baseline allows equivalent UTF-8 encodings. The Parquet writer tests check zstd
 compression and deterministic repeated output. The Parquet reader allows equivalent serial or threaded decoding;
 its tests still check the batch size and corruption detection.
