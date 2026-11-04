@@ -15,14 +15,12 @@ Paths are relative to the working directory, the project root.
 from __future__ import annotations
 
 import contextlib
-import contextvars
 import csv
 import dataclasses
 import errno
 import functools
 import gzip
 import hashlib
-import hmac
 import http.client
 import io
 import ipaddress
@@ -51,10 +49,7 @@ from http import HTTPStatus
 from importlib.metadata import version
 from pathlib import Path, PurePosixPath
 from typing import IO, TYPE_CHECKING, Any
-from urllib.parse import urljoin, urlsplit, urlunsplit
-
-from sourceledger.budget import ACTIVE_BUDGET, BudgetWriter, charge
-from sourceledger.retrieval import canonical, expand_requests, request_key
+from urllib.parse import urljoin, urlsplit
 
 if TYPE_CHECKING:
     import ssl
@@ -168,9 +163,6 @@ class FetchRecord:
     # from their line in the log. Empty when the source does not ask for one, or the archive
     # did not answer with one.
     archive_url: str = ""
-    request_id: str = ""
-    parameters: dict[str, str | int] = dataclasses.field(default_factory=dict)
-    header_refs: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 class FetchError(OSError):
@@ -183,7 +175,7 @@ class FetchError(OSError):
 
 
 def load_manifest(path: Path = MANIFEST) -> list[Source]:
-    """Read source metadata; declarative request plans are checked after source selection."""
+    """The `[[source]]` tables of sources.toml, after checking ids, URLs, caps, timeouts and pins."""
     with path.open("rb") as fh:
         manifest = tomllib.load(fh)
     _check_output_format(manifest.get("output_format", "csv"))
@@ -199,7 +191,7 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
     if dupes := sorted(i for i, n in Counter(ids).items() if n > 1):
         msg = f"ids {dupes} appear more than once in sources.toml"
         raise ValueError(msg)
-    if no_url := [s["id"] for s in implemented(sources) if not isinstance(s.get("url"), str) and "request" not in s]:  # noqa: PLR2004  # manifest key
+    if no_url := [s["id"] for s in implemented(sources) if not isinstance(s.get("url"), str)]:
         msg = f"implemented sources {no_url} in sources.toml have no url"
         raise ValueError(msg)
     # Not isinstance: bool is an int subclass, so `max_bytes = true` would pass as a 1-byte cap.
@@ -326,12 +318,8 @@ def implemented(sources: list[Source]) -> list[Source]:
 
 
 def raw_name(source: Source) -> str:
-    """The resolved response filename, or the source id plus its URL extension for a plain source."""
-    return (
-        source["filename"]
-        if source.get("request_id")
-        else source["id"] + PurePosixPath(urlsplit(source["url"]).path).suffix
-    )
+    """The raw file's name: the source id plus the URL's extension, e.g. `example-co2.csv`."""
+    return source["id"] + PurePosixPath(urlsplit(source["url"]).path).suffix
 
 
 def _output_name(source: Source, output_format: str) -> str:
@@ -339,7 +327,7 @@ def _output_name(source: Source, output_format: str) -> str:
     return (
         raw_name(source)
         if source.get("format") == FILE_FORMAT and source.get("url")
-        else f"{Path(source['filename']).stem if source.get('request_id') else source['id']}.{output_format}"
+        else f"{source['id']}.{output_format}"
     )
 
 
@@ -359,9 +347,7 @@ def _replacing(path: Path) -> Generator[IO[bytes]]:
     """
     fd, temp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".part")
     try:
-        with (
-            BudgetWriter(os.fdopen(fd, "wb", buffering=0)) if ACTIVE_BUDGET.get() is not None else os.fdopen(fd, "wb")
-        ) as fh:
+        with os.fdopen(fd, "wb") as fh:
             yield fh
             fh.flush()
             os.fsync(fh.fileno())
@@ -499,8 +485,6 @@ class _Download:
     size: int
     headers: Message
     url: str
-    # Never serialize this transport object: values can be credentials.
-    credential_headers: dict[str, str] | None = dataclasses.field(default=None, repr=False)
 
 
 def _download(response: _Response, source: Source, deadline: float, folder: Path) -> tuple[Path, str, int]:
@@ -539,7 +523,6 @@ def _copy(response: _Response, fh: IO[bytes], source: Source, deadline: float) -
             msg = f"{source['id']}: download exceeds {cap} bytes; raise max_bytes in sources.toml if expected"
             raise ValueError(msg)
         digest.update(chunk)
-        charge(len(chunk))
         fh.write(chunk)
     fh.flush()
     os.fsync(fh.fileno())
@@ -570,9 +553,8 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
     Raises ValueError for a body over the source's `max_bytes` (default 200 MiB), or one
     served compressed.
     """
-    conditional = {} if _authenticated(source) else _conditional(previous)
-    env_headers = _env_headers(source)
-    headers = {"User-Agent": user_agent, "Accept-Encoding": "identity", **env_headers, **conditional}
+    conditional = _conditional(previous)
+    headers = {"User-Agent": user_agent, "Accept-Encoding": "identity", **_env_headers(source), **conditional}
     request = urllib.request.Request(source["url"], headers=headers)  # noqa: S310  # see _open
     deadline = time.monotonic() + source.get("timeout_s", _BUDGET_S)
     for attempt in range(1, _ATTEMPTS + 1):
@@ -586,7 +568,7 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
                     path.unlink()
                     msg = f"body ended after {size} of the {expected} bytes its Content-Length promised"
                     raise http.client.HTTPException(msg)
-                return _Download(path, digest, size, response.headers, response.url, credential_headers=env_headers)
+                return _Download(path, digest, size, response.headers, response.url)
         except _InwardRedirectError as error:
             msg = f"{source['id']}: {error}"
             raise ValueError(msg) from error
@@ -605,12 +587,7 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
         if time.monotonic() + wait >= deadline:
             raise failure
         _logger.warning(
-            "%s: attempt %d of %d failed (%s); retrying in %.0f s",
-            source["id"],
-            attempt,
-            _ATTEMPTS,
-            _redact(source, str(failure)),
-            wait,
+            "%s: attempt %d of %d failed (%s); retrying in %.0f s", source["id"], attempt, _ATTEMPTS, failure, wait
         )
         time.sleep(wait)
     raise AssertionError  # unreachable: the last attempt returns or raises
@@ -654,8 +631,6 @@ def _env_headers(source: Source) -> dict[str, str]:
 def _previous(source: Source, raw: Path) -> FetchRecord | None:
     """The last fetch record of `source`, if it and its raw file still match the manifest."""
     try:
-        if (source.get("request_id") or source.get("_update_cache")) and not _credential_matches(source, raw):
-            return None
         return _current(source, raw)
     except _UNUSABLE:
         return None
@@ -676,15 +651,6 @@ def _is_record(fields: object) -> bool:
         and all(isinstance(fields.get(key), str) for key in ("source_id", "url", "retrieved_at", "sha256"))
         and _SHA256.fullmatch(fields["sha256"]) is not None
         and type(fields.get("bytes")) is int  # not isinstance: bool is an int subclass
-        and isinstance(fields.get("request_id", ""), str)
-        and (not fields.get("request_id") or _SHA256.fullmatch(fields["request_id"]) is not None)
-        and isinstance(fields.get("parameters", {}), dict)
-        and all(isinstance(k, str) and type(v) in (str, int) for k, v in fields.get("parameters", {}).items())
-        and isinstance(fields.get("header_refs", {}), dict)
-        and all(
-            isinstance(k, str) and isinstance(v, str) and _ENV_REF.fullmatch(v)
-            for k, v in fields.get("header_refs", {}).items()
-        )
     )
 
 
@@ -700,8 +666,8 @@ def _history_batches(log: Path) -> Iterator[tuple[list[str], bool]]:
             physical = following
 
 
-def _last_records(log: Path) -> dict[str, dict[str, Any]]:  # noqa: C901  # stream and validate per-request history
-    """The record most recently logged for each source/request pair, from the fetch log.
+def _last_records(log: Path) -> dict[str, dict[str, Any]]:
+    """The record most recently logged for each source id, from the fetch log.
 
     A last line cut off by an interrupted fetch is skipped with a warning. Any other line
     that is not a record is an error that names the line.
@@ -727,11 +693,8 @@ def _last_records(log: Path) -> dict[str, dict[str, Any]]:  # noqa: C901  # stre
             if not (isinstance(record, dict) and isinstance(record.get("source_id"), str)):
                 msg = f"{log}:{number} is not a fetch record"
                 raise ValueError(msg)  # noqa: TRY004  # a damaged log: the CLI reports ValueError as one line
-            key = record["source_id"]
-            if request_id := record.get("request_id"):
-                key += ":" + request_id
-            records[key] = record
-            numbers[key] = number
+            records[record["source_id"]] = record
+            numbers[record["source_id"]] = number
     # Only the last record per source is used, so only those get the full check: it costs
     # more than reading the line, and a log has many lines per source.
     for sid, record in records.items():
@@ -766,9 +729,7 @@ def _append(log: Path, record: FetchRecord) -> None:
                 fh.truncate(start)
             else:
                 lead = b"\n"
-        data = lead + json.dumps(_record_fields(record)).encode() + b"\n"
-        charge(len(data))
-        fh.write(data)
+        fh.write(lead + json.dumps(dataclasses.asdict(record)).encode() + b"\n")
         fh.flush()
         os.fsync(fh.fileno())
 
@@ -786,7 +747,7 @@ def _last_line_start(fh: IO[bytes], end: int) -> int:
 
 
 def logged_versions(log: Path = FETCH_LOG) -> dict[str, str]:
-    """The latest SHA-256 per source, or per source/request key for declarative responses."""
+    """The SHA-256 most recently logged for each source id."""
     return {sid: r["sha256"] for sid, r in _last_records(log).items()}
 
 
@@ -811,63 +772,30 @@ def _lock(raw: Path) -> Generator[None]:
 
 
 def revisions(before: Path, *, log: Path = FETCH_LOG) -> list[str]:
-    """One Markdown line per changed source or added, changed or removed declarative request.
+    """One Markdown line per source whose bytes changed between `before`, an earlier copy of the log, and `log`.
 
-    A plain source that `before` never logged is new, not revised, and is left out. Raises
+    A source that `before` never logged is new, not revised, and is left out. Raises
     FileNotFoundError when `before` or `log` does not exist: an empty report must mean no
     revisions, not a missing copy or a run from the wrong directory.
     """
-    lines = []
-    for record in _revision_records(before, log=log):
-        label = record["source_id"] + (":" + record["request_id"] if record.get("request_id") else "")
-        after = record["after"]
-        if after is None:
-            lines.append(f"- `{label}`: request removed ({record['before_sha256'][:12]})")
-        elif record.get("change") == "added":  # noqa: PLR2004  # revision status
-            lines.append(f"- `{label}`: request added ({after['sha256'][:12]})")
-        else:
-            lines.append(
-                f"- `{label}`: {record['before_sha256'][:12]} -> {after['sha256'][:12]}, "
-                f"{after['bytes']:,} bytes, fetched {after['retrieved_at']} from <{after['url']}>"
-            )
-    return lines
+    return [
+        f"- `{r['source_id']}`: {r['before_sha256'][:12]} -> {r['after']['sha256'][:12]}, "
+        f"{r['after']['bytes']:,} bytes, fetched {r['after']['retrieved_at']} from <{r['after']['url']}>"
+        for r in _revision_records(before, log=log)
+    ]
 
 
 def _revision_records(before: Path, *, log: Path = FETCH_LOG) -> list[dict[str, Any]]:
-    """Changed bytes and added/removed declarative requests, keyed by source and request."""
+    """Changed sources with their earlier hash and current fetch record, in log order."""
     for path in (before, log):
         if not path.exists():
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(path))
     old, new = _last_records(before), _last_records(log)
-    changes = []
-    for key, record in new.items():
-        if key in old and old[key]["sha256"] != record["sha256"]:
-            item = {"source_id": record["source_id"], "before_sha256": old[key]["sha256"], "after": record}
-            if record.get("request_id"):
-                item.update(request_id=record["request_id"], change="changed")
-            changes.append(item)
-        elif key not in old and record.get("request_id"):
-            changes.append(
-                {
-                    "source_id": record["source_id"],
-                    "request_id": record["request_id"],
-                    "before_sha256": None,
-                    "after": record,
-                    "change": "added",
-                }
-            )
-    changes.extend(
-        {
-            "source_id": record["source_id"],
-            "request_id": record["request_id"],
-            "before_sha256": record["sha256"],
-            "after": None,
-            "change": "removed",
-        }
-        for key, record in old.items()
-        if key not in new and record.get("request_id")
-    )
-    return changes
+    return [
+        {"source_id": sid, "before_sha256": old[sid]["sha256"], "after": record}
+        for sid, record in new.items()
+        if sid in old and old[sid]["sha256"] != record["sha256"]
+    ]
 
 
 def fetch(
@@ -914,9 +842,7 @@ def _fetch(
     if type(workers) is not int or workers not in (1, 2):
         msg = "workers must be 1 or 2"
         raise ValueError(msg)
-    sources = expand_requests(_select(sources, only), output_format=None)
-    for source in sources:
-        _check_headers(source)
+    sources = _select(sources, only)
     raw.mkdir(parents=True, exist_ok=True)
     log.parent.mkdir(parents=True, exist_ok=True)
     records: list[FetchRecord] = []
@@ -932,9 +858,9 @@ def _fetch(
             try:
                 records.append(_fetch_one(source, raw, log, logged, user_agent))
             except ValueError as error:  # messages already name the source
-                failures.append(_redact(source, str(error)))
+                failures.append(str(error))
             except _TRANSIENT as error:
-                failures.append(_redact(source, f"{source['id']}: fetching {source['url']} failed: {error}"))
+                failures.append(f"{source['id']}: fetching {source['url']} failed: {error}")
     if failures:
         raise FetchError(records, failures)
     return records
@@ -952,9 +878,7 @@ def _fetch_parallel(
             futures = []
             try:
                 for source, record in zip(batch, previous, strict=True):
-                    futures.append(
-                        executor.submit(contextvars.copy_context().run, _get, source, record, user_agent, raw)
-                    )
+                    futures.append(executor.submit(_get, source, record, user_agent, raw))
                 for source, future in zip(batch, futures, strict=True):
                     try:
                         response = future.result()
@@ -964,9 +888,9 @@ def _fetch_parallel(
                         else:
                             records.append(_keep(source, response, raw, log, logged, user_agent))
                     except ValueError as error:
-                        failures.append(_redact(source, str(error)))
+                        failures.append(str(error))
                     except _TRANSIENT as error:
-                        failures.append(_redact(source, f"{source['id']}: fetching {source['url']} failed: {error}"))
+                        failures.append(f"{source['id']}: fetching {source['url']} failed: {error}")
             finally:
                 # Wait before cleanup: an unexpected coordinator failure can leave the other download running.
                 for future in futures:
@@ -1004,7 +928,7 @@ def _keep(
     archived = ""
     if source.get("archive"):
         # The same bytes again, with no 304 to say so, keep the snapshot their log line names.
-        last = logged.get(request_key(source), {})
+        last = logged.get(source["id"], {})
         archived = last.get("archive_url", "") if last.get("sha256") == digest else _archive(source, user_agent)
     record = FetchRecord(
         source_id=source["id"],
@@ -1014,31 +938,26 @@ def _keep(
         bytes=download.size,
         vintage=_vintage(source),
         # Kept for a conditional request (If-Modified-Since, If-None-Match) on a later run.
-        last_modified="" if _authenticated(source) else download.headers.get("Last-Modified", ""),
-        etag="" if _authenticated(source) else download.headers.get("ETag", ""),
-        final_url="" if download.url == source["url"] else _safe_final_url(source, download.url),
+        last_modified=download.headers.get("Last-Modified", ""),
+        etag=download.headers.get("ETag", ""),
+        final_url="" if download.url == source["url"] else download.url,
         env_headers=sorted(source.get("headers", {})),
         archive_url=archived,
-        request_id=source.get("request_id", ""),
-        parameters=source.get("parameters", {}),
-        header_refs=source.get("headers", {}) if source.get("request_id") else {},
     )
     name = raw_name(source)
     download.path.replace(raw / name)
     # Logged before the record is written: until the record matches the raw file, the next
     # run fetches in full, so a crash in between loses nothing.
     _log_new_version(log, logged, record)
-    _write_atomic(raw / f"{name}.fetch.json", (json.dumps(_record_fields(record), indent=2) + "\n").encode())
-    _save_credential_marker(source, raw, headers=download.credential_headers)
+    _write_atomic(raw / f"{name}.fetch.json", (json.dumps(dataclasses.asdict(record), indent=2) + "\n").encode())
     return record
 
 
 def _log_new_version(log: Path, logged: dict[str, dict[str, Any]], record: FetchRecord) -> None:
     # Appended, not rewritten: the log is history. A re-download of the same bytes adds nothing.
-    key = request_key({"id": record.source_id, "request_id": record.request_id})
-    if logged.get(key, {}).get("sha256") != record.sha256:
+    if logged.get(record.source_id, {}).get("sha256") != record.sha256:
         _append(log, record)
-        logged[key] = dataclasses.asdict(record)
+        logged[record.source_id] = dataclasses.asdict(record)
 
 
 def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
@@ -1094,12 +1013,6 @@ def _record(source: Source, raw: Path) -> FetchRecord:
         raise ValueError(msg) from error
     if (record.source_id, record.url) != (source["id"], source["url"]):
         msg = f"{name} was fetched from {record.url}, but sources.toml now requests {source['url']}; re-run fetch"
-        raise ValueError(msg)
-    if record.request_id != source.get("request_id", "") or (
-        record.request_id
-        and (record.parameters != source.get("parameters", {}) or record.header_refs != source.get("headers", {}))
-    ):
-        msg = f"{name}: request identity changed; re-run fetch"
         raise ValueError(msg)
     if record.vintage != _vintage(source):
         msg = f"{name} was fetched as vintage {record.vintage!r}, not {_vintage(source)!r}; re-run fetch"
@@ -1344,7 +1257,6 @@ _PARSERS: dict[str, Parser] = {"csv": parse_csv, "json": parse_json, "xlsx": par
 def _stamp(record: FetchRecord) -> dict[str, str]:
     """The provenance columns `build` adds to every output row."""
     return {
-        **({"request_id": record.request_id} if record.request_id else {}),
         "source_id": record.source_id,
         "source_url": record.url,
         "retrieved_at": record.retrieved_at,
@@ -1395,16 +1307,15 @@ def _build(
 ) -> list[tuple[Path, int | None]]:
     """Build outputs with row counts for tables, or None for unchanged file copies."""
     _check_output_format(output_format)
-    selected = {request_key(s) for s in expand_requests(_select(sources, only), output_format=output_format)}
-    sources = expand_requests(sources, output_format=output_format)
+    selected = {s["id"] for s in _select(sources, only)}
     earlier = {} if only is None else _listed(processed / DATAPACKAGE)
     processed.mkdir(parents=True, exist_ok=True)
     written = []
     resources = []
     for source in implemented(sources):
-        if request_key(source) not in selected:
-            if request_key(source) in earlier:
-                resources.append(earlier[request_key(source)])
+        if source["id"] not in selected:
+            if source["id"] in earlier:
+                resources.append(earlier[source["id"]])
             continue
         out = processed / _output_name(source, output_format)
         if out.name.lower() == DATAPACKAGE:
@@ -1527,7 +1438,7 @@ def _package_name() -> str:
 def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path) -> dict[str, Any]:
     """One output as a Data Package resource: a file, or a table whose columns hold text."""
     resource: dict[str, Any] = {
-        "name": request_key(source),
+        "name": source["id"],
         "type": "table",
         "path": out.name,
         "format": "csv",
@@ -1555,10 +1466,6 @@ def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path)
         "final_url": record.final_url,
         "redistribute": source.get("redistribute"),
     }
-    if record.request_id:
-        resource["sourceledger"].update(
-            source_id=record.source_id, request_id=record.request_id, parameters=record.parameters
-        )
     return resource
 
 
@@ -1633,8 +1540,7 @@ def validate(
     `output_format` must match the build: CSV by default, or Parquet (needs the parquet extra).
     """
     _check_output_format(output_format)
-    selected = expand_requests(_select(sources, only), output_format=output_format)
-    sources = expand_requests(sources, output_format=output_format)
+    selected = _select(sources, only)
     problems = []
     listed = _listed(processed / DATAPACKAGE)
     outputs = {_output_name(source, output_format) for source in sources}
@@ -1656,10 +1562,8 @@ def validate(
             problems.append(f"{sid}: status must be {IMPLEMENTED!r} or {UNIMPLEMENTED!r}, not {status!r}")
             continue
         problems += _terms_problems(source)
-        problems += _output_problems(source, raw, out, listed.get(request_key(source)))
-    return problems + _package_problems(
-        sources, processed, None if only is None else [request_key(s) for s in selected], output_format
-    )
+        problems += _output_problems(source, raw, out, listed.get(sid))
+    return problems + _package_problems(sources, processed, only, output_format)
 
 
 def _output_problems(source: Source, raw: Path, out: Path, resource: dict[str, Any] | None) -> list[str]:
@@ -1713,7 +1617,7 @@ def _package_problems(
     With `only`, whether it lists those of them, each with its output's current hash.
     """
     path = processed / DATAPACKAGE
-    expected = {request_key(source): source for source in implemented(sources)}
+    expected = {source["id"]: source for source in implemented(sources)}
     checked = expected.keys() if only is None else expected.keys() & set(only)
     try:
         package = json.loads(path.read_text(encoding="utf-8"))
@@ -1759,7 +1663,7 @@ def status(sources: list[Source], *, log: Path = FETCH_LOG) -> list[str]:
     return [
         "  ".join(
             [
-                f"{(r['source_id'] + (':' + r['request_id'] if r.get('request_id') else '')):<{width}}",
+                f"{r['source_id']:<{width}}",
                 f"{r['status']!s:<13}",
                 r["vintage"],
                 r["retrieved_at"] if r["retrieved_at"] is not None else "never",
@@ -1774,16 +1678,14 @@ def status(sources: list[Source], *, log: Path = FETCH_LOG) -> list[str]:
 
 def _status_records(sources: list[Source], *, log: Path = FETCH_LOG) -> list[dict[str, Any]]:
     """Manifest status and the last logged fetch, with nulls for missing information."""
-    sources = expand_requests(sources, output_format=None)
     last = _last_records(log)
     return [
         {
             "source_id": source["id"],
-            **({"request_id": source["request_id"]} if source.get("request_id") else {}),
             "status": str(source["status"]) if source.get("status") is not None else None,
             "vintage": _vintage(source),
-            "retrieved_at": last.get(request_key(source), {}).get("retrieved_at"),
-            "sha256": last.get(request_key(source), {}).get("sha256"),
+            "retrieved_at": last.get(source["id"], {}).get("retrieved_at"),
+            "sha256": last.get(source["id"], {}).get("sha256"),
             "license": str(source["license"]) if source.get("license") else None,
             "redistribute": source.get("redistribute") if isinstance(source.get("redistribute"), bool) else None,
         }
@@ -1864,66 +1766,3 @@ def one_line(error: Exception) -> str:
     if isinstance(error, FileNotFoundError) and error.filename:
         return f"{error.filename} is missing"
     return str(error)
-
-
-def _credential_digest(source: Source, raw: Path, *, headers: dict[str, str] | None = None) -> str:
-    """Local keyed identity; credential values never enter public provenance."""
-    folder = raw / ".credentials"
-    folder.mkdir(mode=0o700, exist_ok=True)
-    if folder.is_symlink() or folder.stat().st_mode & 0o077:
-        msg = "private credential directory must be a directory of its own with permissions 0700"
-        raise ValueError(msg)
-    key_path = folder / "key"
-    if key_path.is_symlink() or (key_path.exists() and key_path.stat().st_mode & 0o077):
-        msg = "private credential key must be a file of its own with permissions 0600"
-        raise ValueError(msg)
-    key = key_path.read_bytes() if key_path.exists() else b""
-    if len(key) != 32:
-        key = os.urandom(32)
-        _write_atomic(key_path, key)
-    return hmac.new(key, canonical(_env_headers(source) if headers is None else headers), hashlib.sha256).hexdigest()
-
-
-def _credential_matches(source: Source, raw: Path) -> bool:
-    marker = raw / ".credentials" / ("request-" + source.get("request_id", source["id"]))
-    if marker.is_symlink() or not marker.is_file() or not (marker.parent / "key").is_file():
-        return False
-    return hmac.compare_digest(marker.read_text(encoding="ascii"), _credential_digest(source, raw))
-
-
-def _save_credential_marker(source: Source, raw: Path, *, headers: dict[str, str] | None = None) -> None:
-    if source.get("request_id") or source.get("_update_cache"):
-        digest = _credential_digest(source, raw, headers=headers)
-        marker = raw / ".credentials" / ("request-" + source.get("request_id", source["id"]))
-        _write_atomic(marker, digest.encode())
-        marker.chmod(0o600)
-
-
-def _record_fields(record: FetchRecord) -> dict[str, Any]:
-    """Keep legacy serialized records unchanged when no declarative request exists."""
-    fields = dataclasses.asdict(record)
-    if not record.request_id:
-        for key in ("request_id", "parameters", "header_refs"):
-            fields.pop(key)
-    return fields
-
-
-def _redact(source: Source, text: str) -> str:
-    """Remove current header credentials from redirected metadata and diagnostics."""
-    if _authenticated(source):
-        return f"{source['id']}: authenticated request failed; check headers and the publisher response"
-    return text
-
-
-def _safe_final_url(source: Source, url: str) -> str:
-    if _authenticated(source):
-        return ""
-    if not (source.get("request_id") or source.get("_update_cache")):
-        return url
-    split = urlsplit(url)
-    return urlunsplit((split.scheme, split.netloc.rsplit("@", 1)[-1], split.path, "", ""))
-
-
-def _authenticated(source: Source) -> bool:
-    """Whether new request metadata could reflect environment credentials."""
-    return bool(source.get("headers") and (source.get("request_id") or source.get("_update_cache")))

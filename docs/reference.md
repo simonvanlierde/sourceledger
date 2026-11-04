@@ -21,7 +21,7 @@ output_format = "parquet"
 Install the CLI with `uv tool install 'sourceledger[parquet]'` first.
 For a Python project, use `uv add 'sourceledger[parquet]'` and run commands with `uv run sourceledger`.
 `build` writes `<id>.parquet` with zstd compression
-and an explicit string schema, including the provenance columns. Values such as `001`, `1.10`
+and an explicit string schema, including the five provenance columns. Values such as `001`, `1.10`
 and empty strings keep their spelling. `validate` and `read_output` read these tables with the same extra.
 The Parquet extra uses PyArrow. Writing and validation process at most 10,000 rows per batch.
 Validation decodes every column, including ordinary data columns, to detect unreadable pages.
@@ -39,10 +39,9 @@ Each `[[source]]` table takes these keys:
 | Key | Required | Meaning |
 | --- | --- | --- |
 | `id` | yes | ASCII letters, digits, `_` and `-`. Names the raw file (`id` plus the URL's extension) and the output. |
-| `request` | no | A finite GET plan in place of `url`: template URL, filename, fixed values and list or range dimensions. See [declarative downloads and complete updates](fetching.md#describe-a-finite-set-of-downloads). |
 | `name` | no | A title for people. The data package and `attribution` show it in place of the id. |
 | `status` | yes | `"implemented"`, read by every stage, or `"unimplemented"`: a source you know about but don't read yet. `validate` fails if one of those has output. |
-| `url` | unless `request` is used | What `fetch` downloads. Change it and `build` refuses the old download until you fetch again. |
+| `url` | for implemented sources | What `fetch` downloads. Change it and `build` refuses the old download until you fetch again. |
 | `terms`, `terms_url` | for implemented sources | The publisher's reuse terms in their words, and where they are stated. |
 | `license` | for implemented sources | The same terms as an [SPDX id](https://spdx.org/licenses/), such as `"CC-BY-4.0"`, or `"LicenseRef-<name>"` for terms with none. |
 | `redistribute` | for implemented sources | `true` if the terms let you republish the raw file, `false` if not. |
@@ -62,8 +61,7 @@ JSON input must be an array of objects. Numbers keep their spelling: `1e5` stays
 `format = "file"` keeps archives, rasters and other files unchanged, without unpacking or parsing them.
 
 `validate` reports a missing `terms`, `terms_url`, `license` or `redistribute`. The other
-keys are checked when the manifest loads. Request plans are checked after selecting sources,
-so an unselected plan does not consume the request limit. Keys not listed here are kept for your own reader.
+keys are checked when the manifest loads. Keys not listed here are kept for your own reader.
 
 For checks in an editor with a TOML language server (Tombi, Taplo), put this line at the
 top of `sources.toml`. `init` writes it, with the version you have installed in place of
@@ -73,13 +71,9 @@ top of `sources.toml`. `init` writes it, with the version you have installed in 
 #:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.4.0/src/sourceledger/sources.schema.json
 ```
 
-The schema checks field types and supported keys. Planning also checks finite expansion bounds, parameter use,
-resolved filenames and exact pin coverage before fetching.
+The schema accepts exactly what sourceledger accepts. A test keeps the two in step.
 
 ## Other commands
-
-`update` fetches, builds and validates a complete generation before publication. It accepts `--root`,
-`--max-bytes`, `--workers` and source-group `--only`; see [complete updates](fetching.md#publish-only-complete-updates).
 
 - `init` writes a starter `sources.toml` in the current directory, or at `--manifest PATH`:
   the schema line and one example source, commented out. It won't overwrite an existing one.
