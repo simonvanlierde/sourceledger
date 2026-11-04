@@ -1,4 +1,4 @@
-# 0002. URL templates and POST stay in each project's fetcher
+# URL templates and POST stay in each project's fetcher
 
 - Status: accepted
 - Date: 2026-10-29

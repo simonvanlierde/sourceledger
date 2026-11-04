@@ -1,4 +1,4 @@
-# 0001. Local builds and redistribution
+# Local builds and redistribution
 
 - Status: accepted
 - Date: 2026-10-31

@@ -6,15 +6,15 @@ have moved on.
 
 ## Adding a record
 
-1. Copy `0000-template.md` to the next free number and a short slug, such as
-   `0001-one-parser.md`.
+1. Copy `template.md` to a short slug named after the decision, such as
+   `one-parser.md`. No number: parallel branches can't then take the same one.
 2. Fill in its sections. Set its status to `proposed`, then to `accepted` once agreed.
 3. Add it to the index below.
 
 Don't rewrite an accepted record. When a decision changes, write a new record, and set
-the old one's status to `superseded by 0007`, naming the new record's number.
+the old one's status to `superseded by one-parser.md`, naming the new record's file.
 
 ## Index
 
-- [0001. Local builds and redistribution](0001-local-builds-and-redistribution.md): accepted
-- [0002. URL templates and POST stay in each project's fetcher](0002-fetchers-stay-in-each-project.md): accepted
+- [Local builds and redistribution](local-builds-and-redistribution.md): accepted
+- [URL templates and POST stay in each project's fetcher](fetchers-stay-in-each-project.md): accepted
