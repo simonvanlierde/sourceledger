@@ -3259,3 +3259,29 @@ def test_public_build_preserves_custom_parser(upstream: Path):
     row = ledger.read_output(OUT)[0]
     assert row["custom"] == "kept"
     assert row["source_id"] == "example"
+
+
+def test_a_bad_cr_terminated_history_batch_is_not_an_interrupted_tail(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    log = tmp_path / "history.jsonl"
+    log.write_bytes((" " * 32_768 + "{\r" + _record("a", "1") + "\n").encode())
+    with pytest.raises(ValueError, match=r":1 is not a fetch record"):
+        ledger._last_records(log)  # noqa: SLF001
+    assert "skipping" not in caplog.text
+
+
+def test_history_keeps_latest_records_across_batches(tmp_path: Path) -> None:
+    log = tmp_path / "history.jsonl"
+    log.write_text(
+        (_record("a", "1") + "\n") * 1000 + _record("a", "2") + "\n" + _record("b", "3") + "\n", encoding="utf-8"
+    )
+    assert ledger._last_records(log) == {"a": json.loads(_record("a", "2")), "b": json.loads(_record("b", "3"))}  # noqa: SLF001
+
+
+def test_history_replaces_invalid_utf8_in_a_record(tmp_path: Path) -> None:
+    log = tmp_path / "history.jsonl"
+    log.write_bytes((_record("a", "1") + "\n").encode().replace(b'"url": "u"', b'"url": "\xff"'))
+    record = json.loads(_record("a", "1"))
+    record["url"] = "\ufffd"
+    assert ledger._last_records(log) == {"a": record}  # noqa: SLF001

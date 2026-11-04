@@ -626,20 +626,16 @@ def _is_record(fields: object) -> bool:
     )
 
 
-def _history_lines(log: Path) -> Iterator[tuple[str, bool]]:
-    """History lines with whether an unterminated final line may have been interrupted."""
-    previous = None
-    terminated = True
+def _history_batches(log: Path) -> Iterator[tuple[list[str], bool]]:
+    """History batches with whether their last line may have been interrupted."""
     with log.open(encoding="utf-8", errors="replace", newline="") as fh:
-        # Batch splitting reduces per-record overhead while keeping history buffers small.
-        while physical := fh.readlines(16 * 1024):
+        physical = fh.readlines(16 * 1024)
+        while physical:
             terminated = physical[-1].endswith("\n")
-            for line in "".join(physical).splitlines():
-                if previous is not None:
-                    yield previous, False
-                previous = line
-        if previous is not None:
-            yield previous, not terminated
+            # Look ahead so a CR-terminated batch is not mistaken for an interrupted file.
+            following = fh.readlines(16 * 1024)
+            yield "".join(physical).splitlines(), not following and not terminated
+            physical = following
 
 
 def _last_records(log: Path) -> dict[str, dict[str, Any]]:
@@ -652,22 +648,25 @@ def _last_records(log: Path) -> dict[str, dict[str, Any]]:
         return {}
     records: dict[str, dict[str, Any]] = {}
     numbers: dict[str, int] = {}
-    for number, (line, interrupted) in enumerate(_history_lines(log), start=1):
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError as error:
-            if interrupted:
-                _logger.warning("%s: skipping a last line cut off by an interrupted fetch", log)
+    number = 0
+    for lines, interrupted in _history_batches(log):
+        for index, line in enumerate(lines):
+            number += 1
+            if not line.strip():
                 continue
-            msg = f"{log}:{number} is not a fetch record ({error})"
-            raise ValueError(msg) from error
-        if not (isinstance(record, dict) and isinstance(record.get("source_id"), str)):
-            msg = f"{log}:{number} is not a fetch record"
-            raise ValueError(msg)  # noqa: TRY004  # a damaged log: the CLI reports ValueError as one line
-        records[record["source_id"]] = record
-        numbers[record["source_id"]] = number
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as error:
+                if interrupted and index == len(lines) - 1:
+                    _logger.warning("%s: skipping a last line cut off by an interrupted fetch", log)
+                    continue
+                msg = f"{log}:{number} is not a fetch record ({error})"
+                raise ValueError(msg) from error
+            if not (isinstance(record, dict) and isinstance(record.get("source_id"), str)):
+                msg = f"{log}:{number} is not a fetch record"
+                raise ValueError(msg)  # noqa: TRY004  # a damaged log: the CLI reports ValueError as one line
+            records[record["source_id"]] = record
+            numbers[record["source_id"]] = number
     # Only the last record per source is used, so only those get the full check: it costs
     # more than reading the line, and a log has many lines per source.
     for sid, record in records.items():
