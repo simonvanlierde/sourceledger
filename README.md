@@ -56,7 +56,8 @@ sourceledger validate
 
 For [Parquet outputs](docs/reference.md#sourcestoml), set `output_format = "parquet"`
 before the first `[[source]]` table in `sources.toml`, after installing the Parquet extra above.
-CSV remains the default.
+CSV remains the default. Parquet writing and validation use batches of at most 10,000 rows;
+see [table memory limits](docs/reference.md#sourcestoml).
 
 `sourceledger` reads CSV (gzipped or not), JSON and Excel, by each source's `format` or its
 URL's extension. Set `format = "file"` to keep a raster, archive or other file unchanged.

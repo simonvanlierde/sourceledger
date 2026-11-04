@@ -11,7 +11,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 ### Added
 
 - [Parquet outputs](docs/reference.md#sourcestoml) through `sourceledger[parquet]` and the project-wide `output_format = "parquet"` setting. Tables use zstd compression and an explicit string schema, with the same provenance columns and validation as CSV.
-  Builds consume rows in batches to reduce memory use, while keeping the complete table in memory.
+  Writing and validation use batches of at most 10,000 rows through PyArrow, including full-column decoding to detect corruption.
 - Opt-in `fetch --workers 2` downloads sources in pairs while preserving manifest-order history and records. The library accepts `fetch(sources, workers=2)`; the default remains sequential.
 
 ### Changed
