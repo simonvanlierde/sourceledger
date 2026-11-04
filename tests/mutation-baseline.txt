@@ -12,7 +12,7 @@
 8 sourceledger.ledger.x__fetch_parallel
 3 sourceledger.ledger.x__format
 6 sourceledger.ledger.x__get
-3 sourceledger.ledger.x__history_lines
+7 sourceledger.ledger.x__history_lines
 2 sourceledger.ledger.x__json_text
 4 sourceledger.ledger.x__keep
 2 sourceledger.ledger.x__last_line_start

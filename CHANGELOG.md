@@ -14,7 +14,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Changed
 
-- The CLI reports build row counts without rereading the outputs. Fetch history is read one line at a time, once per CLI fetch, retaining only each source's latest record.
+- The CLI reports build row counts without rereading the outputs. Fetch history is read in small batches, once per CLI fetch, retaining only each source's latest record.
 
 - Builds stream gzipped CSV inputs with the default reader, while enforcing the decompressed size limit. JSON parsing releases each decoded object as it converts the rows, reducing peak memory. Output bytes and parser errors stay the same.
 

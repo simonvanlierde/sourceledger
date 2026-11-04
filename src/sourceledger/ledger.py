@@ -629,14 +629,17 @@ def _is_record(fields: object) -> bool:
 def _history_lines(log: Path) -> Iterator[tuple[str, bool]]:
     """History lines with whether an unterminated final line may have been interrupted."""
     previous = None
+    terminated = True
     with log.open(encoding="utf-8", errors="replace", newline="") as fh:
-        for physical in fh:
-            for line in physical.splitlines():
+        # Batch splitting reduces per-record overhead while keeping history buffers small.
+        while physical := fh.readlines(16 * 1024):
+            terminated = physical[-1].endswith("\n")
+            for line in "".join(physical).splitlines():
                 if previous is not None:
                     yield previous, False
                 previous = line
         if previous is not None:
-            yield previous, not physical.endswith("\n")
+            yield previous, not terminated
 
 
 def _last_records(log: Path) -> dict[str, dict[str, Any]]:

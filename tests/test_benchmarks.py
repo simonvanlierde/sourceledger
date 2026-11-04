@@ -189,7 +189,7 @@ def test_verify(benchmark: BenchmarkFixture) -> None:
 
 
 def test_revisions(benchmark: BenchmarkFixture, tmp_path: Path) -> None:
-    # Reads both logs whole; `status` and every `fetch` read the log the same way.
+    # Scans both histories; `status` and every `fetch` use the same reader.
     before, after = tmp_path / "before.jsonl", tmp_path / "after.jsonl"
     _log(before, SOURCES, 250)
     _log(after, SOURCES, 500)
