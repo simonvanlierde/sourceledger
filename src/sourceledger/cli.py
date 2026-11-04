@@ -11,25 +11,22 @@ from pathlib import Path
 
 from sourceledger.ledger import (
     DATAPACKAGE,
-    FETCH_LOG,
-    FILE_FORMAT,
     MANIFEST,
     PROCESSED,
     USER_AGENT,
     FetchError,
     FetchRecord,
     Parser,
+    _build,
+    _fetch,
+    _load_output_format,
     _revision_records,
     _status_records,
     attribution,
-    build,
-    fetch,
     init,
     load_manifest,
-    logged_versions,
     one_line,
     parse_source,
-    raw_name,
     revisions,
     status,
     validate,
@@ -53,7 +50,7 @@ def _fetch_line(record: FetchRecord, before: dict[str, str]) -> str:
     )
 
 
-def main(
+def main(  # noqa: C901  # argument validation and reporting for each stage
     argv: list[str] | None = None,
     *,
     parse: Parser = parse_source,
@@ -88,7 +85,10 @@ def main(
         "--manifest", type=Path, default=manifest, metavar="PATH", help="the manifest to read (default: %(default)s)"
     )
     parser.add_argument("--json", action="store_true", help="status, validate and revisions: print JSON")
+    parser.add_argument("--workers", type=int, choices=(1, 2), help="fetch: simultaneous downloads (default: 1)")
     args = parser.parse_intermixed_args(argv)
+    if args.workers is not None and args.stage != "fetch":  # noqa: PLR2004  # stage name
+        parser.error("--workers works with fetch only")
     if args.json and args.stage not in _JSON_STAGES:
         parser.error(f"--json works with {', '.join(_JSON_STAGES)}, not {args.stage}")
     if args.only is not None and args.stage not in _SELECTABLE:
@@ -102,7 +102,7 @@ def main(
     # Filled by fetch, for the lines of a run that fails.
     before: dict[str, str] = {}
     try:
-        problems = _run(args.stage, args.path, args.only, parse, user_agent, before, args.manifest)
+        problems = _run(args.stage, args.path, args.only, parse, user_agent, before, args.manifest, args.workers or 1)
     except FetchError as error:
         for record in error.records:
             print(_fetch_line(record, before))
@@ -130,7 +130,7 @@ def _json_run(stage: str, path: Path | None, only: list[str] | None, manifest: P
             case "revisions", Path():
                 report["revisions"] = _revision_records(path)
             case _:
-                problems = validate(load_manifest(manifest), only=only)
+                problems = validate(load_manifest(manifest), only=only, output_format=_load_output_format(manifest))
                 report["problems"] = problems
                 failed = bool(problems)
     except (OSError, ValueError) as error:
@@ -148,6 +148,7 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
     user_agent: str,
     logged: dict[str, str],
     manifest: Path,
+    workers: int = 1,
 ) -> list[str]:
     """Run `stage`, print its report, and return its problems: only validate and verify have any.
 
@@ -170,23 +171,17 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
             print(f"{len(problems)} problems")
             return problems
         case "fetch", _:
-            logged.update(logged_versions(FETCH_LOG))
-            for record in fetch(load_manifest(manifest), user_agent=user_agent, only=only):
+            for record in _fetch(
+                load_manifest(manifest), user_agent=user_agent, only=only, before=logged, workers=workers
+            ):
                 print(_fetch_line(record, logged))
         case "build", _:
             sources = load_manifest(manifest)
-            files = {
-                PROCESSED / raw_name(source)
-                for source in sources
-                if source.get("format") == FILE_FORMAT and source.get("url")
-            }
-            for out in build(sources, parse=parse, only=only):
-                if out in files:
+            for out, count in _build(sources, parse=parse, only=only, output_format=_load_output_format(manifest)):
+                if count is None:
                     print(f"{out.stat().st_size} bytes -> {out}")
                 else:
-                    with out.open(newline="", encoding="utf-8") as fh:
-                        rows = sum(1 for _ in csv.DictReader(fh))
-                    print(f"{rows} rows -> {out}")
+                    print(f"{count} rows -> {out}")
             print(f"package -> {PROCESSED / DATAPACKAGE}")
         case "status", _:
             for line in status(load_manifest(manifest)):
@@ -195,7 +190,7 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
             for line in attribution(load_manifest(manifest)):
                 print(line)
         case _:
-            problems = validate(load_manifest(manifest), only=only)
+            problems = validate(load_manifest(manifest), only=only, output_format=_load_output_format(manifest))
             print(f"{len(problems)} problems")
             return problems
     return []

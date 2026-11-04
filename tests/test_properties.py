@@ -2,6 +2,7 @@
 
 import csv
 import dataclasses
+import gzip
 import io
 import json
 import sys
@@ -114,27 +115,31 @@ def _built(name: str, payload: bytes, parse: ledger.Parser) -> tuple[list[dict[s
         raw, processed = root / "raw", root / "processed"
         ledger.fetch([source], raw=raw, log=root / "fetches.jsonl")
         _, parsed = parse(source, payload)
-        (out,) = ledger.build([source], raw=raw, processed=processed, parse=parse)
+        build_parser = ledger.parse_source if parse is ledger.parse_csv else parse
+        (out,) = ledger.build([source], raw=raw, processed=processed, parse=build_parser)
         read = [{k: v for k, v in row.items() if k not in _provenance} for row in ledger.read_output(out)]
         return parsed, read
 
 
 @settings(deadline=None)
 @given(
-    _columns.flatmap(
+    table=_columns.flatmap(
         lambda cols: st.tuples(
             st.just(cols), st.lists(st.lists(st.text(), min_size=len(cols), max_size=len(cols)), max_size=4)
         )
-    )
+    ),
+    compressed=st.booleans(),
 )
-def test_csv_rows_survive_build_and_read_output(table: tuple[list[str], list[list[str]]]) -> None:
+def test_csv_rows_survive_build_and_read_output(table: tuple[list[str], list[list[str]]], *, compressed: bool) -> None:
     """What parse_csv reads is what the published output holds, field for field."""
     columns, rows = table
     buffer = io.StringIO(newline="")
     writer = csv.writer(buffer)
     writer.writerow(columns)
     writer.writerows(rows)
-    parsed, read = _built("s.csv", buffer.getvalue().encode(), ledger.parse_csv)
+    payload = buffer.getvalue().encode()
+    name = "s.csv.gz" if compressed else "s.csv"
+    parsed, read = _built(name, gzip.compress(payload) if compressed else payload, ledger.parse_csv)
     assert read == parsed
 
 
@@ -227,3 +232,19 @@ def test_status_metadata_is_json_serializable(
     assert row["vintage"] == str(vintage)
     assert row["license"] == (licence or None)
     assert row["redistribute"] is redistribute
+
+
+@settings(deadline=None)
+@given(
+    written=st.lists(_records, max_size=8),
+    separator=st.sampled_from(["\n", "\r", "\r\n", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"]),
+    terminated=st.booleans(),
+)
+def test_streamed_history_preserves_splitlines_records(
+    written: list[ledger.FetchRecord], separator: str, *, terminated: bool
+) -> None:
+    with tempfile.TemporaryDirectory() as folder:
+        log = Path(folder) / "history.jsonl"
+        text = separator.join(json.dumps(dataclasses.asdict(record)) for record in written)
+        log.write_bytes((text + (separator if terminated else "")).encode())
+        assert ledger._last_records(log) == _last_by_id(written)  # noqa: SLF001

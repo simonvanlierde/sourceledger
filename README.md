@@ -25,7 +25,8 @@ uv tool install sourceledger
 ```
 
 For a Python project that imports the library, use `uv add sourceledger` instead.
-Use `sourceledger[xlsx]` in either command to read Excel files.
+Use `sourceledger[xlsx]` in either command to read Excel files, or `sourceledger[parquet]`
+to write Parquet outputs.
 Python 3.12 or later is required; Linux and macOS are supported (POSIX).
 This README follows `main`, including [unreleased features](CHANGELOG.md#unreleased).
 
@@ -52,6 +53,10 @@ sourceledger fetch
 sourceledger build
 sourceledger validate
 ```
+
+For [Parquet outputs](docs/reference.md#sourcestoml), set `output_format = "parquet"`
+before the first `[[source]]` table in `sources.toml`, after installing the Parquet extra above.
+CSV remains the default.
 
 `sourceledger` reads CSV (gzipped or not), JSON and Excel, by each source's `format` or its
 URL's extension. Set `format = "file"` to keep a raster, archive or other file unchanged.
