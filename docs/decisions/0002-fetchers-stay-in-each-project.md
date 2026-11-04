@@ -23,4 +23,5 @@ A URL template expands into many URLs in one run, and a POST answer has no URL t
 
 - sourceledger does not grow template or POST handling for these projects.
 - A templated or POST source stays out of `sources.toml`, so sourceledger keeps no fetch record or pin for it.
-- Moving a fetcher into sourceledger later needs a new record. A second project that needs the same request shape is the time to look again.
+- Moving a fetcher into sourceledger later needs a new record. A second project that needs the same request shape is the time to look again. On 2026-11-04 none does: only wise-pipeline uses URL templates, and only msc-thesis-ie sends a POST (KNMI hourly data).
+- Paging through an API, a third shape, already has two users: msc-thesis-ie follows PDOK's OGC `next` links, and credit-matrix's census follows Europe PMC's `cursorMark`. It is the likeliest shape to come back here.
