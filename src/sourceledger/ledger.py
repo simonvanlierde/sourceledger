@@ -1214,8 +1214,8 @@ def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[Fet
     """Write one source to `out`: the fetch record, and the columns written (none for a file).
 
     File sources are copied unchanged. Tables get their provenance columns first.
-    With the default parser a plain CSV file goes through a row at a time, so memory stays
-    near one row whatever the file's size.
+    With the default parser and CSV output, a plain CSV file goes through a row at a time,
+    so memory stays near one row whatever the file's size.
     """
     record = _record(source, raw)
     stamp = _stamp(record)
@@ -1450,7 +1450,7 @@ def _output_problems(source: Source, raw: Path, out: Path, resource: dict[str, A
 
 
 def _scan(out: Path, stamp: dict[str, str]) -> tuple[bool, bool]:
-    """Whether an output has rows, and whether any of them has another stamp, read one row at a time."""
+    """Whether an output has rows, and whether any of them has another stamp."""
     rows = stale = False
     # Read to the end even once stale, so damage anywhere in the table is reported.
     for row in _output_rows(out):
