@@ -366,7 +366,7 @@ def _is_public(host: str) -> bool:
 
 
 class _InwardRedirectError(ValueError):
-    """A redirect from a public host connected to a loopback, private or link-local address."""
+    """A redirect from a public host refused for where it leads: inward, or out of HTTP."""
 
 
 class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
@@ -394,6 +394,11 @@ class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
             return None
         # Every later hop stays public-only, so a public host can't bounce through one that looks internal.
         if getattr(req, "public_only", False) or _is_public(urlsplit(req.full_url).hostname or ""):
+            # _PeerCheck sees only HTTP connections; urllib would also follow a redirect to ftp.
+            if urlsplit(newurl).scheme.lower() not in ("http", "https"):
+                fp.close()
+                msg = f"refused a redirect from a public host to {newurl}, which is not HTTP or HTTPS"
+                raise _InwardRedirectError(msg)
             new.public_only = True  # ty: ignore[unresolved-attribute]  # read back by _PeerCheck
         # urllib copies every header to the new request. A token meant for one host must not
         # reach another, nor go out in clear text after https -> http, so a redirect that
@@ -1342,7 +1347,9 @@ def _write_rows(
                 if extra := row.keys() - set(fields):
                     msg = f"{source['id']}: row has fields not in the header: {sorted(extra)}"
                     raise ValueError(msg)
-                yield {**dict.fromkeys(columns, ""), **row, **stamp}
+                # Same cells as csv.DictWriter writes: None as "", anything else through str().
+                cells = {k: "" if v is None else str(v) for k, v in row.items()}
+                yield {**dict.fromkeys(columns, ""), **cells, **stamp}
 
         count = 0
         pending = table_rows()

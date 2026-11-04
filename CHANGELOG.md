@@ -10,7 +10,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Added
 
-- [Parquet outputs](docs/reference.md#sourcestoml) through `sourceledger[parquet]` and the project-wide `output_format = "parquet"` setting. Tables use zstd compression and an explicit string schema, with the same provenance columns and validation as CSV.
+- [Parquet outputs](docs/reference.md#sourcestoml) through `sourceledger[parquet]` and the project-wide `output_format = "parquet"` setting. Tables use zstd compression and an explicit string schema, with the same provenance columns and validation as CSV. `build`, `validate` and `read_output` accept `output_format=` in the library.
   Writing and validation use batches of at most 10,000 rows through PyArrow, including full-column decoding to detect corruption.
 
 ### Changed
@@ -21,6 +21,10 @@ a breaking change comes only in a minor version (see Stability in the README).
 ### Fixed
 
 - HTTPS downloads keep the SSL context on their own handler instead of reading a private standard-library attribute.
+
+### Security
+
+- A redirect from a public host to a non-HTTP URL, such as `ftp://` on an internal address, is refused. Before, urllib followed it past the check that refuses inward redirects.
 
 ## [0.4.0] - 2026-11-01
 

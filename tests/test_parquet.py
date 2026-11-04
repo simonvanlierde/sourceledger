@@ -304,3 +304,18 @@ def test_parquet_validation_rejects_invalid_utf8_after_stale_batch(tmp_path: Pat
         writer.write_table(pa.Table.from_arrays([pa.array(["test"]), invalid], schema=schema))
     with pytest.raises(ValueError, match="not a readable Parquet table"):
         ledger._scan(out, {"source_id": "test"})  # noqa: SLF001
+
+
+@pytest.mark.usefixtures("project")
+@pytest.mark.parametrize("output_format", ["csv", "parquet"])
+def test_parquet_writes_parser_cells_as_csv_does(output_format: str) -> None:
+    """A parser returning None or numbers gets the same cells whichever format is written."""
+    assert main(["fetch"]) == 0
+
+    def loose(_source: ledger.Source, _data: bytes) -> tuple[list[str], list[dict]]:
+        return ["code", "value"], [{"code": 7, "value": None}]
+
+    sources = ledger.load_manifest()
+    ledger.build(sources, parse=loose, output_format=output_format)
+    row = ledger.read_output(Path(f"data/processed/example.{output_format}"))[0]
+    assert (row["code"], row["value"]) == ("7", "")

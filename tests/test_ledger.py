@@ -983,6 +983,17 @@ def test_a_redirect_from_a_public_host_is_marked_public_only() -> None:
     assert not hasattr(moved, "public_only")
 
 
+def test_a_redirect_from_a_public_host_must_stay_http() -> None:
+    """The connected-peer check sees only HTTP, so a public host can't send a fetch to internal ftp."""
+    handler = ledger._NoRedirectInward()  # noqa: SLF001
+    public = urllib.request.Request("http://93.184.215.14/data.csv")
+    with pytest.raises(ledger._InwardRedirectError, match="not HTTP or HTTPS"):  # noqa: SLF001
+        handler.redirect_request(public, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "ftp://10.0.0.1/a")
+    # A source that already lives on an internal host keeps urllib's own redirect rules.
+    internal = urllib.request.Request("http://127.0.0.1/data.csv")
+    assert handler.redirect_request(internal, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "ftp://10.0.0.1/a")
+
+
 class _Rebinder(http.server.BaseHTTPRequestHandler):
     """/start.csv redirects to rebind.test on the same port; anything else is the internal secret."""
 
