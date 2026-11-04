@@ -53,7 +53,7 @@ It supports the stated behavior; it is not an independent security certification
   The inward-redirect peer check is skipped through proxies; apply network restrictions
   at the proxy. Initial manifest URLs may deliberately point to internal or local files.
 - **Resources:** DNS resolution and HTTP header parsing can exceed the fetch budget.
-  The size cap is not a process-memory limit: JSON, Excel, gzipped CSV and custom readers
+  The size cap is not a process-memory limit: JSON, Excel and custom readers
   can hold the data and parsed rows in memory. See [download behavior](fetching.md).
 - **Writes:** Atomic replacement covers one file, not a whole fetch or build. A stopped
   run can leave files from different stages; run `validate` before using its output.

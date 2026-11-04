@@ -8,6 +8,16 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in `fetch --workers 2` downloads sources in pairs while preserving manifest-order history and records. The library accepts `fetch(sources, workers=2)`; the default remains sequential.
+
+### Changed
+
+- The CLI reports build row counts without rereading the outputs. Fetch history is read one line at a time, once per CLI fetch, retaining only each source's latest record.
+
+- Builds stream gzipped CSV inputs with the default reader, while enforcing the decompressed size limit. JSON parsing releases each decoded object as it converts the rows, reducing peak memory. Output bytes and parser errors stay the same.
+
 ## [0.4.0] - 2026-11-01
 
 Move manually added files out of `data/processed/` before running `validate`.

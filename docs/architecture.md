@@ -52,6 +52,9 @@ lacks its final newline is kept.
 4. It moves the file into place, appends a line to the log when the bytes are new for that
    source, and then writes the `.fetch.json` record.
 
+History reads retain only the latest record for each source, reading one line at a time. The CLI
+uses that same history read, under the fetch lock, to label downloads as new or unchanged.
+
 The log line goes in before the record. If a crash comes between the two, the next run
 sees no matching record and fetches in full, so no version is lost. A lock on
 `data/raw/.lock` stops a second fetch in the same project while one runs (Linux and macOS
@@ -65,9 +68,9 @@ only). `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
    file. A record made for another URL, vintage or pin, or a raw file changed since, is
    refused.
 2. It reads the raw file with the project's reader, a `Parser`, into columns and rows. With
-   the default reader, a plain CSV is read and written one row at a time, so memory stays
-   small whatever the file's size. JSON, Excel, gzipped CSV and a custom `Parser` are read
-   whole.
+   the default reader, CSV files, gzipped or not, are read and written one row at a time.
+   JSON, Excel and custom readers hold the whole source in memory. JSON converts its
+   decoded objects in place to avoid keeping a second list of rows.
 3. It writes `data/processed/<id>.csv` with five provenance columns in front of the source's
    own: `source_id`, `source_url`, `retrieved_at`, `vintage` and `raw_sha256`.
 4. It writes `datapackage.json`, a Frictionless Data Package that lists every output with

@@ -25,6 +25,7 @@ import tracemalloc
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator
+from concurrent.futures import Future
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as dt_time
 from email.message import Message
@@ -1905,6 +1906,7 @@ def test_a_cut_off_line_after_several_records_drops_only_itself(caplog: pytest.L
         (f'{_record("a", "1")}\n{{"source_id": "a"', {"a": "1" * 64}),
         (f"not json\n{_record('a', '1')}", "log.jsonl:1 is not a fetch record"),
         (f"{_record('a', '1')}\nnot json\n", "log.jsonl:2 is not a fetch record"),
+        (f"{_record('a', '1')}\rnot json\r", {"a": "1" * 64}),
     ],
 )
 def test_the_log_reader_skips_blank_lines_and_forgives_only_a_cut_off_end(
@@ -2541,6 +2543,59 @@ def test_build_streams_a_csv_source_one_row_at_a_time(big: int) -> None:
     assert ledger.validate(sources) == []
 
 
+@pytest.mark.parametrize("rows", [10_000, 100_000])
+def test_build_streams_a_gzipped_csv_source(rows: int, upstream: Path) -> None:
+    body = "year,value,note\n" + "".join(f"{i},{i * 0.5},row {i}\n" for i in range(rows))
+    upstream.write_bytes(gzip.compress(body.encode()))
+    sources = ledger.load_manifest()
+    ledger.fetch(sources)
+    # gzip has fixed decompression buffers in addition to the CSV reader's row-sized memory.
+    assert _peak(lambda: ledger.build(sources)) < len(body) // 4 + 1024 * 1024
+    assert ledger.validate(sources) == []
+
+
+@pytest.mark.parametrize("offset", [-1, 0])
+def test_streamed_gzip_stops_at_the_decompressed_cap(
+    offset: int, upstream: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = b"year,value\n" + b"2020,1.5\n" * 1_000
+    cap = len(body) + offset
+    upstream.write_bytes(gzip.compress(body))
+    _manifest(tmp_path, upstream.as_uri(), terms=f"{TERMS}\nmax_bytes = {cap}")
+    sources = ledger.load_manifest()
+    ledger.fetch(sources)
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    OUT.write_bytes(b"previous output")
+    chunks: list[int] = []
+    read1 = gzip.GzipFile.read1
+
+    def spy(self: gzip.GzipFile, size: int = -1) -> bytes:
+        data = read1(self, size)
+        chunks.append(len(data))
+        return data
+
+    monkeypatch.setattr(gzip.GzipFile, "read1", spy)
+    if offset:
+        with pytest.raises(ValueError, match=f"decompresses past {cap} bytes"):
+            ledger.build(sources)
+        assert OUT.read_bytes() == b"previous output"
+        assert sorted(path.name for path in OUT.parent.iterdir()) == [OUT.name]
+    else:
+        ledger.build(sources)
+        assert ledger.validate(sources) == []
+    assert chunks
+    assert sum(chunks) <= cap + 1
+
+
+@pytest.mark.parametrize("count", [2_000, 20_000])
+def test_json_conversion_releases_each_decoded_object(count: int) -> None:
+    payload = b"[" + b'{"flag":true,"value":null},' * (count - 1) + b'{"flag":true,"value":null}]'
+    assert _peak(lambda: ledger.parse_json({"id": "j"}, payload)) < count * 350
+    columns, rows = ledger.parse_json({"id": "j"}, payload)
+    assert columns == ["flag", "value"]
+    assert rows == [{"flag": "true", "value": ""}] * count
+
+
 def _list_path(source: ledger.Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
     """The default parser behind another name, so build takes the path any custom parser takes."""
     return ledger.parse_source(source, payload)
@@ -2564,6 +2619,7 @@ def _both_paths(raw: bytes) -> list[bytes | str]:
 
 
 @pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("compressed", [False, True])
 @pytest.mark.parametrize(
     "raw",
     [
@@ -2584,8 +2640,10 @@ def _both_paths(raw: bytes) -> list[bytes | str]:
         b'year,value\n2020,"open\n',
     ],
 )
-def test_a_streamed_build_writes_or_refuses_what_the_list_path_does(raw: bytes) -> None:
+def test_a_streamed_build_writes_or_refuses_what_the_list_path_does(raw: bytes, *, compressed: bool) -> None:
     assert _run("fetch") == [0]
+    if compressed:
+        raw = gzip.compress(raw)
     streamed, listed = _both_paths(raw)
     assert streamed == listed
 
@@ -2935,3 +2993,269 @@ def test_validate_hashes_each_file_output_once(tmp_path: Path, monkeypatch: pyte
     monkeypatch.setattr(ledger, "_digest", digest)
     assert ledger.validate(sources) == []
     assert len([p for p in hashed if p.parent == Path("data/processed")]) == count
+
+
+@pytest.mark.parametrize("count", [0, 10, 100])
+def test_cli_build_does_not_reopen_outputs_to_count_rows(
+    count: int, upstream: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    upstream.write_text("value,note\n" + '1,"two\nlines"\n' * count, encoding="utf-8")
+    assert main(["fetch"]) == 0
+    capsys.readouterr()
+    opened: list[str] = []
+    original_open = Path.open
+
+    def tracking_open(path: Path, mode: str = "r", *args: object, **kwargs: object):  # noqa: ANN202
+        # Keep the probe on the real writer and descriptor paths.
+        if path == OUT:
+            opened.append(mode)
+        return original_open(path, mode, *args, **kwargs)  # ty: ignore[no-matching-overload]
+
+    monkeypatch.setattr(Path, "open", tracking_open)
+    assert main(["build"]) == 0
+    assert f"{count} rows -> {OUT}" in capsys.readouterr().out
+    assert opened == ["rb"]  # the descriptor hashes the completed output once
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("count", [100, 1000])
+def test_cli_fetch_reads_history_once(count: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert main(["fetch"]) == 0
+    LOG.write_text((_record("example", "0") + "\n") * count, encoding="utf-8")
+    reads: list[Path] = []
+    original = ledger._last_records  # noqa: SLF001
+    monkeypatch.setattr(ledger, "_last_records", lambda log: reads.append(log) or original(log))
+    assert main(["fetch"]) == 0
+    assert reads == [LOG]
+
+
+@pytest.mark.parametrize("count", [1000, 10000])
+def test_history_memory_tracks_sources_instead_of_versions(count: int, tmp_path: Path) -> None:
+    log = tmp_path / "history.jsonl"
+    line = _record("example", "0") + "\n"
+    log.write_text(line * count, encoding="utf-8")
+    assert _peak(lambda: ledger.logged_versions(log)) < 256 * 1024
+    assert ledger.logged_versions(log) == {"example": "0" * 64}
+
+
+@pytest.mark.parametrize("workers", [0, 3, True, 1.5])
+def test_fetch_workers_reject_invalid(workers: object, tmp_path: Path):
+    with pytest.raises(ValueError, match=r"^workers must be 1 or 2$"):
+        ledger.fetch([], raw=tmp_path / "raw", log=tmp_path / "log", workers=workers)  # ty: ignore[invalid-argument-type]
+    assert not (tmp_path / "raw").exists()
+
+
+def test_parallel_fetch_bounds_downloads_and_commits_in_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    sources = [{"id": str(i), "status": "implemented", "url": f"https://example.org/{i}.csv"} for i in range(5)]
+    barrier = threading.Barrier(2)
+    lock = threading.Lock()
+    active = peak = 0
+    committed: list[str] = []
+    main_thread = threading.get_ident()
+    original_append = ledger._append  # noqa: SLF001  # verify durable writes stay on the coordinator
+
+    def open_(request: urllib.request.Request, timeout: float) -> _Response:
+        nonlocal active, peak
+        assert timeout > 0
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        if not request.full_url.endswith("4.csv"):
+            barrier.wait(timeout=5)
+        with lock:
+            active -= 1
+        return _Response(FIXTURE.encode(), url=request.full_url)
+
+    def append(log: Path, record: ledger.FetchRecord) -> None:
+        assert threading.get_ident() == main_thread
+        committed.append(record.source_id)
+        original_append(log, record)
+
+    monkeypatch.setattr(ledger, "_open", open_)
+    monkeypatch.setattr(ledger, "_append", append)
+    raw, log = tmp_path / "raw", tmp_path / "log"
+    records = ledger.fetch(sources, raw=raw, log=log, workers=2)
+    assert peak == 2
+    assert committed == [str(i) for i in range(5)]
+    assert [record.source_id for record in records] == committed
+    assert [json.loads(line)["source_id"] for line in log.read_text().splitlines()] == committed
+    assert not list(raw.glob("*.part"))
+
+
+def test_parallel_fetch_keeps_successes_and_cleans_failed_pins(tmp_path: Path):
+    source = tmp_path / "source.csv"
+    source.write_text(FIXTURE)
+    sources = [{"id": str(i), "status": "implemented", "url": source.as_uri()} for i in range(4)]
+    sources[0]["sha256"] = "0" * 64
+    sources[2]["url"] = (tmp_path / "missing.csv").as_uri()
+    raw = tmp_path / "raw"
+    with pytest.raises(ledger.FetchError) as caught:
+        ledger.fetch(sources, raw=raw, log=tmp_path / "log", workers=2)
+    assert [record.source_id for record in caught.value.records] == ["1", "3"]
+    assert len(caught.value.failures) == 2
+    assert "not the sha256 in sources.toml" in caught.value.failures[0]
+    assert "missing.csv" in caught.value.failures[1]
+    assert sorted(path.name for path in raw.iterdir()) == [
+        ".lock",
+        "1.csv",
+        "1.csv.fetch.json",
+        "3.csv",
+        "3.csv.fetch.json",
+    ]
+
+
+@pytest.mark.usefixtures("upstream")
+def test_cli_workers_only_for_fetch(capsys: pytest.CaptureFixture[str]):
+    assert main(["fetch", "--workers", "2"]) == 0
+    with pytest.raises(SystemExit):
+        main(["build", "--workers", "1"])
+    assert "--workers works with fetch" in capsys.readouterr().err
+
+
+def test_parallel_real_http_redirects_and_conditional_requests(publisher: str, tmp_path: Path):
+    sources = [{"id": str(i), "status": "implemented", "url": f"{publisher}/old.csv"} for i in range(4)]
+    raw, log = tmp_path / "raw", tmp_path / "log"
+    records = ledger.fetch(sources, raw=raw, log=log, workers=2)
+    assert all(record.final_url == f"{publisher}/data.csv" for record in records)
+    assert ledger.fetch(sources, raw=raw, log=log, workers=2) == records
+    assert len(log.read_text().splitlines()) == 4
+    assert not list(raw.glob("*.part"))
+
+
+def test_parallel_fetch_checks_pair_before_starting_downloads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    source = tmp_path / "source.csv"
+    source.write_text(FIXTURE)
+    sources = [{"id": str(i), "status": "implemented", "url": source.as_uri()} for i in range(2)]
+    raw = tmp_path / "raw"
+
+    def previous(source: ledger.Source, _raw: Path) -> None:
+        if source["id"] == "1":
+            msg = "failed checking previous state"
+            raise RuntimeError(msg)
+
+    monkeypatch.setattr(ledger, "_previous", previous)
+    with pytest.raises(RuntimeError, match="previous state"):
+        ledger.fetch(sources, raw=raw, log=tmp_path / "log", workers=2)
+    assert sorted(path.name for path in raw.iterdir()) == [".lock"]
+
+
+def test_parallel_fetch_cleans_downloads_after_unexpected_commit_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    source = tmp_path / "source.csv"
+    source.write_text(FIXTURE)
+    sources = [{"id": str(i), "status": "implemented", "url": source.as_uri()} for i in range(2)]
+    raw = tmp_path / "raw"
+
+    def keep(*_args: object) -> None:
+        msg = "unexpected commit error"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(ledger, "_keep", keep)
+    with pytest.raises(RuntimeError, match="unexpected commit error"):
+        ledger.fetch(sources, raw=raw, log=tmp_path / "log", workers=2)
+    assert sorted(path.name for path in raw.iterdir()) == [".lock"]
+
+
+def test_default_fetch_stays_on_calling_thread(upstream: Path, monkeypatch: pytest.MonkeyPatch):
+    caller = threading.get_ident()
+    original_open = ledger._open  # noqa: SLF001
+
+    def open_(request: urllib.request.Request, timeout: float) -> ledger._Response:
+        assert threading.get_ident() == caller
+        return original_open(request, timeout)
+
+    monkeypatch.setattr(ledger, "_open", open_)
+    assert ledger.fetch(ledger.load_manifest())[0].url == upstream.as_uri()
+
+
+def test_parallel_fetch_conditional_headers_temp_directory_and_archive_agent(
+    publisher: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    sources = [
+        {"id": str(i), "status": "implemented", "url": f"{publisher}/data.csv", "archive": True} for i in range(2)
+    ]
+    raw, log = tmp_path / "raw", tmp_path / "log"
+    calls: list[urllib.request.Request] = []
+    original_open = ledger._open  # noqa: SLF001
+    original_temp = tempfile.mkstemp
+
+    def open_(request: urllib.request.Request, timeout: float) -> ledger._Response:
+        calls.append(request)
+        return original_open(request, timeout)
+
+    def temporary(*, dir: Path, prefix: str, suffix: str) -> tuple[int, str]:  # noqa: A002
+        assert dir == raw
+        return original_temp(dir=dir, prefix=prefix, suffix=suffix)
+
+    def archive(_source: ledger.Source, user_agent: str) -> str:
+        assert user_agent == "project/1.0"
+        return "https://web.archive.org/web/example"
+
+    monkeypatch.setattr(ledger, "_open", open_)
+    monkeypatch.setattr(ledger, "_archive", archive)
+    monkeypatch.setattr(tempfile, "mkstemp", temporary)
+    records = ledger.fetch(sources, raw=raw, log=log, workers=2, user_agent="project/1.0")
+    calls.clear()
+    log.unlink()
+    assert ledger.fetch(sources, raw=raw, log=log, workers=2, user_agent="project/1.0") == records
+    assert len(calls) == 2
+    assert all(request.get_header("If-none-match") == '"v1"' for request in calls)
+    assert len(log.read_text().splitlines()) == 2
+
+
+def test_parallel_fetch_cleans_download_after_submission_interruption(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    source = tmp_path / "source.csv"
+    source.write_text(FIXTURE)
+    sources = [{"id": str(i), "status": "implemented", "url": source.as_uri()} for i in range(2)]
+    raw = tmp_path / "raw"
+    original_submit = ledger.ThreadPoolExecutor.submit
+    calls = 0
+
+    def submit(
+        executor: ledger.ThreadPoolExecutor, fn: Callable[..., object], /, *args: object, **kwargs: object
+    ) -> Future[object]:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise KeyboardInterrupt
+        return original_submit(executor, fn, *args, **kwargs)
+
+    monkeypatch.setattr(ledger.ThreadPoolExecutor, "submit", submit)
+    with pytest.raises(KeyboardInterrupt):
+        ledger.fetch(sources, raw=raw, log=tmp_path / "log", workers=2)
+    assert sorted(path.name for path in raw.iterdir()) == [".lock"]
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize(("options", "expected"), [([], 0), (["--workers", "2"], 1)])
+def test_cli_workers_select_parallel_fetch(options: list[str], expected: int, monkeypatch: pytest.MonkeyPatch):
+    calls: list[tuple[object, ...]] = []
+
+    def parallel(*args: object) -> list[ledger.FetchRecord]:
+        calls.append(args)
+        return []
+
+    monkeypatch.setattr(ledger, "_fetch_parallel", parallel)
+    assert main(["fetch", *options]) == 0
+    assert len(calls) == expected
+
+
+@pytest.mark.parametrize("workers", [0, 3])
+def test_cli_workers_reject_values_outside_bound(workers: int):
+    with pytest.raises(SystemExit) as caught:
+        main(["fetch", "--workers", str(workers)])
+    assert caught.value.code == 2
+
+
+def test_public_build_preserves_custom_parser(upstream: Path):
+    sources = ledger.load_manifest()
+    ledger.fetch(sources)
+
+    def parse(source: ledger.Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
+        assert source["id"] == "example"
+        assert payload == upstream.read_bytes()
+        return ["custom"], [{"custom": "kept"}]
+
+    assert ledger.build(sources, parse=parse) == [OUT]
+    row = ledger.read_output(OUT)[0]
+    assert row["custom"] == "kept"
+    assert row["source_id"] == "example"

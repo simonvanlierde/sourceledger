@@ -12,6 +12,14 @@ title: Download limits and retries
   out after the smaller of 30 s and the budget left at the start of that attempt.
   DNS lookup and HTTP header parsing can exceed the budget, so it is not a hard time limit.
   Redirects discard their unused response bodies. An optional archive request has the separate timeout below.
+- Fetch downloads one source at a time by default. `sourceledger fetch --workers 2`
+  overlaps two downloads using the existing HTTP transport. The library equivalent is
+  `fetch(sources, workers=2)`. Only 1 or 2 workers are accepted, so any host receives
+  at most two simultaneous source requests, including redirects and retries.
+  Downloads run in pairs; a slow source delays the next pair. Files, history
+  and records are written in manifest order on the calling thread. At most two
+  temporary downloads are retained, each bounded by its source's `max_bytes`.
+  Archive requests remain sequential and can overlap the other source's download.
 - Every source is tried. When some fail, the others are still written, and the run
   exits 1 with one line per failed source.
 - A second fetch in the same project, while one runs, exits at once (a lock on
