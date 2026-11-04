@@ -54,7 +54,8 @@ It supports the stated behavior; it is not an independent security certification
   at the proxy. Initial manifest URLs may deliberately point to internal or local files.
 - **Resources:** DNS resolution and HTTP header parsing can exceed the fetch budget.
   The size cap is not a process-memory limit: JSON, Excel and custom readers
-  can hold the data and parsed rows in memory. See [download behavior](fetching.md).
+  can hold the data and parsed rows in memory. Parquet builds and validation hold each table in memory too.
+  See [download behavior](fetching.md) and [table output formats](reference.md#sourcestoml).
 - **Writes:** Atomic replacement covers one file, not a whole fetch or build. A stopped
   run can leave files from different stages; run `validate` before using its output.
   Do not run build and fetch concurrently. These checks do not defend against a hostile

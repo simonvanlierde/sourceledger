@@ -27,6 +27,7 @@ The [reference](reference.md) lists the manifest keys and command options. This 
 | `data/raw/.lock` | `fetch` | `fetch` | no |
 | `data/fetches.jsonl` | `fetch` | `fetch`, `status`, `revisions`, `report` | yes |
 | `data/processed/<id>.csv` | `build` (tables) | `validate`, `verify`, `report` | no |
+| `data/processed/<id>.parquet` | `build` (Parquet tables) | `validate`, `verify`, `report` | no |
 | `data/processed/<id>.<ext>` | `build` (`format = "file"`) | `validate`, `verify`, `report` | no |
 | `data/processed/datapackage.json` | `build` | `build --only`, `validate`, `verify`, `report` | no |
 
@@ -52,7 +53,7 @@ lacks its final newline is kept.
 4. It moves the file into place, appends a line to the log when the bytes are new for that
    source, and then writes the `.fetch.json` record.
 
-History reads retain only the latest record for each source, reading one line at a time. The CLI
+History reads retain only the latest record for each source and use small batches of complete lines. The CLI
 uses that same history read, under the fetch lock, to label downloads as new or unchanged.
 
 The log line goes in before the record. If a crash comes between the two, the next run
@@ -68,11 +69,12 @@ only). `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
    file. A record made for another URL, vintage or pin, or a raw file changed since, is
    refused.
 2. It reads the raw file with the project's reader, a `Parser`, into columns and rows. With
-   the default reader, CSV files, gzipped or not, are read and written one row at a time.
+   the default reader and CSV output, CSV files, gzipped or not, are read and written one row at a time.
    JSON, Excel and custom readers hold the whole source in memory. JSON converts its
-   decoded objects in place to avoid keeping a second list of rows.
+   decoded objects in place to avoid keeping a second list of rows. Parquet output holds each table in memory.
 3. It writes `data/processed/<id>.csv` with five provenance columns in front of the source's
    own: `source_id`, `source_url`, `retrieved_at`, `vintage` and `raw_sha256`.
+   With `output_format = "parquet"`, it writes `<id>.parquet` with zstd compression and an explicit string schema.
 4. It writes `datapackage.json`, a Frictionless Data Package that lists every output with
    its size, SHA-256, source and licence.
 
@@ -89,7 +91,7 @@ It has no table schema.
 
 `validate` checks the outputs against the manifest and the records, and lists every
 problem instead of stopping at the first. It re-hashes each raw file in blocks and reads
-each output one row at a time, so memory stays small. It compares each row's provenance
+each CSV output one row at a time. Parquet tables are read whole. It compares each row's provenance
 columns with the record. For a file source, it compares the output's hash with the fetch
 record and checks that its package entry has the current provenance and reuse terms.
 It also reports a source without reuse terms, an output that no source owns, and a
@@ -117,7 +119,7 @@ It exits 1 if it finds any problem.
   A test checks that it accepts exactly what `load_manifest` accepts.
 - `src/sourceledger/__init__.py`: the public API, listed in `__all__`.
 
-HTTP is the standard library's `urllib`, so there are no runtime dependencies. sourceledger
+HTTP is the standard library's `urllib`, so the core has no runtime dependencies. sourceledger
 adds the retries, the size cap, the time budget, the redirect check and the conditional
 requests itself.
 

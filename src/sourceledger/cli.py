@@ -19,6 +19,7 @@ from sourceledger.ledger import (
     Parser,
     _build,
     _fetch,
+    _load_output_format,
     _revision_records,
     _status_records,
     attribution,
@@ -129,7 +130,7 @@ def _json_run(stage: str, path: Path | None, only: list[str] | None, manifest: P
             case "revisions", Path():
                 report["revisions"] = _revision_records(path)
             case _:
-                problems = validate(load_manifest(manifest), only=only)
+                problems = validate(load_manifest(manifest), only=only, output_format=_load_output_format(manifest))
                 report["problems"] = problems
                 failed = bool(problems)
     except (OSError, ValueError) as error:
@@ -176,7 +177,7 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
                 print(_fetch_line(record, logged))
         case "build", _:
             sources = load_manifest(manifest)
-            for out, count in _build(sources, parse=parse, only=only):
+            for out, count in _build(sources, parse=parse, only=only, output_format=_load_output_format(manifest)):
                 if count is None:
                     print(f"{out.stat().st_size} bytes -> {out}")
                 else:
@@ -189,7 +190,7 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
             for line in attribution(load_manifest(manifest)):
                 print(line)
         case _:
-            problems = validate(load_manifest(manifest), only=only)
+            problems = validate(load_manifest(manifest), only=only, output_format=_load_output_format(manifest))
             print(f"{len(problems)} problems")
             return problems
     return []
