@@ -1259,13 +1259,15 @@ def _write_rows(
     if out.suffix == _PARQUET_SUFFIX:
         pl = _polars()
         fields = [*stamp, *columns]
-        table = []
-        for row in rows:
-            if extra := row.keys() - set(fields):
-                msg = f"{source['id']}: row has fields not in the header: {sorted(extra)}"
-                raise ValueError(msg)
-            table.append({**dict.fromkeys(columns, ""), **row, **stamp})
-        frame = pl.DataFrame(table, schema=dict.fromkeys(fields, pl.String))
+
+        def table_rows() -> Iterator[dict[str, str]]:
+            for row in rows:
+                if extra := row.keys() - set(fields):
+                    msg = f"{source['id']}: row has fields not in the header: {sorted(extra)}"
+                    raise ValueError(msg)
+                yield {**dict.fromkeys(columns, ""), **row, **stamp}
+
+        frame = pl.DataFrame(table_rows(), schema=dict.fromkeys(fields, pl.String))
         with _replacing(out) as fh:
             frame.write_parquet(fh, compression="zstd")
         return

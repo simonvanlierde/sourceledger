@@ -11,6 +11,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 ### Added
 
 - [Parquet outputs](docs/reference.md#sourcestoml) through `sourceledger[parquet]` and the project-wide `output_format = "parquet"` setting. Tables use zstd compression and an explicit string schema, with the same provenance columns and validation as CSV.
+  Builds consume rows in batches to reduce memory use, while keeping the complete table in memory.
 
 ### Fixed
 

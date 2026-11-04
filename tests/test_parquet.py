@@ -4,6 +4,7 @@ import io
 import json
 import subprocess
 import sys
+import tracemalloc
 from pathlib import Path
 
 import polars as pl
@@ -167,6 +168,21 @@ def test_parquet_fills_missing_cells_and_protects_the_stamp(tmp_path: Path) -> N
         {"id": "test"}, out, {"source_id": "test"}, ["x"], [{}, {"x": "1", "source_id": "wrong"}]
     )
     assert ledger.read_output(out) == [{"source_id": "test", "x": ""}, {"source_id": "test", "x": "1"}]
+
+
+def test_parquet_does_not_keep_all_python_rows_beside_the_frame(tmp_path: Path) -> None:
+    stamp = dict.fromkeys(["source_id", "source_url", "retrieved_at", "vintage", "raw_sha256"], "test")
+    rows = ({"code": str(i), "value": "001.2300", "description": "test", "category": "group"} for i in range(300_000))
+    tracemalloc.start()
+    try:
+        ledger._write_rows(  # noqa: SLF001
+            {"id": "test"}, tmp_path / "table.parquet", stamp, ["code", "value", "description", "category"], rows
+        )
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    # Native frame storage is outside tracemalloc; retaining these Python rows exceeds this budget.
+    assert peak < 80 * 1024 * 1024
 
 
 @pytest.mark.parametrize("output_format", ["csv", "parquet", "xml", True, []])

@@ -23,7 +23,8 @@ For a Python project, use `uv add 'sourceledger[parquet]'` and run commands with
 `build` writes `<id>.parquet` with zstd compression
 and an explicit string schema, including the five provenance columns. Values such as `001`, `1.10`
 and empty strings keep their spelling. `validate` and `read_output` read these tables with the same extra.
-Parquet builds and validation hold each table in memory. `datapackage.json` records the format and media type;
+Parquet builds consume input rows in batches but still hold the complete Polars table in memory.
+Validation also holds each table in memory. `datapackage.json` records the format and media type;
 `verify` checks the bytes without needing the extra.
 
 The default is `output_format = "csv"`. `format = "file"` sources keep their original bytes in either mode.
