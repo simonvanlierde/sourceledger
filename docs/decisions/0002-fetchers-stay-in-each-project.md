@@ -1,7 +1,9 @@
 # 0002. URL templates and POST stay in each project's fetcher
 
-- Status: accepted
+- Status: superseded by 0004
 - Date: 2026-10-29
+
+[Decision 0004](0004-declarative-retrieval.md) replaces this boundary. Declarative fetching is not yet implemented.
 
 ## Context
 
