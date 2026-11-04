@@ -96,6 +96,7 @@ IMPLEMENTED = "implemented"
 UNIMPLEMENTED = "unimplemented"
 FILE_FORMAT = "file"
 _PARQUET_SUFFIX = ".parquet"
+_PARQUET_BATCH_ROWS = 10_000
 # Bounds each connect and read; the source's budget is checked between reads.
 _SOCKET_TIMEOUT_S = 30
 # One source's download budget includes attempts and waits. DNS lookup and HTTP header
@@ -1366,7 +1367,7 @@ def build(
     `format = "file"` copies the original bytes to `processed/<raw_name>`, without parsing.
     For tables, `parse` reads each raw file; the default reads CSV, JSON and Excel by format.
     `output_format` selects CSV (the default) or Parquet with zstd compression and an explicit
-    string schema. Parquet needs the parquet extra and holds each table in memory.
+    string schema. Parquet needs the parquet extra and writes batches of at most 10,000 rows.
     Then writes `processed/datapackage.json`, a Frictionless Data Package (v2) describing every
     output: its columns, size and SHA-256, its source URL and licence, and its fetch record.
     The same records give the same file, byte for byte.
@@ -1421,8 +1422,8 @@ def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[Fet
     """Write one source to `out`: return its fetch record, columns and row count (None for a file).
 
     File sources are copied unchanged. Tables get their provenance columns first.
-    With the default parser and CSV output, CSV files, gzipped or not, go through a row
-    at a time. Parquet output holds the complete table in memory.
+    With the default parser, CSV files, gzipped or not, are read a row at a time.
+    CSV output writes one row at a time; Parquet writes batches of at most 10,000 rows.
     """
     record = _record(source, raw)
     stamp = _stamp(record)
@@ -1468,8 +1469,9 @@ def _write_rows(
         msg = f"{source['id']}: source columns {sorted(clash)} collide with the provenance columns"
         raise ValueError(msg)
     if out.suffix == _PARQUET_SUFFIX:
-        pl = _polars()
+        pa, pq = _arrow()
         fields = [*stamp, *columns]
+        schema = pa.schema([(field, pa.string()) for field in fields])
 
         def table_rows() -> Iterator[dict[str, str]]:
             for row in rows:
@@ -1478,10 +1480,13 @@ def _write_rows(
                     raise ValueError(msg)
                 yield {**dict.fromkeys(columns, ""), **row, **stamp}
 
-        frame = pl.DataFrame(table_rows(), schema=dict.fromkeys(fields, pl.String))
-        with _replacing(out) as fh:
-            frame.write_parquet(fh, compression="zstd")
-        return frame.height
+        count = 0
+        pending = table_rows()
+        with _replacing(out) as fh, pq.ParquetWriter(fh, schema, compression="zstd") as writer:
+            while batch := list(itertools.islice(pending, _PARQUET_BATCH_ROWS)):
+                writer.write_table(pa.Table.from_pylist(batch, schema=schema))
+                count += len(batch)
+        return count
     with _replacing(out) as fh:
         text = io.TextIOWrapper(fh, encoding="utf-8", newline="")
         writer = csv.DictWriter(text, fieldnames=[*stamp, *columns])
@@ -1562,29 +1567,38 @@ def read_output(path: Path) -> list[dict[str, str]]:
     return list(_output_rows(path))
 
 
-def _polars() -> Any:  # noqa: ANN401  # optional dependency, imported only for Parquet
+def _arrow() -> tuple[Any, Any]:  # optional dependency, imported only for Parquet
     """Load the Parquet backend, with an actionable error when the extra is missing."""
     try:
-        import polars as pl  # noqa: PLC0415
+        import pyarrow as pa  # noqa: PLC0415
+        import pyarrow.parquet as pq  # noqa: PLC0415
     except ImportError as error:
         msg = (
             "Parquet needs the parquet extra: uv tool install 'sourceledger[parquet]' (CLI) "
             "or uv add 'sourceledger[parquet]' (project)"
         )
         raise ValueError(msg) from error
-    return pl
+    return pa, pq
+
+
+def _parquet_batches(path: Path) -> Iterator[Any]:
+    """Decode all columns in bounded row batches, including columns validation does not compare."""
+    pa, pq = _arrow()
+    try:
+        with pq.ParquetFile(path) as reader:
+            for batch in reader.iter_batches(batch_size=_PARQUET_BATCH_ROWS, use_threads=False):
+                batch.validate(full=True)
+                yield batch
+    except (pa.ArrowException, OSError) as error:
+        msg = f"{path}: not a readable Parquet table ({error})"
+        raise ValueError(msg) from error
 
 
 def _output_rows(path: Path) -> Iterator[dict[str, str]]:
-    """Read CSV one row at a time, or read a Parquet table with its optional backend."""
+    """Read CSV one row at a time, or Parquet in bounded batches with its optional backend."""
     if path.suffix == _PARQUET_SUFFIX:
-        pl = _polars()
-        try:
-            frame = pl.read_parquet(path)
-        except pl.exceptions.PolarsError as error:
-            msg = f"{path}: not a readable Parquet table ({error})"
-            raise ValueError(msg) from error
-        yield from frame.iter_rows(named=True)
+        for batch in _parquet_batches(path):
+            yield from batch.to_pylist()
         return
     with path.open(newline="", encoding="utf-8") as fh:
         yield from csv.DictReader(fh)
@@ -1674,6 +1688,16 @@ def _output_problems(source: Source, raw: Path, out: Path, resource: dict[str, A
 def _scan(out: Path, stamp: dict[str, str]) -> tuple[bool, bool]:
     """Whether an output has rows, and whether any of them has another stamp."""
     rows = stale = False
+    if out.suffix == _PARQUET_SUFFIX:
+        for batch in _parquet_batches(out):
+            rows = rows or bool(batch.num_rows)
+            if not stale:
+                stale = any(
+                    column not in batch.schema.names
+                    or any(value != expected for value in batch.column(column).to_pylist())
+                    for column, expected in stamp.items()
+                )
+        return rows, stale
     # Read to the end even once stale, so damage anywhere in the table is reported.
     for row in _output_rows(out):
         rows = True

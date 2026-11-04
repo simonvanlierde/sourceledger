@@ -74,9 +74,10 @@ only). `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
    file. A record made for another request identity, URL, vintage or pin, or a raw file changed since, is
    refused.
 2. It reads the raw file with the project's reader, a `Parser`, into columns and rows. With
-   the default reader and CSV output, CSV files, gzipped or not, are read and written one row at a time.
+   the default reader, CSV files, gzipped or not, are read one row at a time.
    JSON, Excel and custom readers hold the whole source in memory. JSON converts its
-   decoded objects in place to avoid keeping a second list of rows. Parquet output holds each table in memory.
+   decoded objects in place to avoid keeping a second list of rows. CSV output writes one row at a time;
+   Parquet writes batches of at most 10,000 rows.
 3. It writes one table per response with provenance columns before the source's own:
    `source_id`, `source_url`, `retrieved_at`, `vintage` and `raw_sha256`.
    Declarative responses also add `request_id`; [request naming](fetching.md#describe-a-finite-set-of-downloads) determines each output filename.
@@ -97,7 +98,8 @@ It has no table schema.
 
 `validate` checks the outputs against the manifest and the records, and lists every
 problem instead of stopping at the first. It re-hashes each raw file in blocks and reads
-each CSV output one row at a time. Parquet tables are read whole. It compares each row's provenance
+each CSV output one row at a time. Parquet tables are decoded in batches of at most 10,000 rows.
+It compares each row's provenance
 columns with the record. For a file source, it compares the output's hash with the fetch
 record and checks that its package entry has the current provenance and reuse terms.
 It also reports a source without reuse terms, an output that no source owns, and a

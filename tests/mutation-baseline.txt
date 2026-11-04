@@ -23,6 +23,7 @@
 3 sourceledger.ledger.x__output_rows
 1 sourceledger.ledger.x__package_name
 2 sourceledger.ledger.x__package_problems
+3 sourceledger.ledger.x__parquet_batches
 2 sourceledger.ledger.x__record
 4 sourceledger.ledger.x__retry_after
 6 sourceledger.ledger.x__scan

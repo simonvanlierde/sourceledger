@@ -23,8 +23,11 @@ For a Python project, use `uv add 'sourceledger[parquet]'` and run commands with
 `build` writes `<id>.parquet` with zstd compression
 and an explicit string schema, including the provenance columns. Values such as `001`, `1.10`
 and empty strings keep their spelling. `validate` and `read_output` read these tables with the same extra.
-Parquet builds consume input rows in batches but still hold the complete Polars table in memory.
-Validation also holds each table in memory. `datapackage.json` records the format and media type;
+The Parquet extra uses PyArrow. Writing and validation process at most 10,000 rows per batch.
+Validation decodes every column, including ordinary data columns, to detect unreadable pages.
+Memory also depends on row width, file metadata and encoded column dictionaries; this is not a fixed byte cap.
+JSON, Excel and custom readers still hold their input and parsed rows in memory.
+`read_output` still returns a list containing the whole table. `datapackage.json` records the format and media type;
 `verify` checks the bytes without needing the extra.
 
 The default is `output_format = "csv"`. `format = "file"` sources keep their original bytes in either mode.

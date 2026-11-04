@@ -1,6 +1,5 @@
 """Parquet keeps the table contract, provenance and package checks of CSV outputs."""
 
-import io
 import json
 import subprocess
 import sys
@@ -8,6 +7,8 @@ import tracemalloc
 from pathlib import Path
 
 import polars as pl
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -42,9 +43,8 @@ def test_parquet_build_and_validate(project: Path, capsys: pytest.CaptureFixture
     out = Path("data/processed/example.parquet")
     assert "2 rows -> data/processed/example.parquet" in capsys.readouterr().out
     table = pl.read_parquet(out)
-    compressed = io.BytesIO()
-    table.write_parquet(compressed, compression="zstd")
-    assert out.read_bytes() == compressed.getvalue()
+    metadata = pq.read_metadata(out)
+    assert {metadata.row_group(0).column(i).compression for i in range(metadata.num_columns)} == {"ZSTD"}
     assert table.schema == dict.fromkeys(
         ["source_id", "source_url", "retrieved_at", "vintage", "raw_sha256", "code", "value"], pl.String
     )
@@ -97,7 +97,7 @@ def test_unknown_output_format_fails(value: str) -> None:
 @pytest.mark.usefixtures("project")
 def test_missing_extra_has_an_install_hint(monkeypatch: pytest.MonkeyPatch) -> None:
     assert main(["fetch"]) == 0
-    monkeypatch.setitem(sys.modules, "polars", None)
+    monkeypatch.setitem(sys.modules, "pyarrow", None)
     hint = (
         "Parquet needs the parquet extra: uv tool install 'sourceledger[parquet]' (CLI) "
         "or uv add 'sourceledger[parquet]' (project)"
@@ -120,9 +120,9 @@ def test_parquet_checks_the_package_hash_even_when_provenance_is_current() -> No
     assert ledger.validate(ledger.load_manifest(), output_format="parquet", only=["example"]) == [expected]
 
 
-def test_core_import_keeps_polars_unloaded() -> None:
+def test_core_import_keeps_parquet_backends_unloaded() -> None:
     subprocess.run(
-        [sys.executable, "-c", "import sourceledger, sys; assert 'polars' not in sys.modules"],
+        [sys.executable, "-c", "import sourceledger, sys; assert not {'polars', 'pyarrow'} & sys.modules.keys()"],
         check=True,
     )
 
@@ -148,6 +148,7 @@ def test_parquet_empty_table_has_an_explicit_schema() -> None:
     assert main(["fetch"]) == main(["build"]) == 0
     frame = pl.read_parquet("data/processed/example.parquet")
     assert frame.height == 0
+    assert ledger._scan(Path("data/processed/example.parquet"), {"source_id": "example"}) == (False, False)  # noqa: SLF001
     assert frame.schema == dict.fromkeys(
         ["source_id", "source_url", "retrieved_at", "vintage", "raw_sha256", "code", "value"], pl.String
     )
@@ -208,3 +209,98 @@ def test_parquet_round_trips_text(values: list[str], tmp_path_factory: pytest.Te
     rows = [{"value": value} for value in values]
     ledger._write_rows({"id": "test"}, out, {"source_id": "test"}, ["value"], rows)  # noqa: SLF001
     assert ledger.read_output(out) == [{"source_id": "test", **row} for row in rows]
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="VmHWM is a Linux process counter")
+@pytest.mark.parametrize("operation", ["write", "validate"])
+def test_parquet_native_memory_is_batched(tmp_path: Path, operation: str) -> None:
+    peaks = []
+    for size in (10_000, 1_000_000):
+        out = tmp_path / f"{size}.parquet"
+        code = """
+import sys
+from pathlib import Path
+from sourceledger import ledger
+size, out, operation = int(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+stamp = dict.fromkeys(["source_id", "source_url", "retrieved_at", "vintage", "raw_sha256"], "test")
+if operation == "write":
+    rows = (dict(code=str(i), value="001.2300", description="test description", category="group") for i in range(size))
+    assert ledger._write_rows({"id": "test"}, out, stamp, ["code", "value", "description", "category"], rows) == size
+else:
+    assert ledger._scan(out, stamp) == (True, False)
+print(next(line.split()[1] for line in Path("/proc/self/status").read_text().splitlines() if line.startswith("VmHWM:")))
+"""
+        command = [sys.executable, "-c", code, str(size), str(out)]
+        written = subprocess.run([*command, "write"], check=True, capture_output=True, text=True)  # noqa: S603
+        measured = (
+            written
+            if operation == "write"
+            else subprocess.run([*command, "validate"], check=True, capture_output=True, text=True)  # noqa: S603
+        )
+        peaks.append(int(measured.stdout))
+    # Increasing row count 100-fold must not retain a complete table in native memory.
+    assert peaks[1] - peaks[0] < 48 * 1024
+
+
+def test_parquet_batches_preserve_order_values_and_determinism(tmp_path: Path) -> None:
+    out = tmp_path / "table.parquet"
+    values = ["", "001.2300", "a\nb", '"quoted", comma', "\x00", "é", "\r\n"]
+    expected = [{"source_id": "test", "value": values[i % len(values)]} for i in range(20_001)]
+    snapshots = []
+    for _ in range(2):
+        count = ledger._write_rows({"id": "test"}, out, {"source_id": "test"}, ["value"], iter(expected))  # noqa: SLF001
+        assert count == len(expected)
+        assert ledger.read_output(out) == expected
+        assert pl.read_parquet(out).to_dicts() == expected
+        metadata = pq.read_metadata(out)
+        assert [metadata.row_group(i).num_rows for i in range(metadata.num_row_groups)] == [10_000, 10_000, 1]
+        assert [batch.num_rows for batch in ledger._parquet_batches(out)] == [10_000, 10_000, 1]  # noqa: SLF001
+        snapshots.append(out.read_bytes())
+    assert snapshots[0] == snapshots[1]
+
+
+def test_parquet_late_row_error_cleans_temporary_output(tmp_path: Path) -> None:
+    out = tmp_path / "table.parquet"
+    out.write_bytes(b"previous build")
+    rows = ({"x": "1"} if i < 10_000 else {"extra": "2"} for i in range(10_001))
+    with pytest.raises(ValueError, match="not in the header"):
+        ledger._write_rows({"id": "test"}, out, {}, ["x"], rows)  # noqa: SLF001
+    assert out.read_bytes() == b"previous build"
+    assert list(tmp_path.iterdir()) == [out]
+
+
+@pytest.mark.parametrize("provenance", [None, "old"])
+def test_parquet_validation_reads_damaged_non_provenance_pages(tmp_path: Path, provenance: str | None) -> None:
+    out = tmp_path / "table.parquet"
+    pl.DataFrame({"source_id": [provenance] * 20_001, "value": ["test"] * 20_001}).write_parquet(
+        out, row_group_size=10_000, compression="zstd"
+    )
+    metadata = pq.read_metadata(out)
+    column = metadata.row_group(metadata.num_row_groups - 1).column(1)
+    offset = column.dictionary_page_offset or column.data_page_offset
+    with out.open("r+b") as target:
+        target.seek(offset)
+        target.write(b"\xff" * column.total_compressed_size)
+    # Even when provenance is already stale, later ordinary columns must still decode.
+    with pytest.raises(ValueError, match="not a readable Parquet table"):
+        ledger._scan(out, {"source_id": "test"})  # noqa: SLF001
+
+
+@pytest.mark.parametrize("columns", [{"value": ["1"]}, {"source_id": [None], "value": ["1"]}])
+def test_parquet_missing_or_null_provenance_is_stale(tmp_path: Path, columns: dict[str, list[str | None]]) -> None:
+    out = tmp_path / "table.parquet"
+    pl.DataFrame(columns).write_parquet(out)
+    assert ledger._scan(out, {"source_id": "test"}) == (True, True)  # noqa: SLF001
+
+
+def test_parquet_validation_rejects_invalid_utf8_after_stale_batch(tmp_path: Path) -> None:
+    out = tmp_path / "table.parquet"
+    schema = pa.schema([("source_id", pa.string()), ("value", pa.string())])
+    with pq.ParquetWriter(out, schema, compression="zstd") as writer:
+        writer.write_table(
+            pa.Table.from_pydict({"source_id": ["old"] * 10_000, "value": ["valid"] * 10_000}, schema=schema)
+        )
+        invalid = pa.array([b"\xff"]).cast(pa.string(), safe=False)
+        writer.write_table(pa.Table.from_arrays([pa.array(["test"]), invalid], schema=schema))
+    with pytest.raises(ValueError, match="not a readable Parquet table"):
+        ledger._scan(out, {"source_id": "test"})  # noqa: SLF001
