@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from sourceledger.ledger import DATAPACKAGE, FETCH_LOG, PROCESSED, Source, _last_records, implemented, verify
+from sourceledger.retrieval import expand_requests, request_key
 
 
 def _url(value: object) -> str:
@@ -39,6 +40,7 @@ def report(sources: list[Source], *, processed: Path = PROCESSED, log: Path = FE
     Expected input errors raise OSError or ValueError before any HTML is returned.
     Missing fetch records and stale or changed outputs are described in the report.
     """
+    sources = expand_requests(sources, output_format=None)
     package = json.loads((processed / DATAPACKAGE).read_text(encoding="utf-8"))
     resources = package.get("resources") if isinstance(package, dict) else None
     if not isinstance(resources, list) or not all(isinstance(r, dict) for r in resources):
@@ -57,10 +59,10 @@ def report(sources: list[Source], *, processed: Path = PROCESSED, log: Path = FE
     records = _last_records(log)
     problems = verify(processed)
     listed = sorted(str(resource.get("name")) for resource in resources)
-    expected = sorted(source["id"] for source in implemented(sources))
+    expected = sorted(request_key(source) for source in implemented(sources))
     if listed != expected:
         problems.append(f"The package lists {listed}, not the implemented sources {expected}; re-run build")
-    by_id = {source["id"]: source for source in sources}
+    by_id = {request_key(source): source for source in sources}
     sections = []
     for number, resource in enumerate(resources):
         sid = str(resource.get("name", "unnamed"))

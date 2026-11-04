@@ -2,7 +2,7 @@
 
 - Status: accepted direction; supersedes 0002
 - Date: 2026-11-04
-- Implementation: not available
+- Implementation: bounded GET expansion and complete-update publication available; retrieval-only POST pending
 
 ## Context
 
@@ -21,13 +21,13 @@ Shared retrieval should simplify updates while keeping interpretation of data in
 Add bounded declarative GET expansion, then retrieval-only POST with JSON or form bodies.
 Keep the existing transport and its safety limits.
 Do not add response-dependent pagination, submitted jobs, browser sessions or arbitrary workflows.
-The [proposed WDI example](../examples/declarative-wdi.toml) describes the first adopter's requests.
-The boundary above is accepted; the syntax and implementation mechanics below are a draft contract.
-Current sourceledger does not accept this manifest syntax or provide complete-update publication.
+The [WDI example](../examples/declarative-wdi.toml) describes the first adopter's requests.
+The GET syntax and publication mechanics below are implemented. POST remains the next implementation step.
+[Download behavior](../fetching.md) documents the shipped commands, API and staging budget.
 
 ### Expansion and naming
 
-The proposed fields live under `source.request`.
+The fields live under `source.request`.
 `method` defaults to GET; `url` holds a template and `filename` names one response.
 `values` defines scalar substitutions.
 `expand` defines dimensions as ordered, nonempty lists of strings or integers, or `{ start = N, stop = M }` integer ranges.
@@ -36,7 +36,7 @@ Expand dimensions in sorted key order; the last dimension varies fastest.
 Preserve list order and reject duplicate values.
 Reject a plan exceeding 1,000 requests across the selected sources before accessing the network or creating response files.
 This bounds request count, not practical disk use: 1,000 responses at the current 200 MiB cap can approach 195 GiB.
-Before implementation, enforce an aggregate staging budget covering responses, outputs and temporary files while preserving the previous complete generation.
+The update workflow enforces an aggregate staging budget covering responses, outputs and temporary files while preserving the previous complete generation.
 Budget exhaustion stops the update without publication; retained historical generations can still accumulate disk usage.
 
 Support only `{name}` substitution: no expressions, attribute access, format specifications or recursive substitution.
@@ -156,7 +156,6 @@ Reject `archive = true` for POST: archiving the URL with GET does not capture a 
 Projects can update finite source slices through shared retrieval and provenance.
 Implementation must change manifest validation/schema, fetching, cache identity, history, parser metadata, build publication, reports and CLI behavior together.
 The current per-file publication mechanism cannot provide the agreed complete-update guarantee.
-Review the draft generation layout and update entry point against those callers before implementation.
-This implementation review does not reopen the accepted boundary or imply that the capability has shipped.
+The generation workflow is additive; low-level callers continue to own their raw and processed paths.
 Implement GET expansion/publication first, POST second, and adopt WISE separately.
 No live POST adopter has been identified; use local retrieval fixtures rather than invent a domain workflow.
