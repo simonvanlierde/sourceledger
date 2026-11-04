@@ -7,6 +7,7 @@
 4 sourceledger.ledger.x__conditional
 3 sourceledger.ledger.x__content_length
 1 sourceledger.ledger.x__copy
+3 sourceledger.ledger.x__credential_matches
 11 sourceledger.ledger.x__download
 1 sourceledger.ledger.x__fetch
 8 sourceledger.ledger.x__fetch_parallel
@@ -39,3 +40,6 @@
 5 sourceledger.report.x__fields
 2 sourceledger.report.x__url
 61 sourceledger.report.x_report
+2 sourceledger.retrieval.x__dimension
+5 sourceledger.retrieval.x__template
+1 sourceledger.update.x__attempt

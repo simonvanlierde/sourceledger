@@ -1,4 +1,3 @@
-# PROPOSED CONTRACT: current sourceledger does not accept this request syntax.
 # Reproduces the five WDI requests in wise-pipeline's current 2018-2022 slice.
 # The WDI envelope still requires a project parser and a single-page check.
 

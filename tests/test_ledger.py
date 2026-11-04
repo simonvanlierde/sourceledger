@@ -1596,7 +1596,7 @@ def test_only_and_paths_go_with_their_stages(capsys: pytest.CaptureFixture[str])
     """--only is for fetch, build and validate; verify, like revisions, needs its path."""
     with pytest.raises(SystemExit):
         main(["status", "--only", "example"])
-    assert "--only works with fetch, build, validate, not status" in capsys.readouterr().err
+    assert "--only works with fetch, build, update, validate, not status" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         main(["verify"])
     assert "verify needs the folder of a published dataset" in capsys.readouterr().err

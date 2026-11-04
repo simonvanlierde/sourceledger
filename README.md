@@ -13,6 +13,7 @@ CSV, JSON, Excel or binary files. List the sources and reuse terms in `sources.t
 
 - `fetch` downloads the files and records their URLs, dates and SHA-256 checksums.
 - `build` writes tables with provenance columns, or copies file sources unchanged.
+- `update` publishes a complete generation after fetching, building and validation; failed attempts keep verified downloads for retry.
 - `validate` checks the outputs against the downloads and the manifest.
 
 Each table row identifies its download. A `datapackage.json` describes the outputs.
@@ -87,6 +88,8 @@ runs `fetch` before `build` and `validate`.
   [safe use](docs/secure-use.md), and [what the checks establish](docs/assurance-case.md).
 - **Choose and verify:** compare [related tools](docs/comparison.md), or check a
   sourceledger release's [signed provenance and reproducible build](docs/releases.md).
+
+Finite GET templates and complete updates are described in [download behavior](docs/fetching.md#describe-a-finite-set-of-downloads).
 
 ## Project status
 
