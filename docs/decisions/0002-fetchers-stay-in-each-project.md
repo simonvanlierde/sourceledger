@@ -11,7 +11,16 @@ Some projects that use sourceledger fetch their data with URL templates or POST 
 
 URL templates and POST requests stay in each project's own fetcher. wise-pipeline keeps its templated World Bank fetcher. cml-ia-factors keeps its runtime cache.
 
+Each source in `sources.toml` is one fixed `url`, fetched with a GET, and the rest of the design leans on that:
+
+- The fetch record and the conditional re-fetch (`If-None-Match`, `If-Modified-Since`) belong to that one URL. Change it, and `build` refuses the old download.
+- The `sha256` pin checks the one file that URL returns.
+- `archive = true` asks Save Page Now to snapshot that URL. The archive fetches the URL itself, with no headers or body.
+
+A URL template expands into many URLs in one run, and a POST answer has no URL that names it. Both would need their own record, pin and re-fetch rules. sourceledger does its own HTTP on top of `urllib` (retries, the size cap, the time budget and the redirect check), so each new request shape needs the same care and a test against a real server. The projects' fetchers already work, and `build`'s `parse` argument already covers their own file formats.
+
 ## Consequences
 
 - sourceledger does not grow template or POST handling for these projects.
-- Moving a fetcher into sourceledger later needs a new record.
+- A templated or POST source stays out of `sources.toml`, so sourceledger keeps no fetch record or pin for it.
+- Moving a fetcher into sourceledger later needs a new record. A second project that needs the same request shape is the time to look again.
