@@ -42,7 +42,6 @@ import zipfile
 import zlib
 from collections import Counter
 from collections.abc import Callable, Collection, Generator, Iterable, Iterator
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
@@ -805,7 +804,6 @@ def fetch(
     log: Path = FETCH_LOG,
     user_agent: str = USER_AGENT,
     only: Collection[str] | None = None,
-    workers: int = 1,
 ) -> list[FetchRecord]:
     """Download each implemented source into `raw`, with a fetch record beside it.
 
@@ -821,11 +819,8 @@ def fetch(
 
     `only` restricts the fetch to those source ids, and leaves the others as they are.
     Raises ValueError for an id the manifest does not have.
-    `workers=2` overlaps two downloads; the default is sequential. Completed pairs are
-    committed in manifest order. At most two capped temporary downloads exist at once,
-    and at most two source requests can reach any host, including through redirects.
     """
-    return _fetch(sources, raw=raw, log=log, user_agent=user_agent, only=only, workers=workers)
+    return _fetch(sources, raw=raw, log=log, user_agent=user_agent, only=only)
 
 
 def _fetch(
@@ -835,13 +830,9 @@ def _fetch(
     log: Path = FETCH_LOG,
     user_agent: str = USER_AGENT,
     only: Collection[str] | None = None,
-    workers: int = 1,
     before: dict[str, str] | None = None,
 ) -> list[FetchRecord]:
     """Fetch and optionally retain the pre-fetch hashes from the same locked history read."""
-    if type(workers) is not int or workers not in (1, 2):
-        msg = "workers must be 1 or 2"
-        raise ValueError(msg)
     sources = _select(sources, only)
     raw.mkdir(parents=True, exist_ok=True)
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -851,9 +842,6 @@ def _fetch(
         logged = _last_records(log)
         if before is not None:
             before.update((sid, record["sha256"]) for sid, record in logged.items())
-
-        if workers == 2:
-            return _fetch_parallel(implemented(sources), raw, log, logged, user_agent)
         for source in implemented(sources):
             try:
                 records.append(_fetch_one(source, raw, log, logged, user_agent))
@@ -861,41 +849,6 @@ def _fetch(
                 failures.append(str(error))
             except _TRANSIENT as error:
                 failures.append(f"{source['id']}: fetching {source['url']} failed: {error}")
-    if failures:
-        raise FetchError(records, failures)
-    return records
-
-
-def _fetch_parallel(
-    sources: list[Source], raw: Path, log: Path, logged: dict[str, dict[str, Any]], user_agent: str
-) -> list[FetchRecord]:
-    """Download pairs concurrently, committing each pair in manifest order on the calling thread."""
-    records: list[FetchRecord] = []
-    failures: list[str] = []
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        for batch in itertools.batched(sources, 2):
-            previous = [_previous(source, raw) for source in batch]
-            futures = []
-            try:
-                for source, record in zip(batch, previous, strict=True):
-                    futures.append(executor.submit(_get, source, record, user_agent, raw))
-                for source, future in zip(batch, futures, strict=True):
-                    try:
-                        response = future.result()
-                        if isinstance(response, FetchRecord):
-                            _log_new_version(log, logged, response)
-                            records.append(response)
-                        else:
-                            records.append(_keep(source, response, raw, log, logged, user_agent))
-                    except ValueError as error:
-                        failures.append(str(error))
-                    except _TRANSIENT as error:
-                        failures.append(f"{source['id']}: fetching {source['url']} failed: {error}")
-            finally:
-                # Wait before cleanup: an unexpected coordinator failure can leave the other download running.
-                for future in futures:
-                    if future.exception() is None and isinstance(response := future.result(), _Download):
-                        response.path.unlink(missing_ok=True)
     if failures:
         raise FetchError(records, failures)
     return records

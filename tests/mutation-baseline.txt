@@ -9,7 +9,6 @@
 1 sourceledger.ledger.x__copy
 11 sourceledger.ledger.x__download
 1 sourceledger.ledger.x__fetch
-8 sourceledger.ledger.x__fetch_parallel
 3 sourceledger.ledger.x__format
 6 sourceledger.ledger.x__get
 7 sourceledger.ledger.x__history_batches

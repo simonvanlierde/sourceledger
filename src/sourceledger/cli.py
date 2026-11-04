@@ -50,7 +50,7 @@ def _fetch_line(record: FetchRecord, before: dict[str, str]) -> str:
     )
 
 
-def main(  # noqa: C901  # argument validation and reporting for each stage
+def main(  # argument validation and reporting for each stage
     argv: list[str] | None = None,
     *,
     parse: Parser = parse_source,
@@ -85,10 +85,7 @@ def main(  # noqa: C901  # argument validation and reporting for each stage
         "--manifest", type=Path, default=manifest, metavar="PATH", help="the manifest to read (default: %(default)s)"
     )
     parser.add_argument("--json", action="store_true", help="status, validate and revisions: print JSON")
-    parser.add_argument("--workers", type=int, choices=(1, 2), help="fetch: simultaneous downloads (default: 1)")
     args = parser.parse_intermixed_args(argv)
-    if args.workers is not None and args.stage != "fetch":  # noqa: PLR2004  # stage name
-        parser.error("--workers works with fetch only")
     if args.json and args.stage not in _JSON_STAGES:
         parser.error(f"--json works with {', '.join(_JSON_STAGES)}, not {args.stage}")
     if args.only is not None and args.stage not in _SELECTABLE:
@@ -102,7 +99,7 @@ def main(  # noqa: C901  # argument validation and reporting for each stage
     # Filled by fetch, for the lines of a run that fails.
     before: dict[str, str] = {}
     try:
-        problems = _run(args.stage, args.path, args.only, parse, user_agent, before, args.manifest, args.workers or 1)
+        problems = _run(args.stage, args.path, args.only, parse, user_agent, before, args.manifest)
     except FetchError as error:
         for record in error.records:
             print(_fetch_line(record, before))
@@ -148,7 +145,6 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
     user_agent: str,
     logged: dict[str, str],
     manifest: Path,
-    workers: int = 1,
 ) -> list[str]:
     """Run `stage`, print its report, and return its problems: only validate and verify have any.
 
@@ -171,9 +167,7 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
             print(f"{len(problems)} problems")
             return problems
         case "fetch", _:
-            for record in _fetch(
-                load_manifest(manifest), user_agent=user_agent, only=only, before=logged, workers=workers
-            ):
+            for record in _fetch(load_manifest(manifest), user_agent=user_agent, only=only, before=logged):
                 print(_fetch_line(record, logged))
         case "build", _:
             sources = load_manifest(manifest)
