@@ -16,19 +16,44 @@ for (const table of document.querySelectorAll("article > .table-scroll table")) 
   }
 }
 
+// Only a box that scrolls needs to take focus, so keyboard users can scroll it; a table that
+// scrolls is also a region, named after its caption or the heading above it.
+const tableName = (box) => {
+  const caption = box.querySelector("caption");
+  if (caption) return caption.textContent.trim();
+  let node = box.previousElementSibling;
+  while (node && !/^H[1-6]$/.test(node.tagName)) node = node.previousElementSibling;
+  return node ? node.textContent.trim() : "Table";
+};
+const scrollable = new ResizeObserver((entries) => {
+  for (const { target } of entries) {
+    const overflows = target.scrollWidth > target.clientWidth;
+    const table = target.classList.contains("table-scroll");
+    if (overflows) {
+      target.tabIndex = 0;
+      if (table) target.setAttribute("role", "region");
+      if (table) target.setAttribute("aria-label", tableName(target));
+    } else {
+      for (const name of ["tabindex", "role", "aria-label"]) target.removeAttribute(name);
+    }
+  }
+});
+for (const box of document.querySelectorAll(".table-scroll, pre code")) scrollable.observe(box);
+
 const status = document.querySelector(".copy-status");
 let statusTimer;
 for (const pre of document.querySelectorAll("pre")) {
   const code = pre.querySelector("code");
-  if (code) code.tabIndex = 0;
   if (!code || !navigator.clipboard || code.classList.contains("language-console")) continue;
   const button = document.createElement("button");
   button.type = "button";
   button.className = "code-copy";
   button.textContent = "Copy";
   button.setAttribute("aria-label", "Copy this code block");
+  // aria-disabled rather than disabled, so focus stays on the button while it copies.
   button.addEventListener("click", async () => {
-    button.disabled = true;
+    if (button.getAttribute("aria-disabled") === "true") return;
+    button.setAttribute("aria-disabled", "true");
     clearTimeout(statusTimer);
     try {
       await navigator.clipboard.writeText(code.textContent);
@@ -36,7 +61,7 @@ for (const pre of document.querySelectorAll("pre")) {
     } catch {
       status.textContent = "Copy failed. Select the code and copy it manually.";
     } finally {
-      button.disabled = false;
+      button.removeAttribute("aria-disabled");
       statusTimer = setTimeout(() => {
         status.textContent = "";
       }, 5000);

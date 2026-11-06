@@ -17,7 +17,7 @@ const tables = [
 ---
 
 <section class="revision-example" data-revision-example aria-label="A publisher revision and its provenance">
-  <div class="provenance-flow" aria-labelledby="provenance-title">
+  <div class="provenance-flow">
     <h2 id="provenance-title">From published bytes to a built dataset</h2>
     <ol aria-label="Original dataset provenance">
       <li><h3>Published source</h3><p>annual.csv · declared in sources.toml</p><code>2023 · 419.31 ppm</code></li>
@@ -35,7 +35,7 @@ const tables = [
     </div>
     {tables.map(({ id, label, fetched }) => (
       <div id={`version-${id}`} data-version-panel={id}>
-        <div class="table-scroll" tabindex="0" role="region" aria-label="Data table">
+        <div class="table-scroll">
           <table>
             <caption>Synthetic example · CO₂ concentration, ppm</caption>
             <thead><tr><th scope="col">Year</th><th scope="col">Original</th><th scope="col">{label}</th></tr></thead>

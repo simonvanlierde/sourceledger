@@ -232,7 +232,7 @@ pre code {
 .code-copy:hover {
   background: var(--paper);
 }
-.code-copy:disabled {
+.code-copy[aria-disabled="true"] {
   cursor: wait;
   color: var(--muted);
 }
@@ -364,6 +364,12 @@ table code {
 .home article > p,
 .home article > h2 {
   max-width: 68ch;
+}
+.wide article {
+  max-width: 64rem;
+}
+.wide article > :not(.table-scroll) {
+  max-width: 72ch;
 }
 .home-install {
   display: flex;
@@ -577,32 +583,77 @@ mark {
   .revision-controls button[aria-pressed="true"] {
     font-weight: 700;
   }
+  .site-navigation a[aria-current] {
+    border-left: 4px solid CanvasText;
+  }
 }
-/* Narrow screens: each row becomes a card, every cell labelled with its column. */
+/* Narrow screens: each row becomes a card, every cell labelled with its column by site.js.
+   Without scripts the cells have no labels, so the table keeps scrolling sideways. */
 @media (max-width: 43.75rem) {
-  article > .table-scroll table,
-  article > .table-scroll tbody,
-  article > .table-scroll tr,
-  article > .table-scroll td {
+  .js article > .table-scroll table,
+  .js article > .table-scroll tbody,
+  .js article > .table-scroll tr,
+  .js article > .table-scroll td {
     display: block;
     min-width: 0;
   }
-  article > .table-scroll thead {
+  .js article > .table-scroll thead {
     position: absolute;
     left: -9999px;
   }
-  article > .table-scroll tr {
+  .js article > .table-scroll tr {
     padding: 0.75rem 0;
     border-bottom: 1px solid var(--rule);
   }
-  article > .table-scroll td {
+  .js article > .table-scroll td {
     border: 0;
     padding: 0.15rem 0;
   }
-  article > .table-scroll td[data-label]::before {
+  .js article > .table-scroll td code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .js article > .table-scroll td[data-label]::before {
     content: attr(data-label);
     display: block;
     font: 600 0.75rem / 1.6 var(--sans);
     color: var(--muted);
+  }
+}
+@media print {
+  aside,
+  .skip-link,
+  .source-link,
+  .code-copy,
+  .copy-status {
+    display: none;
+  }
+  .reading-layout {
+    display: block;
+    padding: 0;
+  }
+  pre,
+  pre code {
+    white-space: pre-wrap;
+    overflow: visible;
+  }
+  .table-scroll {
+    overflow: visible;
+  }
+  table,
+  tr {
+    break-inside: avoid;
+  }
+  .provenance-flow,
+  .provenance-flow h3,
+  .provenance-flow code,
+  .revision-result,
+  .revision-result strong {
+    color: black;
+    background: none;
+  }
+  .provenance-flow li::before,
+  .provenance-flow li::after {
+    border-color: black;
   }
 }

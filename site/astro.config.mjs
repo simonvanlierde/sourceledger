@@ -27,7 +27,8 @@ const docLinks = {
   },
 };
 
-// Wide tables scroll on their own, and site.js stacks them on phones.
+// Wide tables scroll on their own, and site.js stacks them on phones and makes a box that
+// overflows focusable.
 const tableScroll = {
   name: "table-scroll",
   element: {
@@ -36,7 +37,7 @@ const tableScroll = {
       ctx.wrapNode(node, {
         type: "element",
         tagName: "div",
-        properties: { className: ["table-scroll"], tabIndex: 0, role: "region", ariaLabel: "Data table" },
+        properties: { className: ["table-scroll"] },
         children: [],
       });
     },

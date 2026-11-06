@@ -1,6 +1,7 @@
 ---
 // The page skeleton every docs page shares. `parent` in a page's front matter names the
-// navigation entry it sits under; a page in the navigation marks itself.
+// navigation entry it sits under; a page in the navigation marks itself. `wide: true` lets
+// the page's tables use more width than its text.
 const name = "sourceledger";
 const siteDescription = "Build a dataset from published sources and keep the downloads behind it.";
 const navigation = [
@@ -32,6 +33,8 @@ const jsonLd = JSON.stringify({
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
+    <!-- Before the first paint, so the stacked phone tables never flash as wide ones. -->
+    <script is:inline>document.documentElement.classList.add("js");</script>
     <title>{title}</title>
     <meta property="og:title" content={data.title} />
     <meta property="og:locale" content="en" />
@@ -47,7 +50,7 @@ const jsonLd = JSON.stringify({
     <link rel="stylesheet" href={`${base}/assets/site.css`} />
     <script is:inline src={`${base}/assets/site.js`} defer></script>
   </head>
-  <body class={data.home ? "home" : undefined}>
+  <body class:list={{ home: data.home, wide: data.wide }}>
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
       <a class="wordmark" href={`${base}/`}>{name}</a>
