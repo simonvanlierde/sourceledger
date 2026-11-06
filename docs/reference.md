@@ -213,7 +213,7 @@ when it produces a report, including one with integrity problems. A fatal input 
 returns 1 and writes no HTML. A missing fetch log produces a provenance problem in the report. Run `validate` to gate a pipeline on those problems.
 
 The report includes no raw values or header names and values. Displayed HTTP URLs omit
-user information, query parameters and fragments. Local and non-HTTP URLs are omitted.
+user information, query parameters and fragments. URLs that are not HTTP or HTTPS are omitted.
 Review free-text names and reuse terms before sharing: sourceledger cannot recognize
 secrets someone wrote into those fields or into a URL path. Displayed metadata is escaped
 so it cannot become executable HTML.

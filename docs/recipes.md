@@ -1,4 +1,5 @@
 ---
+parent: /getting-started.html
 title: Recipes
 description: Record files that pooch, DVC, dlt or your own code downloaded, write a custom reader, and publish only a build that validates.
 redirect_from:

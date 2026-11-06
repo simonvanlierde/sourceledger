@@ -1,4 +1,5 @@
 ---
+parent: /reference.html
 title: Download limits and retries
 ---
 
@@ -25,6 +26,5 @@ title: Download limits and retries
   Its limit is five captures of one URL per day across all users. Past that it answers
   HTTP 429 with no `Retry-After`, and that fetch records no snapshot.
 
-The checks on redirects, compression and keys are in [Use sourceledger
-safely](secure-use.md). [How it works](architecture.md#fetch) has the steps and
+The checks on redirects, compression and keys are in [Use sourceledger safely](secure-use.md). [How it works](architecture.md#fetch) has the steps and
 the crash safety.
