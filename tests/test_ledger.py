@@ -3604,9 +3604,18 @@ def test_a_record_with_parameters_that_are_not_text_is_not_a_record() -> None:
 
 
 def test_parse_csv_skips_blank_lines() -> None:
-    """A blank line is no row, as in csv.DictReader; a short row is still refused."""
-    payload = b"year,value\n\n2020,1.5\r\n\r\n2021,2.5\n"
+    """A blank line is no row, as in csv.DictReader; a row of empty cells is one, and a short row is refused."""
+    payload = b"year,value\n\n2020,1.5\r\n\r\n,\n2021,2.5\n"
     assert ledger.parse_csv({"id": "x"}, payload) == (
         ["year", "value"],
-        [{"year": "2020", "value": "1.5"}, {"year": "2021", "value": "2.5"}],
+        [{"year": "2020", "value": "1.5"}, {"year": "", "value": ""}, {"year": "2021", "value": "2.5"}],
     )
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_csv_output_ends_its_lines_in_crlf() -> None:
+    """RFC 4180 line ends, as 0.4.0 wrote them: readers of earlier outputs get the same bytes."""
+    assert _run("fetch", "build") == [0, 0]
+    out = Path("data/processed/example.csv").read_bytes()
+    assert out.startswith(b"source_id,source_url,retrieved_at,vintage,raw_sha256,")
+    assert out.count(b"\n") == out.count(b"\r\n") > 1

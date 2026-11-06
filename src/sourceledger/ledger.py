@@ -1805,10 +1805,17 @@ def _scan(out: Path, stamp: dict[str, str]) -> tuple[bool, bool]:
                     for column, expected in stamp.items()
                 )
         return rows, stale
-    # Read to the end even once stale, so damage anywhere in the table is reported.
-    for row in _output_rows(out):
-        rows = True
-        stale = stale or {column: row.get(column) for column in stamp} != stamp
+    with out.open(newline="", encoding="utf-8") as fh:
+        reader = csv.reader(fh)
+        header = next(reader, [])
+        where = {name: i for i, name in enumerate(header)}  # a repeated name keeps its last column, as in DictReader
+        wanted = [(where.get(column), expected) for column, expected in stamp.items()]
+        # Read to the end even once stale, so damage anywhere in the table is reported.
+        for row in reader:
+            if not row:  # a blank line, which DictReader skips too
+                continue
+            rows = True
+            stale = stale or any(i is None or i >= len(row) or row[i] != expected for i, expected in wanted)
     return rows, stale
 
 
