@@ -133,7 +133,7 @@ def test_report_describes_missing_provenance_without_claiming_success() -> None:
 
 def test_report_handles_malformed_urls_as_text(dataset: list[ledger.Source]) -> None:
     dataset[0]["terms_url"] = "https://[invalid"
-    assert "Local or non-HTTP URL omitted" in report(dataset)
+    assert "omitted: not an HTTP URL" in report(dataset)
 
 
 @pytest.mark.parametrize(
@@ -142,9 +142,9 @@ def test_report_handles_malformed_urls_as_text(dataset: list[ledger.Source]) -> 
         ("http://user:secret@example.org/data?key=hidden#hidden", "http://example.org/data"),
         ("https://user:secret@example.org/data?key=hidden#hidden", "https://example.org/data"),
         ("https://user:sec@ret@example.org/data?key=hidden#hidden", "https://example.org/data"),
-        ("ftp://user:secret@example.org/data", "Local or non-HTTP URL omitted"),
-        ("https:/missing-host", "Local or non-HTTP URL omitted"),
-        ("", "not stated"),  # nothing was hidden, so the report must not say it was
+        ("ftp://user:secret@example.org/data", "omitted: not an HTTP URL"),
+        ("https:/missing-host", "omitted: not an HTTP URL"),
+        ("", "not stated in sources.toml"),  # nothing was hidden, so the report must not say it was
     ],
 )
 def test_report_keeps_only_the_public_part_of_a_url(dataset: list[ledger.Source], url: str, expected: str) -> None:
@@ -162,10 +162,10 @@ def test_report_displays_the_built_metadata_and_security_policy(dataset: list[le
     expected = {
         "File": "table.csv",
         "Size in bytes": resource["bytes"],
-        "Output SHA-256": resource["hash"],
+        "SHA-256 of the output": resource["hash"],
         "Fetched at": resource["sourceledger"]["retrieved_at"],
         "Vintage": "2023",
-        "Raw SHA-256": hashlib.sha256(b"year,value\n2023,1.5\n").hexdigest(),
+        "SHA-256 of the downloaded file": hashlib.sha256(b"year,value\n2023,1.5\n").hexdigest(),
         "Licence": "LicenseRef-example",
         "Terms": "Example terms",
         "Raw redistribution allowed": "no",
@@ -184,7 +184,14 @@ def test_report_flags_manifest_changes(dataset: list[ledger.Source], key: str) -
 
 
 @pytest.mark.parametrize(
-    ("key", "value"), [("sources", None), ("sources", []), ("sources", [None]), ("sourceledger", [])]
+    ("key", "value"),
+    [
+        ("sources", None),
+        ("sources", []),
+        ("sources", [None]),
+        ("sourceledger", []),
+        ("sourceledger", {"parameters": "x"}),
+    ],
 )
 def test_report_handles_damaged_provenance(dataset: list[ledger.Source], key: str, value: object) -> None:
     path = Path("data/processed/datapackage.json")
@@ -215,10 +222,10 @@ def test_report_keeps_source_urls_and_names(dataset: list[ledger.Source]) -> Non
     package["resources"][0]["sourceledger"]["final_url"] = "https://example.org/final?token=secret"
     path.write_text(json.dumps(package))
     page = report(dataset)
-    assert '<h3 id="source-0">Example observations</h3>' in page
-    assert '<h3 id="source-1">document</h3>' in page
+    assert '<h4 id="source-0">Example observations</h4>' in page
+    assert '<h4 id="source-1">document</h4>' in page
     assert "<dt>URL</dt><dd>https://example.org/data</dd>" in page
-    assert "<dt>Final URL</dt><dd>https://example.org/final</dd>" in page
+    assert "<dt>Served from</dt><dd>https://example.org/final</dd>" in page
 
 
 def test_report_accepts_a_source_without_a_declared_vintage(dataset: list[ledger.Source]) -> None:
@@ -254,6 +261,8 @@ def test_report_keeps_arbitrary_metadata_out_of_html_elements(dataset: list[ledg
         "dd",
         "a",
         "h3",
+        "h4",
+        "div",
     }
     assert all(link.startswith("#") for link in dom.links)
 
@@ -314,5 +323,5 @@ def test_report_says_what_it_does_not_know_about_times(dataset: list[ledger.Sour
     path.write_text(json.dumps(package))
     page = report(dataset)
     assert "<dt>Fetched at</dt><dd>not stated</dd>" in page
-    assert "<dt>Downloaded at</dt><dd>not stated</dd>" in page
-    assert "<dt>Recorded, not fetched, at</dt><dd>2026-11-05T09:30:00Z</dd>" in page
+    assert "<dt>Downloaded by another tool at</dt><dd>not stated by that tool</dd>" in page
+    assert "<dt>Recorded at</dt><dd>2026-11-05T09:30:00Z</dd>" in page

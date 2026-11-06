@@ -16,12 +16,13 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Changed
 
+- The HTML report puts the integrity result in a box at the top, lists outputs under one heading, and names hashes and times in plain words ("SHA-256 of the downloaded file", "Served from"). It follows the reader's dark mode, prints without the in-page links, and shows a recorded file's request parameters.
 - The CLI reports build row counts without rereading the outputs. Fetch history is read in small batches, once per CLI fetch, retaining only each source's latest record.
 - Builds stream gzipped CSV inputs with the default reader, while enforcing the decompressed size limit. JSON parsing releases each decoded object as it converts the rows, reducing peak memory. Output bytes and parser errors stay the same.
 
 ### Fixed
 
-- The HTML report said "Local or non-HTTP URL omitted" for an empty final or terms URL, and "None" for an unknown redistribution flag. It now says "none: no redirect", "not stated", and "yes" or "no".
+- The HTML report said "Local or non-HTTP URL omitted" for an empty final or terms URL, and "None" for an unknown redistribution flag. It now says "the URL above", "not stated in sources.toml", and "yes" or "no".
 - HTTPS downloads keep the SSL context on their own handler instead of reading a private standard-library attribute.
 
 ### Security

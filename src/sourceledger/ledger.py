@@ -27,6 +27,7 @@ import ipaddress
 import itertools
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -528,7 +529,7 @@ def _download(response: _Response, source: Source, deadline: float, folder: Path
     return Path(temp), digest, size
 
 
-def _copy(response: _Response, fh: IO[bytes], source: Source, deadline: float) -> tuple[str, int]:
+def _copy(response: _Response | io.BufferedReader, fh: IO[bytes], source: Source, deadline: float) -> tuple[str, int]:
     """Copy the body into `fh` chunk by chunk, flushed to disk: its SHA-256 and size."""
     cap = source.get("max_bytes", _MAX_BYTES)
     digest = hashlib.sha256()
@@ -988,16 +989,17 @@ def record(
     if parts.username is not None or parts.password is not None:
         msg = f"{sid}: the URL holds a user name or password; record it without them"
         raise ValueError(msg)
-    if url != source["url"] and (parts.query or parts.fragment):
+    foreign = url != source["url"]
+    if foreign and (parts.query or parts.fragment):
         # A signed or keyed download URL carries its secret in the query; the manifest's own URL is reviewed.
         _logger.warning("%s: kept %s without its query and fragment; put what they asked for in parameters", sid, url)
         url = parts._replace(query="", fragment="").geturl()
+    if foreign and (etag or last_modified):
+        _logger.warning("%s: ETag and Last-Modified from %s are not the source URL's; not kept", sid, url)
+        etag = last_modified = ""
     parameters = _checked_parameters(sid, parameters or {})
     now = datetime.now(UTC)
     downloaded = "" if retrieved_at is None else _timestamp(_aware(sid, retrieved_at, now))
-    if url != source["url"] and (etag or last_modified):
-        _logger.warning("%s: ETag and Last-Modified from %s are not the source URL's; not kept", sid, url)
-        etag = last_modified = ""
     raw.mkdir(parents=True, exist_ok=True)
     log.parent.mkdir(parents=True, exist_ok=True)
     with _lock(raw):
@@ -1006,8 +1008,10 @@ def record(
         temp = Path(name)
         try:
             with os.fdopen(fd, "wb") as fh, path.open("rb") as src:
-                _copy_file(source, src, fh)
-            digest = _digest(temp)  # of the copy: the bytes `verify` will read
+                if not stat.S_ISREG(os.fstat(src.fileno()).st_mode):
+                    msg = f"{sid}: {path} is not a regular file"
+                    raise ValueError(msg)
+                digest, size = _copy(src, fh, source, math.inf)  # a local copy has no time budget
             if source.get("sha256", digest) != digest:
                 msg = f"{sid}: {path} hashes to {digest}, not the sha256 in sources.toml"
                 raise ValueError(msg)
@@ -1016,13 +1020,13 @@ def record(
                 url=source["url"],
                 retrieved_at=downloaded,
                 sha256=digest,
-                bytes=temp.stat().st_size,
+                bytes=size,
                 vintage=_vintage(source),
                 last_modified=last_modified,
                 etag=etag,
-                final_url="" if url == source["url"] else url,
+                final_url=url if foreign else "",
                 recorded_at=_timestamp(now),
-                parameters=dict(parameters),
+                parameters=parameters,
             )
             _commit(source, temp, result, raw, log, logged)
         finally:
@@ -1047,22 +1051,6 @@ def _checked_parameters(sid: str, parameters: dict[str, str | int]) -> dict[str,
     return dict(parameters)
 
 
-def _copy_file(source: Source, src: IO[bytes], fh: IO[bytes]) -> None:
-    """Copy a regular file into `fh`, flushed to disk, within the source's `max_bytes`."""
-    if not stat.S_ISREG(os.fstat(src.fileno()).st_mode):
-        msg = f"{source['id']}: {src.name} is not a regular file"
-        raise ValueError(msg)
-    cap, size = source.get("max_bytes", _MAX_BYTES), 0
-    while chunk := src.read(_CHUNK_BYTES):
-        size += len(chunk)
-        if size > cap:
-            msg = f"{source['id']}: {src.name} exceeds {cap} bytes; raise max_bytes in sources.toml if expected"
-            raise ValueError(msg)
-        fh.write(chunk)
-    fh.flush()
-    os.fsync(fh.fileno())
-
-
 def _aware(sid: str, when: datetime | str, now: datetime) -> datetime:
     """`when` as a datetime, refused unless it is a time with a time zone, and not later than `now`."""
     try:
@@ -1070,7 +1058,7 @@ def _aware(sid: str, when: datetime | str, now: datetime) -> datetime:
     except (TypeError, ValueError) as error:
         msg = f"{sid}: retrieved_at {when!r} is not an ISO 8601 time"
         raise ValueError(msg) from error
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
+    if parsed.utcoffset() is None:  # naive, or a tzinfo that knows no offset
         msg = f"{sid}: retrieved_at {when!r} needs a time zone, such as Z"
         raise ValueError(msg)
     if parsed > now + _CLOCK_SKEW:

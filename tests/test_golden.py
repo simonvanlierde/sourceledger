@@ -44,8 +44,8 @@ def _report(sources: list[ledger.Source], publisher: str) -> str:
     """The HTML report, normalized as `_package` does."""
     html = report(sources).replace(publisher, "http://127.0.0.1:8000")
     return re.sub(
-        r"<dt>Size in bytes</dt><dd>\d+</dd><dt>Output SHA-256</dt><dd>sha256:[0-9a-f]{64}</dd>",
-        "<dt>Size in bytes</dt><dd>VARIES</dd><dt>Output SHA-256</dt><dd>VARIES</dd>",
+        r"<dt>Size in bytes</dt><dd>\d+</dd><dt>SHA-256 of the output</dt><dd>sha256:[0-9a-f]{64}</dd>",
+        "<dt>Size in bytes</dt><dd>VARIES</dd><dt>SHA-256 of the output</dt><dd>VARIES</dd>",
         html,
     )
 

@@ -4,11 +4,19 @@
 content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <title>Dataset provenance</title>
 <style>
-body { max-width: 72ch; margin: 2rem auto; padding: 0 1rem; color: #243346; background: #fcfbf8;
+:root { color-scheme: light dark; --ink: #243346; --page: #fcfbf8; --link: #215e96; --rule: #ccc;
+--ok: #2f6b3a; --bad: #a3281e; }
+@media (prefers-color-scheme: dark) { :root { --ink: #e4e8ee; --page: #182231; --link: #9cc7f0; --rule: #4a5a70;
+--ok: #8fd19e; --bad: #f2a39b; } }
+body { max-width: 72ch; margin: 2rem auto; padding: 0 1rem; color: var(--ink); background: var(--page);
 font: 1rem/1.6 Georgia, serif; }
-a { color: #215e96; } section { border-top: 1px solid #ccc; margin-top: 2rem; }
+a { color: var(--link); } section { border-top: 1px solid var(--rule); margin-top: 2rem; }
+.result { border: 2px solid var(--ok); padding: 0 1rem; } .result.failed { border-color: var(--bad); }
 dt { font-weight: bold; } dd { margin: 0 0 1rem; overflow-wrap: anywhere; }
-:focus-visible { outline: 2px solid #215e96; outline-offset: 3px; }
+@media (min-width: 40rem) { dl { display: grid; grid-template-columns: 14rem 1fr; gap: 0 1rem; } }
+:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; }
+@media print { :root { color-scheme: light; --ink: #000; --page: #fff; } section { break-inside: avoid; }
+a[href^="#"] { display: none; } }
 </style></head><body><main><h1>Dataset provenance</h1>
 <p>This report checks file integrity and records where outputs came from.
 It does not grant permission to publish data,
@@ -16,5 +24,5 @@ prove scientific correctness, or authenticate the package.
 Obtain the package and this report from a source you trust.</p>
 <p>Source details come from the current manifest; fetch stamps describe the last build.
 No raw values or header credentials are included. URLs omit user information, query parameters and fragments.
-Review names and reuse terms before sharing this report. Local and non-HTTP URLs are omitted.</p>
-<h2>Integrity checks passed</h2><p>Listed files match their package hashes and sizes.</p><section><h2>only</h2><dl><dt>File</dt><dd>only.csv</dd><dt>Size in bytes</dt><dd>VARIES</dd><dt>Output SHA-256</dt><dd>VARIES</dd></dl><p><a href="#source-0">Source of this output</a></p><h3 id="source-0">only</h3><dl><dt>URL</dt><dd>http://127.0.0.1:8000/data.csv</dd><dt>Fetched at</dt><dd>2026-11-05T09:30:00Z</dd><dt>Vintage</dt><dd>not stated</dd><dt>Raw SHA-256</dt><dd>1453a301f534e2fe2f3beea7cab6aa4de5361a57f360975e49dbc61826c76dd2</dd><dt>Final URL</dt><dd>none: no redirect</dd><dt>Licence</dt><dd>not stated</dd><dt>Terms</dt><dd>not stated</dd><dt>Terms URL</dt><dd>not stated</dd><dt>Raw redistribution allowed</dt><dd>not stated</dd></dl></section></main></body></html>
+Review names and reuse terms before sharing this report. URLs that are not HTTP or HTTPS are omitted.</p>
+<div class="result"><h2>Integrity checks passed</h2><p>Listed files match their package hashes and sizes.</p></div><h2>Outputs</h2><section><h3>only</h3><dl><dt>File</dt><dd>only.csv</dd><dt>Size in bytes</dt><dd>VARIES</dd><dt>SHA-256 of the output</dt><dd>VARIES</dd></dl><p><a href="#source-0">Source of this output</a></p><h4 id="source-0">only</h4><dl><dt>URL</dt><dd>http://127.0.0.1:8000/data.csv</dd><dt>Fetched at</dt><dd>2026-11-05T09:30:00Z</dd><dt>Vintage</dt><dd>not stated</dd><dt>SHA-256 of the downloaded file</dt><dd>1453a301f534e2fe2f3beea7cab6aa4de5361a57f360975e49dbc61826c76dd2</dd><dt>Served from</dt><dd>the URL above</dd><dt>Licence</dt><dd>not stated in sources.toml</dd><dt>Terms</dt><dd>not stated in sources.toml</dd><dt>Terms URL</dt><dd>not stated in sources.toml</dd><dt>Raw redistribution allowed</dt><dd>not stated in sources.toml</dd></dl></section></main></body></html>

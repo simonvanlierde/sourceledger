@@ -3135,7 +3135,8 @@ def test_a_recorded_file_is_marked_in_the_log_package_and_report(upstream: Path)
     package = json.loads(Path("data/processed/datapackage.json").read_text(encoding="utf-8"))
     assert package["resources"][0]["sourceledger"]["recorded_at"] == result.recorded_at
     html = report(ledger.load_manifest())
-    assert "Recorded, not fetched, at" in html
+    assert "<dt>Recorded at</dt>" in html
+    assert "<dt>Request parameters</dt><dd>country=NL, year=2024</dd>" in html
     assert "Fetched at" not in html
 
 
@@ -3204,11 +3205,25 @@ def test_a_later_fetch_sends_the_validators_record_kept(
     assert calls[0].get_header("If-none-match") == '"abc"'
 
 
+class _NoOffset(tzinfo):
+    """A tzinfo that does not know its offset: Python then treats the time as naive."""
+
+    def utcoffset(self, _: datetime | None) -> None:
+        return None
+
+    def dst(self, _: datetime | None) -> None:
+        return None
+
+    def tzname(self, _: datetime | None) -> None:
+        return None
+
+
 @pytest.mark.parametrize(
     ("change", "message"),
     [
         ({"retrieved_at": "2026-11-05T10:30:00"}, "needs a time zone"),
         ({"retrieved_at": datetime(2026, 11, 5)}, "needs a time zone"),  # noqa: DTZ001  # the naive time refused
+        ({"retrieved_at": datetime(2026, 1, 1, tzinfo=_NoOffset())}, "needs a time zone"),
         ({"retrieved_at": "yesterday"}, "is not an ISO 8601 time"),
         ({"retrieved_at": 1762335000}, "is not an ISO 8601 time"),
         ({"url": "https://user:secret@example.org/x.csv"}, "user name or password"),
@@ -3224,8 +3239,8 @@ def test_a_later_fetch_sends_the_validators_record_kept(
     ],
 )
 def test_record_refuses_what_it_cannot_record_honestly(upstream: Path, change: dict[str, object], message: str) -> None:
-    """Each refusal comes before anything is written."""
-    with pytest.raises(ValueError, match=message):
+    """Each refusal names the source and comes before anything is written."""
+    with pytest.raises(ValueError, match=f"^example: .*{message}"):
         ledger.record(_source(), upstream, **change)  # ty: ignore[invalid-argument-type]
     assert not Path("data").exists()
 
@@ -3245,14 +3260,6 @@ def test_record_keeps_another_url_without_its_query(upstream: Path, caplog: pyte
     assert ledger.record(_source(), upstream, url=signed).final_url == "https://bucket.example.org/x.csv"
     assert "abc" not in LOG.read_text(encoding="utf-8")
     assert "without its query and fragment" in caplog.text
-
-
-@pytest.mark.parametrize("cap", [len(FIXTURE) - 1])
-def test_record_holds_a_file_to_the_size_cap(upstream: Path, tmp_path: Path, cap: int) -> None:
-    _manifest(tmp_path, upstream.as_uri(), terms=f"{TERMS}\nmax_bytes = {cap}")
-    with pytest.raises(ValueError, match=f"exceeds {cap} bytes"):
-        ledger.record(_source(), upstream)
-    assert not list(Path("data/raw").glob("*.part"))
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="no FIFOs on Windows")
@@ -3355,35 +3362,14 @@ def test_record_writes_empty_validators_and_creates_the_log_folder(upstream: Pat
     assert json.loads(log.read_text(encoding="utf-8"))["last_modified"] == ""
 
 
-def test_record_keeps_the_query_of_the_source_url_itself(tmp_path: Path, upstream: Path) -> None:
+def test_record_keeps_the_query_of_the_source_url_itself(
+    tmp_path: Path, upstream: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """Only another URL loses its query: the manifest's own URL is reviewed and kept as it is."""
     _manifest(tmp_path, "https://example.org/data.csv?format=csv")
     result = ledger.record(_source(), upstream)
     assert (result.url, result.final_url) == ("https://example.org/data.csv?format=csv", "")
-
-
-def test_record_messages_name_the_source(upstream: Path) -> None:
-    for change in ({"retrieved_at": "yesterday"}, {"parameters": {"token": "x"}}):
-        with pytest.raises(ValueError, match=r"^example: "):
-            ledger.record(_source(), upstream, **change)  # ty: ignore[invalid-argument-type]
-
-
-class _NoOffset(tzinfo):
-    """A tzinfo that does not know its offset: Python then treats the time as naive."""
-
-    def utcoffset(self, _: datetime | None) -> None:
-        return None
-
-    def dst(self, _: datetime | None) -> None:
-        return None
-
-    def tzname(self, _: datetime | None) -> None:
-        return None
-
-
-def test_record_refuses_a_time_zone_without_an_offset(upstream: Path) -> None:
-    with pytest.raises(ValueError, match="needs a time zone"):
-        ledger.record(_source(), upstream, retrieved_at=datetime(2026, 1, 1, tzinfo=_NoOffset()))
+    assert "without its query" not in caplog.text
 
 
 def test_record_copies_through_a_temp_file_beside_the_raw_file(upstream: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3415,8 +3401,9 @@ def test_record_counts_every_chunk_against_the_cap(
     if ok:
         assert ledger.record(_source(), upstream).bytes == cap
     else:
-        with pytest.raises(ValueError, match="exceeds"):
+        with pytest.raises(ValueError, match=f"exceeds {cap} bytes"):
             ledger.record(_source(), upstream)
+        assert not list(Path("data/raw").glob("*.part"))
 
 
 def test_recording_the_same_request_again_adds_no_line(upstream: Path) -> None:
@@ -3439,7 +3426,6 @@ def test_the_record_stage_passes_url_and_validators_on(upstream: Path) -> None:
 
 
 @pytest.mark.parametrize("value", ["a=", "a=b=c"])
-@pytest.mark.usefixtures("upstream")
 def test_a_parameter_value_may_be_empty_or_hold_an_equals_sign(upstream: Path, value: str) -> None:
     assert main(["record", "example", str(upstream), "--parameter", value]) == 0
     name, _, rest = value.partition("=")
@@ -3470,3 +3456,10 @@ def test_the_help_text_is_the_documented_one(
         main(["--help"])
     text = " ".join(capsys.readouterr().out.split())
     assert re.search(rf"(?<!\S){re.escape(line)}(?!\S)", text), line
+
+
+def test_record_treats_the_source_url_with_a_query_as_another_url(upstream: Path, tmp_path: Path) -> None:
+    """Validators from a variant of the source URL are not the source URL's, even once its query is gone."""
+    _manifest(tmp_path, "https://example.org/data.csv")
+    result = ledger.record(_source(), upstream, url="https://example.org/data.csv?format=csv", etag='"v9"')
+    assert (result.final_url, result.etag) == ("https://example.org/data.csv", "")
