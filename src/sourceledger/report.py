@@ -35,11 +35,24 @@ def _times(stamp: dict[str, object]) -> dict[str, object]:
 
 
 def _parameters(stamp: dict[str, object]) -> dict[str, object]:
-    """The request a recorded file answered, as `name=value` pairs; nothing for a fetched file."""
+    """The request a recorded file answered, one `name=value` each; nothing for a fetched file."""
     parameters = stamp.get("parameters")
     if not isinstance(parameters, dict) or not parameters:
         return {}
-    return {"Request parameters": ", ".join(f"{name}={value}" for name, value in parameters.items())}
+    return {
+        "Request parameters": _Markup(" ".join(f"<code>{escape(f'{k}={v}')}</code>" for k, v in parameters.items()))
+    }
+
+
+class _Markup(str):
+    """A value already escaped into HTML."""
+
+    __slots__ = ()
+
+
+def _allowed(value: object) -> str:
+    """A damaged package can hold any JSON here; only true and false are answers."""
+    return ("yes" if value else "no") if isinstance(value, bool) else _UNSTATED
 
 
 # For what the manifest leaves out: says where to add it.
@@ -49,7 +62,10 @@ _UNSTATED = "not stated in sources.toml"
 def _fields(values: dict[str, object]) -> str:
     return (
         "<dl>"
-        + "".join(f"<dt>{escape(key)}</dt><dd>{escape(str(value))}</dd>" for key, value in values.items())
+        + "".join(
+            f"<dt>{escape(key)}</dt><dd>{value if isinstance(value, _Markup) else escape(str(value))}</dd>"
+            for key, value in values.items()
+        )
         + "</dl>"
     )
 
@@ -59,7 +75,7 @@ def report(sources: list[Source], *, processed: Path = PROCESSED, log: Path = FE
 
     Reads the package, its files and the fetch log without network access or including raw
     data. Metadata is escaped; URLs omit user information, queries and fragments. Header
-    names and values are omitted. Free-text names and terms must be reviewed before sharing.
+    names and values are omitted. Free-text names, request parameters and terms must be reviewed before sharing.
     Expected input errors raise OSError or ValueError before any HTML is returned.
     Missing fetch records and stale or changed outputs are described in the report.
     """
@@ -85,7 +101,7 @@ def report(sources: list[Source], *, processed: Path = PROCESSED, log: Path = FE
     if listed != expected:
         problems.append(f"The package lists {listed}, not the implemented sources {expected}; re-run build")
     by_id = {source["id"]: source for source in sources}
-    sections = []
+    sections, index = [], []
     for number, resource in enumerate(resources):
         sid = str(resource.get("name", "unnamed"))
         source = by_id.get(sid, {})
@@ -121,14 +137,15 @@ def report(sources: list[Source], *, processed: Path = PROCESSED, log: Path = FE
             "Licence": source.get("license", _UNSTATED),
             "Terms": source.get("terms", _UNSTATED),
             "Terms URL": _url(source.get("terms_url", ""), _UNSTATED),
-            "Raw redistribution allowed": {True: "yes", False: "no"}.get(stamp.get("redistribute"), _UNSTATED),
+            "Raw redistribution allowed": _allowed(stamp.get("redistribute")),
         }
         sections.append(
-            f"<section><h3>{escape(sid)}</h3>{_fields(file_fields)}"
+            f'<section><h3 id="output-{number}">{escape(sid)}</h3>{_fields(file_fields)}'
             f'<p><a href="#source-{number}">Source of this output</a></p>'
             f'<h4 id="source-{number}">{escape(str(source.get("name", sid)))}</h4>'
-            f"{_fields(source_fields)}</section>"
+            f'{_fields(source_fields)}<p><a href="#outputs">Back to the outputs</a></p></section>'
         )
+        index.append(f'<li><a href="#output-{number}">{escape(sid)}</a></li>')
     result = (
         '<div class="result failed"><h2>Integrity problems</h2><ul>'
         + "".join(f"<li>{escape(p)}</li>" for p in problems)
@@ -152,7 +169,7 @@ body { max-width: 72ch; margin: 2rem auto; padding: 0 1rem; color: var(--ink); b
 font: 1rem/1.6 Georgia, serif; }
 a { color: var(--link); } section { border-top: 1px solid var(--rule); margin-top: 2rem; }
 .result { border: 2px solid var(--ok); padding: 0 1rem; } .result.failed { border-color: var(--bad); }
-dt { font-weight: bold; } dd { margin: 0 0 1rem; overflow-wrap: anywhere; }
+dt { font-weight: bold; } dd { margin: 0 0 1rem; } h1, h2, h3, h4, li, dd { overflow-wrap: anywhere; }
 @media (min-width: 40rem) { dl { display: grid; grid-template-columns: 14rem 1fr; gap: 0 1rem; } }
 :focus-visible { outline: 2px solid var(--link); outline-offset: 3px; }
 @media print { :root { color-scheme: light; --ink: #000; --page: #fff; } section { break-inside: avoid; }
@@ -164,10 +181,13 @@ prove scientific correctness, or authenticate the package.
 Obtain the package and this report from a source you trust.</p>
 <p>Source details come from the current manifest; fetch stamps describe the last build.
 No raw values or header credentials are included. URLs omit user information, query parameters and fragments.
-Review names and reuse terms before sharing this report. URLs that are not HTTP or HTTPS are omitted.</p>
+Review names, request parameters and reuse terms before sharing this report.
+URLs that are not HTTP or HTTPS are omitted.</p>
 """
         + result
-        + "<h2>Outputs</h2>"
+        + '<h2 id="outputs">Outputs</h2><ul class="outputs">'
+        + "".join(index)
+        + "</ul>"
         + "".join(sections)
         + "</main></body></html>\n"
     )

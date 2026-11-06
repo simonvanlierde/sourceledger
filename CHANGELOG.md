@@ -10,13 +10,14 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Added
 
-- [`record`](docs/reference.md#other-commands), and `record()` in the library, take in a file that another tool such as pooch, DVC or your own script downloaded. It copies the file into `data/raw/`, checks the `sha256` pin, and writes the same log line and fetch record as `fetch`, with a `recorded_at` time and optional request `parameters`. The download time is the one the other tool reports, or empty. `datapackage.json`, `status` and the HTML report show these outputs as recorded, not fetched. A recorded URL other than the source's loses its query, and a parameter named like a credential is refused, since both are published with the dataset.
+- [`record`](docs/reference.md#other-commands), and `record()` in the library, take in a file that another tool such as pooch, DVC or your own script downloaded. It copies the file into `data/raw/`, checks the `sha256` pin, and writes the same log line and fetch record as `fetch`, with a `recorded_at` time and optional request `parameters`, stored as text in name order. The download time is the one the other tool reports, or empty. `datapackage.json` and the HTML report show these outputs as recorded, not fetched, and `status` shows the record time when there is no download time. A recorded URL other than the source's loses its query, and a parameter named like a credential (`api_key`, `x-api-key`, `sig`, `session`) is refused, since both are published with the dataset. Recording the same bytes from another URL or download time adds a log line, and `validate` reports a `datapackage.json` built before such a record. A dataset with a recorded file needs this version to build: 0.4.0 refuses its fetch records.
 - [Parquet outputs](docs/reference.md#sourcestoml) through `sourceledger[parquet]` and the project-wide `output_format = "parquet"` setting. Tables use zstd compression and an explicit string schema, with the same provenance columns and validation as CSV. `build`, `validate` and `read_output` accept `output_format=` in the library.
   Writing and validation use batches of at most 10,000 rows through PyArrow, including full-column decoding to detect corruption.
 
 ### Changed
 
-- The HTML report puts the integrity result in a box at the top, lists outputs under one heading, and names hashes and times in plain words ("SHA-256 of the downloaded file", "Served from"). It follows the reader's dark mode, prints without the in-page links, and shows a recorded file's request parameters.
+- The HTML report puts the integrity result in a box at the top, lists the outputs with links under one heading, and names hashes and times in plain words ("SHA-256 of the downloaded file", "Served from"). It follows the reader's dark mode, prints without the in-page links, wraps long ids, and shows a recorded file's request parameters. A script that reads the report's HTML needs updating.
+- Stages that take no operand refuse one: `build foo` exits 2 instead of ignoring `foo`.
 - The CLI reports build row counts without rereading the outputs. Fetch history is read in small batches, once per CLI fetch, retaining only each source's latest record.
 - Builds stream gzipped CSV inputs with the default reader, while enforcing the decompressed size limit. JSON parsing releases each decoded object as it converts the rows, reducing peak memory. Output bytes and parser errors stay the same.
 
@@ -27,6 +28,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Security
 
+- `fetch` keeps a redirect's final URL without its query and fragment, which can hold a signature, as signed download links from cloud storage do. Before, the full URL went into `fetches.jsonl`, the fetch record and `datapackage.json`.
 - A redirect from a public host to a non-HTTP URL, such as `ftp://` on an internal address, is refused. Before, urllib followed it past the check that refuses inward redirects.
 
 ## [0.4.0] - 2026-11-01

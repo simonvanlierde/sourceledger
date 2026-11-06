@@ -170,7 +170,7 @@ class FetchRecord:
     # fetched record is written as 0.4.0 wrote it.
     recorded_at: str = ""
     # The request's own metadata, as the caller passed it to `record()`.
-    parameters: dict[str, str | int] = dataclasses.field(default_factory=dict)
+    parameters: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 def _fields(record: FetchRecord) -> dict[str, Any]:
@@ -673,6 +673,9 @@ def _is_record(fields: object) -> bool:
         and all(isinstance(fields.get(key), str) for key in ("source_id", "url", "retrieved_at", "sha256"))
         and _SHA256.fullmatch(fields["sha256"]) is not None
         and type(fields.get("bytes")) is int  # not isinstance: bool is an int subclass
+        and isinstance(fields.get("recorded_at", ""), str)
+        and isinstance(parameters := fields.get("parameters", {}), dict)
+        and all(isinstance(value, str) for value in parameters.values())
     )
 
 
@@ -923,12 +926,21 @@ def _keep(
         # Kept for a conditional request (If-Modified-Since, If-None-Match) on a later run.
         last_modified=download.headers.get("Last-Modified", ""),
         etag=download.headers.get("ETag", ""),
-        final_url="" if download.url == source["url"] else download.url,
+        final_url=_served_from(source, download.url),
         env_headers=sorted(source.get("headers", {})),
         archive_url=archived,
     )
     _commit(source, download.path, record, raw, log, logged)
     return record
+
+
+def _served_from(source: Source, url: str) -> str:
+    """Where the bytes came from when not the source's own URL, without the query and fragment.
+
+    A redirect target or another tool's download URL can carry a signature or key there.
+    """
+    served = urlsplit(url)._replace(query="", fragment="").geturl()
+    return "" if url == source["url"] or served == source["url"] else served
 
 
 def _commit(
@@ -968,12 +980,13 @@ def record(
     the record's `final_url`, without its query or fragment, which can hold a signature or
     key. `etag` and `last_modified` are kept only when `url` is the source's URL, so a later
     `fetch` never sends one URL's validators to another. `parameters` describes the
-    request: flat, with str or int values. It is written to the log and to every copy of
-    the dataset's metadata, so a name that looks like a credential is refused.
+    request: flat, with str or int values, stored as text in name order. It is written to
+    the log and to every copy of the dataset's metadata, so a name that looks like a
+    credential is refused; a value is published as given.
 
-    The same bytes recorded again for the same request add no log line; recorded after a
-    fetch, or for other `parameters`, they add one, so the log's last line always matches
-    the sidecar.
+    The same bytes recorded again for the same request, URL and download time add no log
+    line; anything else adds one, so the log's last line names how the sidecar's bytes came
+    in. A record replaces the previous record's ETag and Last-Modified with its own.
 
     Raises ValueError for a source that is not implemented, a URL with a user name or
     password, a time without a time zone or in the future, other `parameters`, a path that
@@ -990,16 +1003,21 @@ def record(
         msg = f"{sid}: the URL holds a user name or password; record it without them"
         raise ValueError(msg)
     foreign = url != source["url"]
-    if foreign and (parts.query or parts.fragment):
-        # A signed or keyed download URL carries its secret in the query; the manifest's own URL is reviewed.
-        _logger.warning("%s: kept %s without its query and fragment; put what they asked for in parameters", sid, url)
-        url = parts._replace(query="", fragment="").geturl()
+    served = _served_from(source, url) if foreign else ""
+    if foreign and served != url:
+        # The manifest's own URL is reviewed; another one can carry a signature or key in its query.
+        kept = served or source["url"]
+        _logger.warning("%s: kept %s without its query and fragment; put what they asked for in parameters", sid, kept)
     if foreign and (etag or last_modified):
-        _logger.warning("%s: ETag and Last-Modified from %s are not the source URL's; not kept", sid, url)
+        _logger.warning("%s: ETag and Last-Modified from %s are not the source URL's; not kept", sid, served)
         etag = last_modified = ""
-    parameters = _checked_parameters(sid, parameters or {})
+    request = _checked_parameters(sid, parameters or {})
     now = datetime.now(UTC)
     downloaded = "" if retrieved_at is None else _timestamp(_aware(sid, retrieved_at, now))
+    # Checked before opening: opening a named pipe waits for a writer, here with the lock held.
+    if not stat.S_ISREG(path.stat().st_mode):
+        msg = f"{sid}: {path} is not a regular file"
+        raise ValueError(msg)
     raw.mkdir(parents=True, exist_ok=True)
     log.parent.mkdir(parents=True, exist_ok=True)
     with _lock(raw):
@@ -1008,9 +1026,6 @@ def record(
         temp = Path(name)
         try:
             with os.fdopen(fd, "wb") as fh, path.open("rb") as src:
-                if not stat.S_ISREG(os.fstat(src.fileno()).st_mode):
-                    msg = f"{sid}: {path} is not a regular file"
-                    raise ValueError(msg)
                 digest, size = _copy(src, fh, source, math.inf)  # a local copy has no time budget
             if source.get("sha256", digest) != digest:
                 msg = f"{sid}: {path} hashes to {digest}, not the sha256 in sources.toml"
@@ -1024,9 +1039,9 @@ def record(
                 vintage=_vintage(source),
                 last_modified=last_modified,
                 etag=etag,
-                final_url=url if foreign else "",
+                final_url=served,
                 recorded_at=_timestamp(now),
-                parameters=parameters,
+                parameters=request,
             )
             _commit(source, temp, result, raw, log, logged)
         finally:
@@ -1034,21 +1049,32 @@ def record(
     return result
 
 
-_SECRET_NAME = re.compile(r"token|secret|passw|api_?key|auth|credential|signature", re.IGNORECASE)
+# A name holding one of these, or with one of the words below as a part of it (`x-api-key`, `sig`).
+_SECRET_IN = re.compile(r"token|secret|passw|credential|apikey|accesskey|privatekey", re.IGNORECASE)
+_SECRET_PART = frozenset(
+    {"key", "auth", "authorization", "sig", "signature", "pwd", "jwt", "session", "bearer", "cookie", "sas"}
+)
 # How far ahead of this host's clock a reported download time may be.
 _CLOCK_SKEW = timedelta(minutes=5)
 
 
-def _checked_parameters(sid: str, parameters: dict[str, str | int]) -> dict[str, str | int]:
+def _checked_parameters(sid: str, parameters: dict[str, str | int]) -> dict[str, str]:
     """A copy of `parameters`, refused unless flat, with str or int values, and with no name that suggests a secret."""
     # Not isinstance: bool is an int subclass.
     if not all(isinstance(k, str) and k and type(v) in (str, int) for k, v in parameters.items()):
         msg = f"{sid}: parameters must map non-empty names to str or int values"
         raise ValueError(msg)
-    if secret := sorted(k for k in parameters if _SECRET_NAME.search(k)):
+    if secret := sorted(k for k in parameters if _secret_name(k)):
         msg = f"{sid}: parameters {secret} look like credentials; they would be published with the dataset"
         raise ValueError(msg)
-    return dict(parameters)
+    return {name: str(parameters[name]) for name in sorted(parameters)}
+
+
+def _secret_name(name: str) -> bool:
+    """Whether a parameter name looks like it holds a credential: `api_key` and `sig` do, `author` does not."""
+    return bool(_SECRET_IN.search(name.replace("_", "").replace("-", ""))) or not _SECRET_PART.isdisjoint(
+        re.split(r"[^a-z0-9]+", name.lower())
+    )
 
 
 def _aware(sid: str, when: datetime | str, now: datetime) -> datetime:
@@ -1061,6 +1087,11 @@ def _aware(sid: str, when: datetime | str, now: datetime) -> datetime:
     if parsed.utcoffset() is None:  # naive, or a tzinfo that knows no offset
         msg = f"{sid}: retrieved_at {when!r} needs a time zone, such as Z"
         raise ValueError(msg)
+    try:
+        parsed.astimezone(UTC)
+    except OverflowError as error:  # such as year 1 at +05:00, before UTC's year 1
+        msg = f"{sid}: retrieved_at {when!r} is out of range"
+        raise ValueError(msg) from error
     if parsed > now + _CLOCK_SKEW:
         msg = f"{sid}: retrieved_at {when!r} is in the future"
         raise ValueError(msg)
@@ -1076,14 +1107,15 @@ def _log_new_version(log: Path, logged: dict[str, dict[str, Any]], record: Fetch
     # Appended, not rewritten: the log is history. A re-download of the same bytes adds nothing,
     # but the same bytes fetched after being recorded, or recorded for another request, do: the
     # log's last line and the sidecar must agree on how the bytes came in.
-    last = logged.get(record.source_id, {})
-    if (last.get("sha256"), bool(last.get("recorded_at")), last.get("parameters", {})) != (
-        record.sha256,
-        bool(record.recorded_at),
-        record.parameters,
-    ):
+    if _version(logged.get(record.source_id, {})) != _version(_fields(record)):
         _append(log, record)
         logged[record.source_id] = _fields(record)
+
+
+def _version(fields: dict[str, Any]) -> tuple[object, ...]:
+    """What makes a log line new: the bytes and how they came in; for a recorded file, also where from and when."""
+    stated = (fields.get("final_url"), fields.get("retrieved_at")) if fields.get("recorded_at") else ()
+    return fields.get("sha256"), bool(fields.get("recorded_at")), fields.get("parameters", {}), *stated
 
 
 def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
@@ -1122,7 +1154,7 @@ def _sha256(fh: IO[bytes]) -> str:
 
 def _check_hash(source: Source, record: FetchRecord, digest: str) -> None:
     if digest != record.sha256:
-        msg = f"{raw_name(source)} changed since it was fetched; re-run fetch"
+        msg = f"{raw_name(source)} changed since it was fetched; re-run fetch, or record for a file from another tool"
         raise ValueError(msg)
 
 
@@ -1587,7 +1619,13 @@ def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path)
         licence = {"name": source["license"], "path": source.get("terms_url"), "title": source.get("terms")}
         resource["licenses"] = [{k: v for k, v in licence.items() if v}]
     # Custom properties are allowed in Data Package v2; these name the bytes the rows came from.
-    resource["sourceledger"] = {
+    resource["sourceledger"] = _provenance(source, record)
+    return resource
+
+
+def _provenance(source: Source, record: FetchRecord) -> dict[str, Any]:
+    """A resource's `sourceledger` block: the fetch or record its output was built from."""
+    stamp = {
         "retrieved_at": record.retrieved_at,
         "vintage": record.vintage,
         "raw_sha256": record.sha256,
@@ -1595,10 +1633,10 @@ def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path)
         "redistribute": source.get("redistribute"),
     }
     if record.recorded_at:
-        resource["sourceledger"]["recorded_at"] = record.recorded_at
+        stamp["recorded_at"] = record.recorded_at
     if record.parameters:
-        resource["sourceledger"]["parameters"] = record.parameters
-    return resource
+        stamp["parameters"] = record.parameters
+    return stamp
 
 
 def read_output(path: Path) -> list[dict[str, str]]:
@@ -1718,6 +1756,9 @@ def _output_problems(source: Source, raw: Path, out: Path, resource: dict[str, A
         problems.append(f"{out}: no rows")
     if stale:
         problems.append(f"{out}: rows come from an earlier fetch than {raw_name(source)}; re-run build")
+    # The rows' stamp misses a record of the same bytes for another request; the package's block does not.
+    elif resource is not None and resource.get("sourceledger") != _provenance(source, record):
+        problems.append(f"{out.parent / DATAPACKAGE} describes an earlier fetch of {raw_name(source)}; re-run build")
     return problems
 
 

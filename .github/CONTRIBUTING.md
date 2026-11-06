@@ -57,6 +57,10 @@ just check
   the stand-in cannot drift unnoticed.
 - The README's examples run as tests (`tests/test_docs.py`), so a change that breaks
   them fails.
+- `tests/golden/` holds the files a small dataset produces, byte for byte. A change to an
+  output format fails `tests/test_golden.py`; when the change is intended, run
+  `just py-test --update-goldens`, read `git diff tests/golden`, and say what changed in
+  `CHANGELOG.md`.
 - CI runs the suite on Python 3.12, 3.13, 3.14 and 3.15, and fails under 95% coverage
   of lines and branches. `just py-cov` shows the coverage locally.
 - Code that reads outside input (the fetch log, response headers, parsed rows) gets a

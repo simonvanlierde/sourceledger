@@ -12,7 +12,7 @@ body { max-width: 72ch; margin: 2rem auto; padding: 0 1rem; color: var(--ink); b
 font: 1rem/1.6 Georgia, serif; }
 a { color: var(--link); } section { border-top: 1px solid var(--rule); margin-top: 2rem; }
 .result { border: 2px solid var(--ok); padding: 0 1rem; } .result.failed { border-color: var(--bad); }
-dt { font-weight: bold; } dd { margin: 0 0 1rem; overflow-wrap: anywhere; }
+dt { font-weight: bold; } dd { margin: 0 0 1rem; } h1, h2, h3, h4, li, dd { overflow-wrap: anywhere; }
 @media (min-width: 40rem) { dl { display: grid; grid-template-columns: 14rem 1fr; gap: 0 1rem; } }
 :focus-visible { outline: 2px solid var(--link); outline-offset: 3px; }
 @media print { :root { color-scheme: light; --ink: #000; --page: #fff; } section { break-inside: avoid; }
@@ -24,5 +24,6 @@ prove scientific correctness, or authenticate the package.
 Obtain the package and this report from a source you trust.</p>
 <p>Source details come from the current manifest; fetch stamps describe the last build.
 No raw values or header credentials are included. URLs omit user information, query parameters and fragments.
-Review names and reuse terms before sharing this report. URLs that are not HTTP or HTTPS are omitted.</p>
-<div class="result"><h2>Integrity checks passed</h2><p>Listed files match their package hashes and sizes.</p></div><h2>Outputs</h2><section><h3>only</h3><dl><dt>File</dt><dd>only.csv</dd><dt>Size in bytes</dt><dd>VARIES</dd><dt>SHA-256 of the output</dt><dd>VARIES</dd></dl><p><a href="#source-0">Source of this output</a></p><h4 id="source-0">only</h4><dl><dt>URL</dt><dd>http://127.0.0.1:8000/data.csv</dd><dt>Fetched at</dt><dd>2026-11-05T09:30:00Z</dd><dt>Vintage</dt><dd>not stated</dd><dt>SHA-256 of the downloaded file</dt><dd>1453a301f534e2fe2f3beea7cab6aa4de5361a57f360975e49dbc61826c76dd2</dd><dt>Served from</dt><dd>the URL above</dd><dt>Licence</dt><dd>not stated in sources.toml</dd><dt>Terms</dt><dd>not stated in sources.toml</dd><dt>Terms URL</dt><dd>not stated in sources.toml</dd><dt>Raw redistribution allowed</dt><dd>not stated in sources.toml</dd></dl></section></main></body></html>
+Review names, request parameters and reuse terms before sharing this report.
+URLs that are not HTTP or HTTPS are omitted.</p>
+<div class="result"><h2>Integrity checks passed</h2><p>Listed files match their package hashes and sizes.</p></div><h2 id="outputs">Outputs</h2><ul class="outputs"><li><a href="#output-0">only</a></li></ul><section><h3 id="output-0">only</h3><dl><dt>File</dt><dd>only.csv</dd><dt>Size in bytes</dt><dd>VARIES</dd><dt>SHA-256 of the output</dt><dd>VARIES</dd></dl><p><a href="#source-0">Source of this output</a></p><h4 id="source-0">only</h4><dl><dt>URL</dt><dd>http://127.0.0.1:8000/data.csv</dd><dt>Fetched at</dt><dd>2026-11-05T09:30:00Z</dd><dt>Vintage</dt><dd>not stated</dd><dt>SHA-256 of the downloaded file</dt><dd>1453a301f534e2fe2f3beea7cab6aa4de5361a57f360975e49dbc61826c76dd2</dd><dt>Served from</dt><dd>the URL above</dd><dt>Licence</dt><dd>not stated in sources.toml</dd><dt>Terms</dt><dd>not stated in sources.toml</dd><dt>Terms URL</dt><dd>not stated in sources.toml</dd><dt>Raw redistribution allowed</dt><dd>not stated in sources.toml</dd></dl><p><a href="#outputs">Back to the outputs</a></p></section></main></body></html>

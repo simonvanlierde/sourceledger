@@ -33,7 +33,7 @@ _records = st.builds(
     env_headers=st.lists(_texts, max_size=3),
     archive_url=_texts,
     recorded_at=_texts,
-    parameters=st.dictionaries(_texts, _texts | st.integers(), max_size=3),
+    parameters=st.dictionaries(_texts, _texts, max_size=3),
 )
 
 

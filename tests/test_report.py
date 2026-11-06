@@ -183,6 +183,29 @@ def test_report_flags_manifest_changes(dataset: list[ledger.Source], key: str) -
     assert "Integrity checks passed" not in page
 
 
+def test_report_says_not_stated_for_what_a_damaged_package_leaves_out(dataset: list[ledger.Source]) -> None:
+    path = Path("data/processed/datapackage.json")
+    package = json.loads(path.read_text())
+    for key in ("bytes", "hash"):
+        del package["resources"][0][key]
+    del package["resources"][0]["sourceledger"]["raw_sha256"]
+    path.write_text(json.dumps(package))
+    page = report(dataset)
+    for label in ("Size in bytes", "SHA-256 of the output", "SHA-256 of the downloaded file"):
+        assert f"<dt>{label}</dt><dd>not stated</dd>" in page
+
+
+@pytest.mark.parametrize("value", [["yes"], {"a": 1}, 1])
+def test_report_says_not_stated_for_a_redistribute_that_is_not_true_or_false(
+    dataset: list[ledger.Source], value: object
+) -> None:
+    path = Path("data/processed/datapackage.json")
+    package = json.loads(path.read_text())
+    package["resources"][0]["sourceledger"]["redistribute"] = value
+    path.write_text(json.dumps(package))
+    assert "<dt>Raw redistribution allowed</dt><dd>not stated in sources.toml</dd>" in report(dataset)
+
+
 @pytest.mark.parametrize(
     ("key", "value"),
     [

@@ -23,7 +23,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 class _Publisher(http.server.BaseHTTPRequestHandler):
-    """A real HTTP server: /data.csv with an ETag, Last-Modified and 304s, and /old.csv redirecting to it.
+    """A real HTTP server: /data.csv with an ETag, Last-Modified and 304s.
+
+    /old.csv redirects to it, and /signed.csv to a signed URL of it.
 
     The body comes in two writes 50 ms apart, so a download reads it in more than one chunk.
     """
@@ -35,9 +37,9 @@ class _Publisher(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", "1024")
             self.end_headers()
             return
-        if self.path == "/old.csv":
+        if self.path in ("/old.csv", "/signed.csv"):
             self.send_response(302)
-            self.send_header("Location", "/data.csv")
+            self.send_header("Location", "/data.csv" if self.path == "/old.csv" else "/data.csv?sig=s3cr3t#part")
             self.end_headers()
             return
         if self.headers.get("If-None-Match") == '"v1"':
@@ -70,7 +72,13 @@ def publisher(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     server.server_close()
 
 
-class _FrozenDatetime(datetime):
+class _AnyDatetime(type):
+    def __instancecheck__(cls, instance: object) -> bool:
+        """A real datetime passed in still counts as one where `ledger.datetime` is this class."""
+        return isinstance(instance, datetime)
+
+
+class _FrozenDatetime(datetime, metaclass=_AnyDatetime):
     @classmethod
     def now(cls, tz: tzinfo | None = None) -> Self:  # noqa: ARG003  # sourceledger only asks for UTC
         return cls.fromtimestamp(NOW.timestamp(), tz=UTC)
@@ -92,7 +100,9 @@ def golden(request: pytest.FixtureRequest) -> Callable[[str, str], None]:
         if request.config.getoption("--update-goldens"):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(text.encode())
+        hint = "rerun with --update-goldens, then read git diff tests/golden"
+        assert path.exists(), f"{name} has no golden file; {hint}"
         # Bytes, not read_text: CSV outputs end lines in CRLF, and that is part of the format.
-        assert text == path.read_bytes().decode(), f"{name} changed; rerun with --update-goldens if intended"
+        assert text == path.read_bytes().decode(), f"{name} changed; {hint} if intended"
 
     return check
