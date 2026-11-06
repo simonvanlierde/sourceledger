@@ -26,10 +26,11 @@ jobs:
     steps:
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.13.5"
-      # howfairis exits 1 below five checks, so the score is read from its output.
+          version: "0.13.6"
+      # howfairis exits 1 below five checks, so the score is read from its output. Its
+      # dependencies resolve to releases at least a week old, as in the project itself.
       - run: |-
-          uvx --from git+https://github.com/fair-software/howfairis@0.15.0 howfairis https://github.com/simonvanlierde/sourceledger | tee out.txt || true
+          uvx --exclude-newer "1 week" --from git+https://github.com/fair-software/howfairis@09f3bea4f13c80f52c59c326b5dd9f93354b40a2 howfairis https://github.com/simonvanlierde/sourceledger | tee out.txt || true
           cat out.txt >> "$GITHUB_STEP_SUMMARY"
           score=$(grep '^Calculated compliance' out.txt | grep -o '●' | wc -l)
           echo "fair-software.eu score: $score of 5 (floor $FAIR_MIN)" | tee -a "$GITHUB_STEP_SUMMARY"

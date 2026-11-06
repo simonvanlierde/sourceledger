@@ -1,8 +1,8 @@
 name: advisories
 
-# The stack workflows audit dependencies on push and pull request. A new advisory can land
-# against a lockfile with no commit here, so this audits again every Monday. A failure shows
-# on the Actions page and in the failed-run email.
+# The stack workflows audit dependencies on push and pull request, and zizmor audits
+# workflows. A new advisory can land against a lockfile or action with no commit here, so
+# this audits again every Monday. A failure shows on the Actions page and in the failed-run email.
 on:
   schedule:
     - cron: "23 5 * * 1" # Mondays, 05:23 UTC
@@ -11,7 +11,27 @@ on:
 permissions:
   contents: read
 
+env:
+  # The action installs the newest prek unless told otherwise.
+  # renovate: datasource=github-releases depName=j178/prek
+  PREK_VERSION: 0.5.7
+
 jobs:
+  actions:
+    name: "actions: zizmor"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: j178/prek-action@44924fe9ef4a6f88253c4b6b1bf11c689d3ce53d # v3.1.0
+        with:
+          prek-version: ${{ env.PREK_VERSION }}
+          extra-args: zizmor --all-files
+          cache: false
+        env:
+          GH_TOKEN: ${{ github.token }}
   python:
     name: "python: uv audit"
     runs-on: ubuntu-latest
@@ -22,5 +42,5 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.13.5"
+          version: "0.13.6"
       - run: uv audit --locked --preview-features audit-command

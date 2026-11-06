@@ -48,7 +48,7 @@ jobs:
         with:
           enable-cache: true
           save-cache: ${{ github.event_name != 'pull_request' }}
-          version: "0.13.5"
+          version: "0.13.6"
           python-version: ${{ matrix.python }}
 
       - run: uv sync --locked
@@ -80,8 +80,8 @@ jobs:
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           save-cache: ${{ github.event_name != 'pull_request' }}
-          version: "0.13.5"
+          version: "0.13.6"
 
       # Reads the source without importing it, so the package needs no install. Runs
       # from the root: griffe resolves --search against the repository root at the tag.
-      - run: uvx griffe@2.3.2 check --search src --format github sourceledger
+      - run: uvx griffe@2.4.1 check --search src --format github sourceledger

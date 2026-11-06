@@ -7,8 +7,9 @@
 # `prek install` sets up each of these: the commit message is checked as you commit.
 default_install_hook_types: [pre-commit, commit-msg]
 
-# data/ holds inputs: the whitespace, end-of-file and notebook hooks must not rewrite them.
-# Excluded per hook, so the secret scan and the large-file check still cover data/.
+# data/ and tests/fixtures/ hold inputs and test cases: the whitespace, end-of-file
+# and notebook hooks must not rewrite them. Excluded per hook, so the secret scan
+# and the large-file check still cover them.
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # frozen: v6.0.0
@@ -19,11 +20,11 @@ repos:
         # pnpm writes its own version into the lockfile as a second YAML document.
         exclude: (^|/)pnpm-lock\.yaml$
       - id: end-of-file-fixer
-        exclude: ^data/
+        exclude: ^(data|tests/fixtures)/
       - id: mixed-line-ending
-        exclude: ^data/
+        exclude: ^(data|tests/fixtures)/
       - id: trailing-whitespace
-        exclude: ^data/
+        exclude: ^(data|tests/fixtures)/
       # Not gated to python: .rumdl.toml ships to every stack.
       - id: check-toml
 
@@ -34,6 +35,22 @@ repos:
       - id: committed
         # git writes a merge commit's message itself, so skip the check during a merge.
         entry: sh -c 'test -f "$(git rev-parse --git-path MERGE_HEAD)" || exec committed "$@"' --
+
+  # Refuse an unsigned commit before the dco workflow sees it: that checks fork pull requests,
+  # and every pull request with openssf_badge=silver. Merge commits are skipped, as there.
+  - repo: local
+    hooks:
+      - id: dco-signoff
+        name: commit message has a Signed-off-by line (git commit -s)
+        entry: sh -c 'test -f "$(git rev-parse --git-path MERGE_HEAD)" || grep -qE "^Signed-off-by:[ ].+ <[^>]+>[[:space:]]*$" "$1"' --
+        language: system
+        stages: [commit-msg]
+
+  # Every file has a copyright and license, from REUSE.toml or its own header.
+  - repo: https://github.com/fsfe/reuse-tool
+    rev: a1bb792acda6fd0724936b4ebbdbc8eceb9c0459 # frozen: v6.2.0
+    hooks:
+      - id: reuse
 
   # Not gated to ts: .vscode/ and .github/rulesets/ JSON ship to every stack.
   # .json files are read as JSON5, so comments and trailing commas in tsconfig
@@ -48,6 +65,7 @@ repos:
     rev: 21ca5323a9c87ee37a434e0ca908efc0a89daa07 # frozen: v0.21.0
     hooks:
       - id: yamlfmt
+        exclude: (^|/)pnpm-lock\.yaml$
 
   - repo: https://github.com/adrienverge/yamllint
     rev: cba56bcde1fdd01c1deb3f945e69764c291a6530 # frozen: v1.38.0
@@ -79,28 +97,25 @@ repos:
   # CITATION.cff against the official schema. GitHub's "Cite this repository"
   # silently drops a file that fails it.
   - repo: https://github.com/python-jsonschema/check-jsonschema
-    rev: 0494aa7fa1314e98913a41227d8f0a515b2c1049 # frozen: 0.38.2
+    rev: a76b92851fc9eede9f9bc4073eb55202f34eb0df # frozen: 0.39.0
     hooks:
       - id: check-citation-file-format
 
-  # .zenodo.json and codemeta.json are written from CITATION.cff by `just citation`.
-  # prek installs the script's pinned dependencies from its own header.
-  - repo: local
+  # CITATION.cff is the source: codemeta.json, any .zenodo.json and the package manifests
+  # must agree with it. `just citation` runs the manual-stage writer to fix them.
+  - repo: https://github.com/simonvanlierde/citesync
+    rev: a3c5a9794449e78a33583e456af41bb24ebd240e # frozen: v0.1.0
     hooks:
-      - id: citation
-        name: citation files agree with CITATION.cff
-        entry: .github/scripts/citation.py --check
-        language: python
-        files: ^(CITATION\.cff|\.zenodo\.json|codemeta\.json|\.github/scripts/citation\.py)$
-        pass_filenames: false
+      - id: citesync
+      - id: citesync-write
 
   - repo: https://github.com/kynan/nbstripout
     rev: 34071b78c181af3bf5af955c1426466e096fc3db # frozen: 0.9.1
     hooks:
       - id: nbstripout
-        exclude: ^data/
+        exclude: ^(data|tests/fixtures)/
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: 03a7d1a4936b5889602852175bca2d39acb3281e # frozen: v0.3.0
+    rev: eaeb8abc646954face3eb41726f085385410f761 # frozen: v0.3.1
     hooks:
       - id: rumdl
         args: [--fix]
@@ -133,7 +148,8 @@ repos:
     hooks:
       # Runs from the project's venv, not the ruff-pre-commit mirror, so it uses the
       # same ruff as CI. --force-exclude keeps ruff's excludes when the hook passes
-      # explicit filenames.
+      # explicit filenames. A local hook running from the project's venv (`uv run ...`)
+      # must join the SKIP list in .github/workflows/checks.yml, whose hooks job has no uv.
       - id: ruff-check
         name: ruff check
         entry: uv run --frozen ruff check --fix --force-exclude

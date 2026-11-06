@@ -47,12 +47,35 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # .github/scripts/tag-release.sh signs the tag. A lightweight or unverified one publishes
+      # nothing.
+      - name: refuse a tag GitHub cannot verify
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          read -r type sha < <(gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha')
+          if [ "$type" != tag ]; then
+            echo "$TAG is a lightweight tag; make it with .github/scripts/tag-release.sh" >&2
+            exit 1
+          fi
+          if [ "$(gh api "repos/$REPO/git/tags/$sha" --jq '.verification.verified')" != true ]; then
+            echo "GitHub cannot verify the signature on $TAG" >&2
+            exit 1
+          fi
+
       # No cache: an entry written from any branch is restorable here, which
       # would put attacker-controlled bytes into the wheel this workflow signs.
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
-          version: "0.13.5"
+          version: "0.13.6"
+
+      # The wheel takes its version from pyproject.toml, not the tag: refuse a mismatch.
+      - run: test "$(uv version --short)" = "${GITHUB_REF_NAME#v}"
 
       # Validate and save the notes before PyPI publishes anything.
       - run: '"$GITHUB_WORKSPACE/.github/scripts/release-notes.sh" "$GITHUB_REF_NAME" "$GITHUB_WORKSPACE/CHANGELOG.md" >"$RUNNER_TEMP/notes.md"'

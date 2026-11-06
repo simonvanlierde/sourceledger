@@ -31,7 +31,7 @@ jobs:
           # This workflow runs on pull requests only, and a cache a pull request saves is
           # readable by that pull request alone. committed is one small wheel.
           enable-cache: false
-          version: "0.13.5"
+          version: "0.13.6"
 
       - name: check the title
         env:

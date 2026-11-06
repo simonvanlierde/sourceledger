@@ -39,6 +39,8 @@ jobs:
           if [ -n "$missing" ]; then
             echo "These commits have no Signed-off-by line:"
             echo "$missing"
-            echo "Add it with 'git rebase --signoff upstream/main' (the branch you started from), then force-push."
+            echo "Add it with 'git fetch origin && git rebase --signoff origin/main'."
+            echo "(Use the remote that points at this repository: origin in a clone of it, often upstream in a fork.)"
+            echo "If the branch is already pushed, update it with 'git push --force-with-lease'."
             exit 1
           fi

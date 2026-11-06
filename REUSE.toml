@@ -1,0 +1,17 @@
+# Who holds the copyright on each file and under which license, per the REUSE spec
+# (https://reuse.software). The texts are in LICENSES/; `reuse lint` checks every
+# file is covered. A header in a file overrides these defaults, so a file copied
+# from elsewhere keeps its own: add `SPDX-FileCopyrightText` and
+# `SPDX-License-Identifier` lines to it, or an annotation below.
+version = 1
+
+[[annotations]]
+path = "**"
+SPDX-FileCopyrightText = "2026 Simon van Lierde"
+SPDX-License-Identifier = "MIT"
+
+# The Code of Conduct is the Contributor Covenant 3.0, which keeps its own license.
+[[annotations]]
+path = ".github/CODE_OF_CONDUCT.md"
+SPDX-FileCopyrightText = "Organization for Ethical Source"
+SPDX-License-Identifier = "CC-BY-SA-4.0"
