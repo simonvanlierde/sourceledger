@@ -462,8 +462,8 @@ class _HTTPHandler(urllib.request.HTTPHandler):
 
 class _HTTPSHandler(urllib.request.HTTPSHandler):
     def __init__(self, context: ssl.SSLContext | None = None) -> None:
-        super().__init__(context=context)
-        self.context = context
+        super().__init__()
+        self.context = context  # https_open passes it on; the base class's own copy is never read
 
     def https_open(self, req: urllib.request.Request) -> http.client.HTTPResponse:
         return self.do_open(functools.partial(_HTTPSPeerCheck, req=req), req, context=self.context)

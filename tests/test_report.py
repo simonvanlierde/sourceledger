@@ -303,3 +303,16 @@ def test_report_flags_incomplete_or_obsolete_packages(dataset: list[ledger.Sourc
 def test_report_accepts_a_genuinely_empty_dataset(tmp_path: Path) -> None:
     (tmp_path / "datapackage.json").write_text('{"resources": []}')
     assert "Integrity checks passed" in report([], processed=tmp_path, log=tmp_path / "missing.jsonl")
+
+
+def test_report_says_what_it_does_not_know_about_times(dataset: list[ledger.Source]) -> None:
+    """A stamp without a fetch time, or a recorded file without a download time, says "not stated"."""
+    path = Path("data/processed/datapackage.json")
+    package = json.loads(path.read_text())
+    del package["resources"][0]["sourceledger"]["retrieved_at"]
+    package["resources"][1]["sourceledger"].update(retrieved_at="", recorded_at="2026-11-05T09:30:00Z")
+    path.write_text(json.dumps(package))
+    page = report(dataset)
+    assert "<dt>Fetched at</dt><dd>not stated</dd>" in page
+    assert "<dt>Downloaded at</dt><dd>not stated</dd>" in page
+    assert "<dt>Recorded, not fetched, at</dt><dd>2026-11-05T09:30:00Z</dd>" in page

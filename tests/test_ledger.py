@@ -26,7 +26,7 @@ import tracemalloc
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from datetime import time as dt_time
 from email.message import Message
 from email.utils import format_datetime
@@ -595,7 +595,7 @@ def test_a_source_id_is_a_plain_file_name(tmp_path: Path, capsys: pytest.Capture
 @pytest.mark.usefixtures("upstream")
 def test_a_project_passes_its_own_parser_and_name(monkeypatch: pytest.MonkeyPatch) -> None:
     """`main` builds with the project's parser and fetches under the project's name."""
-    calls = _serve(monkeypatch, _Response(FIXTURE.encode()))
+    calls = _serve(monkeypatch, _Response(FIXTURE.encode()), _Response(FIXTURE.encode()))
 
     def marked(source: ledger.Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
         columns, rows = ledger.parse_csv(source, payload)
@@ -603,6 +603,9 @@ def test_a_project_passes_its_own_parser_and_name(monkeypatch: pytest.MonkeyPatc
 
     assert main(["fetch"], user_agent="my-dataset") == 0
     assert calls[0].get_header("User-agent") == "my-dataset"
+    RAW.unlink()  # forces a full fetch through the library function
+    ledger.fetch(ledger.load_manifest(), user_agent="my-library-dataset")
+    assert calls[1].get_header("User-agent") == "my-library-dataset"
     assert main(["build"], parse=marked) == 0
     assert [r["year"] for r in ledger.read_output(OUT)] == ["y2020", "y2021"]
 
@@ -3109,6 +3112,13 @@ def test_record_states_no_download_time_it_was_not_given(upstream: Path, capsys:
     assert json.loads(capsys.readouterr().out)["sources"][0]["recorded_at"] == result.recorded_at
 
 
+def test_record_takes_a_download_time_up_to_the_clock_skew_ahead(upstream: Path) -> None:
+    """A tool's clock may run a little ahead of this host's: up to five minutes is accepted."""
+    ahead = datetime.now(UTC) + timedelta(minutes=4)
+    assert ledger.record(_source(), upstream, retrieved_at=ahead).retrieved_at == f"{ahead:%Y-%m-%dT%H:%M:%SZ}"
+    assert ledger.record(_source(), upstream, retrieved_at=datetime.now(UTC)).retrieved_at
+
+
 def test_record_takes_a_timezone_aware_datetime(upstream: Path) -> None:
     when = datetime(2026, 11, 5, 10, 30, tzinfo=UTC) + timedelta(microseconds=5)
     assert ledger.record(_source(), upstream, retrieved_at=when).retrieved_at == "2026-11-05T10:30:00Z"
@@ -3292,6 +3302,7 @@ def test_the_record_stage_records_one_file(upstream: Path, capsys: pytest.Captur
     assert capsys.readouterr().out.startswith("example  new")
     line = json.loads(LOG.read_text(encoding="utf-8"))
     assert (line["parameters"], line["last_modified"]) == ({"country": "NL", "query": "a=b"}, "x")
+    assert line["retrieved_at"] == "2026-11-05T09:30:00Z"
     assert main(["record", "example", str(upstream)]) == 0
     assert capsys.readouterr().out.startswith("example  unchanged")
 
@@ -3305,6 +3316,8 @@ def test_the_record_stage_records_one_file(upstream: Path, capsys: pytest.Captur
         (["status", "--parameter", "a=b"], "work with record, not status"),
         (["record", "example", "f", "--parameter", "novalue"], "--parameter takes NAME=VALUE, not 'novalue'"),
         (["record", "example", "f", "--parameter", "=v"], "--parameter takes NAME=VALUE, not '=v'"),
+        (["record", "example", "f", "--parameter", "=a=b"], "--parameter takes NAME=VALUE, not '=a=b'"),
+        (["record", "example", "f", "--parameter", "q=a=b", "--parameter", "q=c"], "--parameter names ['q']"),
         (
             ["record", "example", "f", "--parameter", "a=1", "--parameter", "a=2"],
             "--parameter names ['a'] more than once",
@@ -3332,3 +3345,128 @@ def test_the_record_stage_reports_a_failure_in_one_line(
 ) -> None:
     assert main(argv) == 1
     assert capsys.readouterr().err == message + "\n"
+
+
+def test_record_writes_empty_validators_and_creates_the_log_folder(upstream: Path, tmp_path: Path) -> None:
+    """Defaults stay empty strings, as a fetch writes them, and a log in a new folder is made."""
+    log = tmp_path / "logs" / "nested" / "fetches.jsonl"
+    result = ledger.record(_source(), upstream, log=log)
+    assert (result.etag, result.last_modified, result.final_url) == ("", "", "")
+    assert json.loads(log.read_text(encoding="utf-8"))["last_modified"] == ""
+
+
+def test_record_keeps_the_query_of_the_source_url_itself(tmp_path: Path, upstream: Path) -> None:
+    """Only another URL loses its query: the manifest's own URL is reviewed and kept as it is."""
+    _manifest(tmp_path, "https://example.org/data.csv?format=csv")
+    result = ledger.record(_source(), upstream)
+    assert (result.url, result.final_url) == ("https://example.org/data.csv?format=csv", "")
+
+
+def test_record_messages_name_the_source(upstream: Path) -> None:
+    for change in ({"retrieved_at": "yesterday"}, {"parameters": {"token": "x"}}):
+        with pytest.raises(ValueError, match=r"^example: "):
+            ledger.record(_source(), upstream, **change)  # ty: ignore[invalid-argument-type]
+
+
+class _NoOffset(tzinfo):
+    """A tzinfo that does not know its offset: Python then treats the time as naive."""
+
+    def utcoffset(self, _: datetime | None) -> None:
+        return None
+
+    def dst(self, _: datetime | None) -> None:
+        return None
+
+    def tzname(self, _: datetime | None) -> None:
+        return None
+
+
+def test_record_refuses_a_time_zone_without_an_offset(upstream: Path) -> None:
+    with pytest.raises(ValueError, match="needs a time zone"):
+        ledger.record(_source(), upstream, retrieved_at=datetime(2026, 1, 1, tzinfo=_NoOffset()))
+
+
+def test_record_copies_through_a_temp_file_beside_the_raw_file(upstream: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The temp file sits in data/raw/, so moving it into place is one rename on one file system."""
+    made: list[Path] = []
+    mkstemp = tempfile.mkstemp
+
+    def spy(**kwargs: str | Path) -> tuple[int, str]:
+        fd, name = mkstemp(**kwargs)  # ty: ignore[no-matching-overload]
+        made.append(Path(name))
+        return fd, name
+
+    monkeypatch.setattr(tempfile, "mkstemp", spy)
+    ledger.record(_source(), upstream)
+    temp = made[0]  # the copy; the sidecar's own temp file comes after it
+    assert temp.parent.resolve() == RAW.parent.resolve()
+    assert temp.name.startswith(".example.")
+    assert temp.name.endswith(".part")
+    assert not temp.exists()
+
+
+@pytest.mark.parametrize(("cap", "chunk", "ok"), [(len(FIXTURE), 4, True), (len(FIXTURE) - 1, 4, False)])
+def test_record_counts_every_chunk_against_the_cap(
+    upstream: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: int, chunk: int, *, ok: bool
+) -> None:
+    """A file of exactly max_bytes is taken; one byte more is refused, however it is chunked."""
+    monkeypatch.setattr(ledger, "_CHUNK_BYTES", chunk)
+    _manifest(tmp_path, upstream.as_uri(), terms=f"{TERMS}\nmax_bytes = {cap}")
+    if ok:
+        assert ledger.record(_source(), upstream).bytes == cap
+    else:
+        with pytest.raises(ValueError, match="exceeds"):
+            ledger.record(_source(), upstream)
+
+
+def test_recording_the_same_request_again_adds_no_line(upstream: Path) -> None:
+    for _ in range(2):
+        ledger.record(_source(), upstream, parameters={"country": "NL"})
+    assert len(_lines()) == 1
+
+
+def test_the_record_stage_passes_url_and_validators_on(upstream: Path) -> None:
+    """--etag, --last-modified and --url reach the record; left out, they stay empty strings."""
+    assert main(["record", "example", str(upstream)]) == 0
+    line = json.loads(LOG.read_text(encoding="utf-8"))
+    assert (line["etag"], line["last_modified"]) == ("", "")
+    assert main(["record", "example", str(upstream), "--etag", '"e1"', "--last-modified", "lm"]) == 0
+    assert json.loads(Path(f"{RAW}.fetch.json").read_text(encoding="utf-8"))["etag"] == '"e1"'
+    assert main(["record", "example", str(upstream), "--url", "https://mirror.example.org/x.csv"]) == 0
+    assert json.loads(Path(f"{RAW}.fetch.json").read_text(encoding="utf-8"))["final_url"] == (
+        "https://mirror.example.org/x.csv"
+    )
+
+
+@pytest.mark.parametrize("value", ["a=", "a=b=c"])
+@pytest.mark.usefixtures("upstream")
+def test_a_parameter_value_may_be_empty_or_hold_an_equals_sign(upstream: Path, value: str) -> None:
+    assert main(["record", "example", str(upstream), "--parameter", value]) == 0
+    name, _, rest = value.partition("=")
+    assert json.loads(LOG.read_text(encoding="utf-8"))["parameters"] == {name: rest}
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Fetch, build and validate the sources in sources.toml.",
+        "--only ID", "fetch, build and validate: only this source (repeatable)",
+        "--manifest PATH", "the manifest to read (default: sources.toml)",
+        "--url URL", "record: where the file came from (default: the source's url)",
+        "--retrieved-at TIME", "record: when it was downloaded, ISO 8601 with a zone",
+        "--etag ETAG", "record: the ETag the server sent",
+        "--last-modified LAST_MODIFIED", "record: the Last-Modified the server sent",
+        "--parameter NAME=VALUE", "record: request metadata (repeatable)",
+        "[ARG ...]", "revisions: an earlier copy of data/fetches.jsonl; verify: the folder of a published dataset;",
+        "record: a source id and the file another tool downloaded",
+    ],
+)  # fmt: skip
+def test_the_help_text_is_the_documented_one(
+    line: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every option, its metavar and its help are part of the command's contract."""
+    monkeypatch.setenv("COLUMNS", "500")  # one line per option, whatever the terminal
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    text = " ".join(capsys.readouterr().out.split())
+    assert re.search(rf"(?<!\S){re.escape(line)}(?!\S)", text), line
