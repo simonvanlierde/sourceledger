@@ -1,0 +1,3 @@
+source_id,source_url,retrieved_at,vintage,raw_sha256,year,value
+table,http://127.0.0.1:8000/old.csv,2026-11-05T09:30:00Z,2024 release,1453a301f534e2fe2f3beea7cab6aa4de5361a57f360975e49dbc61826c76dd2,2020,1.5
+table,http://127.0.0.1:8000/old.csv,2026-11-05T09:30:00Z,2024 release,1453a301f534e2fe2f3beea7cab6aa4de5361a57f360975e49dbc61826c76dd2,2021,2.5

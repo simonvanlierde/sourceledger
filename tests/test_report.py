@@ -144,6 +144,7 @@ def test_report_handles_malformed_urls_as_text(dataset: list[ledger.Source]) -> 
         ("https://user:sec@ret@example.org/data?key=hidden#hidden", "https://example.org/data"),
         ("ftp://user:secret@example.org/data", "Local or non-HTTP URL omitted"),
         ("https:/missing-host", "Local or non-HTTP URL omitted"),
+        ("", "not stated"),  # nothing was hidden, so the report must not say it was
     ],
 )
 def test_report_keeps_only_the_public_part_of_a_url(dataset: list[ledger.Source], url: str, expected: str) -> None:
@@ -167,7 +168,7 @@ def test_report_displays_the_built_metadata_and_security_policy(dataset: list[le
         "Raw SHA-256": hashlib.sha256(b"year,value\n2023,1.5\n").hexdigest(),
         "Licence": "LicenseRef-example",
         "Terms": "Example terms",
-        "Raw redistribution allowed": "False",
+        "Raw redistribution allowed": "no",
     }
     for key, value in expected.items():
         assert f"<dt>{key}</dt><dd>{value}</dd>" in page

@@ -11,8 +11,10 @@ from urllib.parse import urlsplit, urlunsplit
 from sourceledger.ledger import DATAPACKAGE, FETCH_LOG, PROCESSED, Source, _last_records, implemented, verify
 
 
-def _url(value: object) -> str:
-    """Display HTTP URLs without user information, query parameters or fragments."""
+def _url(value: object, empty: str = "not stated") -> str:
+    """Display HTTP URLs without user information, query parameters or fragments; `empty` when there is none."""
+    if value in ("", None):
+        return empty
     try:
         url = urlsplit(str(value))
         if url.scheme in ("http", "https") and url.hostname:
@@ -20,6 +22,16 @@ def _url(value: object) -> str:
     except ValueError:
         pass
     return "Local or non-HTTP URL omitted"
+
+
+def _times(stamp: dict[str, object]) -> dict[str, object]:
+    """When the bytes were fetched; for a file another tool downloaded, when it says it did and when it was recorded."""
+    if not stamp.get("recorded_at"):
+        return {"Fetched at": stamp.get("retrieved_at", "not stated")}
+    return {
+        "Downloaded at": stamp.get("retrieved_at") or "not stated",
+        "Recorded, not fetched, at": stamp["recorded_at"],
+    }
 
 
 def _fields(values: dict[str, object]) -> str:
@@ -89,17 +101,14 @@ def report(sources: list[Source], *, processed: Path = PROCESSED, log: Path = FE
         }
         source_fields = {
             "URL": _url(source.get("url", "")),
-            # A file another tool downloaded: sourceledger only took the time that tool reported.
-            ("Recorded, not fetched; downloaded at" if stamp.get("recorded") is True else "Fetched at"): stamp.get(
-                "retrieved_at", "not stated"
-            ),
+            **_times(stamp),
             "Vintage": stamp.get("vintage", "not stated"),
             "Raw SHA-256": stamp.get("raw_sha256", "not stated"),
-            "Final URL": _url(stamp.get("final_url", "")),
+            "Final URL": _url(stamp.get("final_url", ""), empty="none: no redirect"),
             "Licence": source.get("license", "not stated"),
             "Terms": source.get("terms", "not stated"),
             "Terms URL": _url(source.get("terms_url", "")),
-            "Raw redistribution allowed": str(stamp.get("redistribute", "not stated")),
+            "Raw redistribution allowed": {True: "yes", False: "no"}.get(stamp.get("redistribute"), "not stated"),
         }
         sections.append(
             f"<section><h2>{escape(sid)}</h2>{_fields(file_fields)}"

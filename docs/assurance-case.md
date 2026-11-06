@@ -32,7 +32,8 @@ they do not sign your dataset or its fetch records.
 
 The evidence below is executable regression coverage in
 [`tests/test_ledger.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_ledger.py)
-and [`tests/test_report.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_report.py).
+[`tests/test_report.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_report.py)
+and [`tests/test_golden.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_golden.py).
 It supports the stated behavior; it is not an independent security certification.
 
 | Claim | Safeguard | Regression evidence |
@@ -45,6 +46,8 @@ It supports the stated behavior; it is not an independent security certification
 | A failed write does not expose a partially written replacement file. | A fresh temporary file is flushed and renamed into place. Fetch serializes writers with a lock, logs before writing the record and recovers a cut-off last log line. | `test_a_failed_write_raises_its_own_error_and_leaves_no_temp_file`, `test_a_cut_off_last_log_line_is_dropped_not_fatal`, `test_a_whole_last_log_line_without_its_newline_is_kept` |
 | A recipient can check a package without fetching its sources. | Verify checks listed files against size and SHA-256, and refuses paths that escape the dataset folder, including through symlinks. | `test_verify_checks_a_published_dataset_against_its_package`, `test_verify_reports_a_package_it_cannot_check` |
 | A provenance report can be read offline without executing displayed metadata. | Standalone HTML escapes metadata, omits raw values and headers, redacts HTTP URL credentials, queries and fragments, and blocks remote assets and scripts. Free text and URL paths still need review before sharing. | `test_report_escapes_metadata_and_omits_credentials`, `test_report_displays_the_built_metadata_and_security_policy`, `test_report_does_not_echo_credentials_from_an_invalid_file_url` |
+| A file another tool downloaded is held to the same rules as a fetch, and marked as such. | `record` copies the file into `data/raw/`, checks the pin under the fetch lock, refuses credentials in the URL, and writes the log line and record through the code `fetch` uses. The record keeps `recorded_at`, and states no download time unless one is given. Validators from another URL are not kept. | `test_a_recorded_file_builds_like_a_fetched_one`, `test_record_refuses_what_it_cannot_record_honestly`, `test_record_states_no_download_time_it_was_not_given`, `test_a_recorded_file_verifies_and_reads_back` |
+| Records, logs, packages and reports keep their format, and a 0.4.0 project still reads. | Golden files pin each written format byte for byte. A project written by 0.4.0 validates and rebuilds to the same bytes, and a fetch over it writes the same record keys. | `test_a_full_dataset_matches_its_goldens`, `test_a_minimal_dataset_matches_its_goldens`, `test_a_0_4_0_project_validates_and_rebuilds_unchanged`, `test_a_fetch_over_a_0_4_0_project_writes_the_0_4_0_format` |
 | The same input records give repeatable build outputs. | Build writes no current timestamps into outputs or package metadata. | `test_the_same_records_build_the_same_package`, `test_the_package_is_written_exactly` |
 
 ## Where these claims stop

@@ -1,0 +1,8 @@
+source_id: string
+source_url: string
+retrieved_at: string
+vintage: string
+raw_sha256: string
+year: string
+value: string
+compression: ['ZSTD']

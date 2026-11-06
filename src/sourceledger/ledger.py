@@ -162,10 +162,11 @@ class FetchRecord:
     # from their line in the log. Empty when the source does not ask for one, or the archive
     # did not answer with one.
     archive_url: str = ""
-    # True when `record()` took the bytes from a file another tool downloaded. With
-    # `parameters`, left out of the log and sidecar while empty, so a fetched record is
-    # written as 0.4.0 wrote it.
-    recorded: bool = False
+    # When `record()` took these bytes from a file another tool downloaded; empty for a
+    # fetch. `retrieved_at` is then the download time that tool reported, or empty when it
+    # reported none. With `parameters`, left out of the log and sidecar while empty, so a
+    # fetched record is written as 0.4.0 wrote it.
+    recorded_at: str = ""
     # The request's own metadata, as the caller passed it to `record()`.
     parameters: dict[str, str | int] = dataclasses.field(default_factory=dict)
 
@@ -173,7 +174,7 @@ class FetchRecord:
 def _fields(record: FetchRecord) -> dict[str, Any]:
     """The record as written to the log and sidecar."""
     fields = dataclasses.asdict(record)
-    for key in ("recorded", "parameters"):
+    for key in ("recorded_at", "parameters"):
         if not fields[key]:
             del fields[key]
     return fields
@@ -799,9 +800,16 @@ def revisions(before: Path, *, log: Path = FETCH_LOG) -> list[str]:
     """
     return [
         f"- `{r['source_id']}`: {r['before_sha256'][:12]} -> {r['after']['sha256'][:12]}, "
-        f"{r['after']['bytes']:,} bytes, fetched {r['after']['retrieved_at']} from <{r['after']['url']}>"
+        f"{r['after']['bytes']:,} bytes, {_when(r['after'])} from <{r['after']['url']}>"
         for r in _revision_records(before, log=log)
     ]
+
+
+def _when(fields: dict[str, Any]) -> str:
+    """When a logged record's bytes arrived: fetched, or recorded from another tool's download."""
+    if recorded := fields.get("recorded_at"):
+        return f"recorded {recorded}"
+    return f"fetched {fields['retrieved_at']}"
 
 
 def _revision_records(before: Path, *, log: Path = FETCH_LOG) -> list[dict[str, Any]]:
@@ -906,7 +914,7 @@ def _keep(
     record = FetchRecord(
         source_id=source["id"],
         url=source["url"],
-        retrieved_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        retrieved_at=_timestamp(datetime.now(UTC)),
         sha256=digest,
         bytes=download.size,
         vintage=_vintage(source),
@@ -933,11 +941,11 @@ def _commit(
     _write_atomic(raw / f"{name}.fetch.json", (json.dumps(_fields(record), indent=2) + "\n").encode())
 
 
-def record(  # the fetch record's fields, as keywords
+def record(
     source: Source,
     path: Path,
     *,
-    retrieved_at: str,
+    retrieved_at: datetime | str | None = None,
     url: str | None = None,
     etag: str = "",
     last_modified: str = "",
@@ -947,16 +955,18 @@ def record(  # the fetch record's fields, as keywords
 ) -> FetchRecord:
     """Take a file another tool downloaded for `source` into `raw`, and log and record it as `fetch` would.
 
-    The file is copied, never moved, so the other tool keeps its cache. The record is marked
-    `recorded`, and the same pin, lock, log and sidecar rules apply as for a fetch. Nothing
-    goes over the network.
+    The file is copied, never moved, so the other tool keeps its cache. The same pin, lock,
+    log and sidecar rules apply as for a fetch, and nothing goes over the network. The
+    record's `recorded_at` is the time of this call.
 
-    `retrieved_at` is when the other tool downloaded the file: an ISO 8601 time with a time
-    zone, stored in UTC. `url` is where it came from, the source's URL by default; another
-    URL is kept as the record's `final_url`. `etag` and `last_modified` are kept only when
-    `url` is the source's URL, so a later `fetch` never sends one URL's validators to another.
+    `retrieved_at` is when the other tool downloaded the file: a timezone-aware datetime or
+    an ISO 8601 string with a time zone, stored in UTC. Leave it out when that tool does not
+    say; the record then states no download time rather than pass the record time off as one.
+    `url` is where the file came from, the source's URL by default; another URL is kept as
+    the record's `final_url`. `etag` and `last_modified` are kept only when `url` is the
+    source's URL, so a later `fetch` never sends one URL's validators to another.
     `parameters` describes the request: flat, with str or int values, and never credentials,
-    since it is written to the log and every copy of the dataset's metadata.
+    since it is written to the log and to every copy of the dataset's metadata.
 
     Raises ValueError for a source that is not implemented, a URL with a user name or
     password, a time without a time zone, other `parameters`, or bytes that miss the
@@ -967,7 +977,8 @@ def record(  # the fetch record's fields, as keywords
         msg = f"{sid}: only an implemented source can be recorded"
         raise ValueError(msg)
     url = url or source["url"]
-    if urlsplit(url).username is not None or urlsplit(url).password is not None:
+    parts = urlsplit(url)
+    if parts.username is not None or parts.password is not None:
         msg = f"{sid}: the URL holds a user name or password; record it without them"
         raise ValueError(msg)
     parameters = parameters or {}
@@ -975,17 +986,10 @@ def record(  # the fetch record's fields, as keywords
     if not all(isinstance(k, str) and type(v) in (str, int) for k, v in parameters.items()):
         msg = f"{sid}: parameters must map names to str or int values"
         raise ValueError(msg)
+    downloaded = "" if retrieved_at is None else _timestamp(_aware(sid, retrieved_at))
     if url != source["url"] and (etag or last_modified):
         _logger.warning("%s: ETag and Last-Modified from %s are not the source URL's; not kept", sid, url)
         etag = last_modified = ""
-    try:
-        when = datetime.fromisoformat(retrieved_at)
-    except (TypeError, ValueError) as error:
-        msg = f"{sid}: retrieved_at {retrieved_at!r} is not an ISO 8601 time"
-        raise ValueError(msg) from error
-    if when.tzinfo is None:
-        msg = f"{sid}: retrieved_at {retrieved_at!r} needs a time zone, such as Z"
-        raise ValueError(msg)
     raw.mkdir(parents=True, exist_ok=True)
     log.parent.mkdir(parents=True, exist_ok=True)
     with _lock(raw):
@@ -1004,20 +1008,38 @@ def record(  # the fetch record's fields, as keywords
             result = FetchRecord(
                 source_id=sid,
                 url=source["url"],
-                retrieved_at=when.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                retrieved_at=downloaded,
                 sha256=digest,
                 bytes=temp.stat().st_size,
                 vintage=_vintage(source),
                 last_modified=last_modified,
                 etag=etag,
                 final_url="" if url == source["url"] else url,
-                recorded=True,
+                recorded_at=_timestamp(datetime.now(UTC)),
                 parameters=dict(parameters),
             )
             _commit(source, temp, result, raw, log, logged)
         finally:
             temp.unlink(missing_ok=True)  # gone already once moved into place
     return result
+
+
+def _aware(sid: str, when: datetime | str) -> datetime:
+    """`when` as a datetime, refused unless it is a time with a time zone."""
+    try:
+        parsed = when if isinstance(when, datetime) else datetime.fromisoformat(when)
+    except (TypeError, ValueError) as error:
+        msg = f"{sid}: retrieved_at {when!r} is not an ISO 8601 time"
+        raise ValueError(msg) from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        msg = f"{sid}: retrieved_at {when!r} needs a time zone, such as Z"
+        raise ValueError(msg)
+    return parsed
+
+
+def _timestamp(when: datetime) -> str:
+    """A record's time: UTC, to the second, as `2026-11-05T09:30:00Z`."""
+    return when.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _log_new_version(log: Path, logged: dict[str, dict[str, Any]], record: FetchRecord) -> None:
@@ -1535,8 +1557,8 @@ def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path)
         "final_url": record.final_url,
         "redistribute": source.get("redistribute"),
     }
-    if record.recorded:
-        resource["sourceledger"]["recorded"] = True
+    if record.recorded_at:
+        resource["sourceledger"]["recorded_at"] = record.recorded_at
     return resource
 
 
@@ -1727,8 +1749,8 @@ def status(sources: list[Source], *, log: Path = FETCH_LOG) -> list[str]:
     """One line per source, from the manifest and the fetch log only: no network, no raw files.
 
     Each line gives the id, the status, the vintage, when the version last logged was fetched
-    (or `never`), the start of its SHA-256, the licence, and whether the raw file may be
-    republished.
+    (or `never`; `recorded <time>` for a file `record()` took in with no download time), the
+    start of its SHA-256, the licence, and whether the raw file may be republished.
     """
     width = max((len(s["id"]) for s in sources), default=0)
     return [
@@ -1737,7 +1759,7 @@ def status(sources: list[Source], *, log: Path = FETCH_LOG) -> list[str]:
                 f"{r['source_id']:<{width}}",
                 f"{r['status']!s:<13}",
                 r["vintage"],
-                r["retrieved_at"] if r["retrieved_at"] is not None else "never",
+                "never" if r["retrieved_at"] is None else r["retrieved_at"] or f"recorded {r['recorded_at']}",
                 (r["sha256"] or "-")[:12],
                 str(r["license"] or "-"),
                 f"redistribute={_yes_no(r['redistribute'])}",
@@ -1756,6 +1778,7 @@ def _status_records(sources: list[Source], *, log: Path = FETCH_LOG) -> list[dic
             "status": str(source["status"]) if source.get("status") is not None else None,
             "vintage": _vintage(source),
             "retrieved_at": last.get(source["id"], {}).get("retrieved_at"),
+            "recorded_at": last.get(source["id"], {}).get("recorded_at"),
             "sha256": last.get(source["id"], {}).get("sha256"),
             "license": str(source["license"]) if source.get("license") else None,
             "redistribute": source.get("redistribute") if isinstance(source.get("redistribute"), bool) else None,

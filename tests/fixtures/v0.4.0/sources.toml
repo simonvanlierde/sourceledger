@@ -1,0 +1,10 @@
+[[source]]
+id = "example"
+name = "Example series"
+status = "implemented"
+url = "http://127.0.0.1:8731/example.csv"
+vintage = "2024 release"
+terms = "CC0-1.0"
+terms_url = "https://example.org/terms"
+license = "CC0-1.0"
+redistribute = true

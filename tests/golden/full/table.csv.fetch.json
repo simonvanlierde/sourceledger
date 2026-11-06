@@ -1,0 +1,13 @@
+{
+  "source_id": "table",
+  "url": "http://127.0.0.1:8000/old.csv",
+  "retrieved_at": "2026-11-05T09:30:00Z",
+  "sha256": "1453a301f534e2fe2f3beea7cab6aa4de5361a57f360975e49dbc61826c76dd2",
+  "bytes": 29,
+  "vintage": "2024 release",
+  "last_modified": "Wed, 04 Nov 2026 12:00:00 GMT",
+  "etag": "\"v1\"",
+  "final_url": "http://127.0.0.1:8000/data.csv",
+  "env_headers": [],
+  "archive_url": ""
+}

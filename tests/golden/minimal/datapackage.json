@@ -1,0 +1,61 @@
+{
+  "$schema": "https://datapackage.org/profiles/2.0/datapackage.json",
+  "name": "golden-project",
+  "resources": [
+    {
+      "name": "only",
+      "type": "table",
+      "path": "only.csv",
+      "format": "csv",
+      "mediatype": "text/csv",
+      "encoding": "utf-8",
+      "bytes": "<varies with the port>",
+      "hash": "<varies with the port>",
+      "schema": {
+        "fields": [
+          {
+            "name": "source_id",
+            "type": "string"
+          },
+          {
+            "name": "source_url",
+            "type": "string"
+          },
+          {
+            "name": "retrieved_at",
+            "type": "string"
+          },
+          {
+            "name": "vintage",
+            "type": "string"
+          },
+          {
+            "name": "raw_sha256",
+            "type": "string"
+          },
+          {
+            "name": "year",
+            "type": "string"
+          },
+          {
+            "name": "value",
+            "type": "string"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "only",
+          "path": "http://127.0.0.1:8000/data.csv"
+        }
+      ],
+      "sourceledger": {
+        "retrieved_at": "2026-11-05T09:30:00Z",
+        "vintage": "not stated",
+        "raw_sha256": "1453a301f534e2fe2f3beea7cab6aa4de5361a57f360975e49dbc61826c76dd2",
+        "final_url": "",
+        "redistribute": null
+      }
+    }
+  ]
+}

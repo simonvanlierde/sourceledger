@@ -1,0 +1,13 @@
+{
+  "source_id": "document",
+  "url": "http://127.0.0.1:8000/data.bin",
+  "retrieved_at": "2026-11-05T09:30:00Z",
+  "sha256": "704d50f87c54680c43ebb10e5754180ea7b3e23b38ca39ba8c10f13a8175bd38",
+  "bytes": 14,
+  "vintage": "not stated",
+  "last_modified": "Wed, 04 Nov 2026 12:00:00 GMT",
+  "etag": "\"v1\"",
+  "final_url": "",
+  "env_headers": [],
+  "archive_url": ""
+}

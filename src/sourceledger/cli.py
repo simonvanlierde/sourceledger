@@ -147,8 +147,6 @@ def _check(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
         parser.error(
             f"--url, --retrieved-at, --etag, --last-modified and --parameter work with record, not {args.stage}"
         )
-    if args.stage == _RECORD and args.retrieved_at is None:
-        parser.error("record needs --retrieved-at: when the other tool downloaded the file")
     if bad := [p for p in args.parameter if not p.partition("=")[1]]:
         parser.error(f"--parameter takes NAME=VALUE, not {bad[0]!r}")
 
