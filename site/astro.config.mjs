@@ -46,14 +46,14 @@ const tableScroll = {
 
 // Static output: `astro build` writes plain files to dist/, which site.yml deploys to
 // GitHub Pages. The custom domain of the user site serves this project's site under
-// /sourceledger/, and every page keeps the <name>.html address the Jekyll site gave it.
+// /sourceledger/, and every page lives at <name>.html, the published address.
 export default defineConfig({
   output: "static",
   site,
   base,
   build: { format: "file" },
-  // Keep the whitespace between tags, which the Jekyll pages had.
+  // Whitespace between tags is kept, so inline elements keep their spacing.
   compressHTML: false,
-  // The site styles code blocks plainly, as the Jekyll site did.
+  // Code blocks are styled by site.css alone, with no highlighter colours.
   markdown: { processor: satteri({ hastPlugins: [docLinks, tableScroll] }), syntaxHighlight: false },
 });
