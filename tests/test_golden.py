@@ -37,7 +37,7 @@ def _project(root: Path, monkeypatch: pytest.MonkeyPatch, manifest: str) -> None
 
 def _text(path: str, publisher: str) -> str:
     """A written file, with the publisher's free port replaced by a fixed one."""
-    return Path(path).read_text(encoding="utf-8").replace(publisher, "http://127.0.0.1:8000")
+    return Path(path).read_bytes().decode().replace(publisher, "http://127.0.0.1:8000")
 
 
 def _report(sources: list[ledger.Source], publisher: str) -> str:

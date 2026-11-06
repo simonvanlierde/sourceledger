@@ -91,7 +91,8 @@ def golden(request: pytest.FixtureRequest) -> Callable[[str, str], None]:
         path = GOLDEN / name
         if request.config.getoption("--update-goldens"):
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text, encoding="utf-8")
-        assert text == path.read_text(encoding="utf-8"), f"{name} changed; rerun with --update-goldens if intended"
+            path.write_bytes(text.encode())
+        # Bytes, not read_text: CSV outputs end lines in CRLF, and that is part of the format.
+        assert text == path.read_bytes().decode(), f"{name} changed; rerun with --update-goldens if intended"
 
     return check
