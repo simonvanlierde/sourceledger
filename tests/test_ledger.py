@@ -3601,3 +3601,12 @@ def test_a_record_with_parameters_that_are_not_text_is_not_a_record() -> None:
     assert ledger._is_record(fields)  # noqa: SLF001
     for damaged in ({"parameters": []}, {"parameters": {"n": 3}}, {"recorded_at": None}):
         assert not ledger._is_record({**fields, **damaged})  # noqa: SLF001
+
+
+def test_parse_csv_skips_blank_lines() -> None:
+    """A blank line is no row, as in csv.DictReader; a short row is still refused."""
+    payload = b"year,value\n\n2020,1.5\r\n\r\n2021,2.5\n"
+    assert ledger.parse_csv({"id": "x"}, payload) == (
+        ["year", "value"],
+        [{"year": "2020", "value": "1.5"}, {"year": "2021", "value": "2.5"}],
+    )

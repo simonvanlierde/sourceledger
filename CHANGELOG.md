@@ -20,6 +20,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 - Stages that take no operand refuse one: `build foo` exits 2 instead of ignoring `foo`.
 - The website has [recipes](docs/recipes.md) for recording files from pooch, DVC, dlt and your own fetcher, and a [where it fits](docs/where-it-fits.md) page in place of the tool comparison. JSON and HTML reports moved into the [reference](docs/reference.md#json-reports), and release verification into [safe use](docs/secure-use.md#check-a-sourceledger-release); the old addresses redirect.
 - The CLI reports build row counts without rereading the outputs. Fetch history is read in small batches, once per CLI fetch, retaining only each source's latest record.
+- Builds of CSV sources with the default reader take about a third less time to CSV and half the time to Parquet. Rows pass through as lists instead of dictionaries. Output bytes and error messages stay the same.
 - Builds stream gzipped CSV inputs with the default reader, while enforcing the decompressed size limit. JSON parsing releases each decoded object as it converts the rows, reducing peak memory. Output bytes and parser errors stay the same.
 
 ### Fixed

@@ -43,7 +43,7 @@ import urllib.response
 import zipfile
 import zlib
 from collections import Counter
-from collections.abc import Callable, Collection, Generator, Iterable, Iterator
+from collections.abc import Callable, Collection, Generator, Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
@@ -54,6 +54,7 @@ from urllib.parse import urljoin, urlsplit
 
 if TYPE_CHECKING:
     import ssl
+    from _csv import Reader as _CSVReader
     from email.message import Message
 
 if sys.platform != "win32":  # noqa: PLR2004
@@ -1227,26 +1228,24 @@ def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str,
     # utf-8-sig drops the byte-order mark that spreadsheet exports start with. Plain UTF-8 reads the same.
     text = payload.decode("utf-8-sig")
     columns, rows = _csv_rows(source, io.StringIO(text, newline=""))
-    return columns, list(rows)
+    return columns, [dict(zip(columns, row, strict=True)) for row in rows]
 
 
-def _csv_rows(source: Source, text: IO[str]) -> tuple[list[str], Iterator[dict[str, str]]]:
-    """A CSV text's columns and its rows, each checked as it is read: parse_csv's checks and messages."""
-    reader = csv.DictReader(text)
-    columns = list(reader.fieldnames or [])
+def _csv_rows(source: Source, text: IO[str]) -> tuple[list[str], Iterator[list[str]]]:
+    """A CSV text's columns and its rows as lists, each checked as it is read: parse_csv's checks and messages."""
+    reader = csv.reader(text)
+    columns = next(reader, [])
     _check_columns(source, columns)
-    return columns, _checked_rows(source, reader)
+    return columns, _checked_rows(source, reader, len(columns))
 
 
-def _checked_rows(source: Source, reader: csv.DictReader[str]) -> Iterator[dict[str, str]]:
+def _checked_rows(source: Source, reader: _CSVReader, width: int) -> Iterator[list[str]]:
     for row in reader:
-        # DictReader files the surplus fields of a long row under the key None.
-        if None in row:
-            msg = f"{source['id']}: line {reader.line_num} has more fields than the header"
-            raise ValueError(msg)
-        # It fills the missing fields of a short row with None, which would publish as "".
-        if None in row.values():
-            msg = f"{source['id']}: line {reader.line_num} has fewer fields than the header"
+        if not row:  # a blank line, which csv.DictReader also skips
+            continue
+        if len(row) != width:
+            more = "more" if len(row) > width else "fewer"
+            msg = f"{source['id']}: line {reader.line_num} has {more} fields than the header"
             raise ValueError(msg)
         yield row
 
@@ -1528,7 +1527,7 @@ def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[Fet
             text = io.TextIOWrapper(stream, encoding="utf-8-sig", newline="")
             try:
                 columns, rows = _csv_rows(source, text)
-                count = _write_rows(source, out, stamp, columns, rows)
+                count = _write_cells(source, out, stamp, columns, rows)
             except (ValueError, csv.Error):
                 # parse_csv decodes the whole file before it reads a row, so it can fail on another
                 # line, or name another byte offset. Reading the file whole gives exactly its error.
@@ -1549,41 +1548,54 @@ def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[Fet
 
 
 def _write_rows(
-    source: Source, out: Path, stamp: dict[str, str], columns: list[str], rows: Iterable[dict[str, str]]
+    source: Source, out: Path, stamp: dict[str, str], columns: list[str], rows: Iterable[Mapping[str, object]]
 ) -> int:
-    """Write CSV or Parquet with provenance columns first, and return the number of rows written."""
+    """Write a parser's rows, as `_write_cells` does: a missing cell is "", a provenance key is ignored."""
+    known = {*stamp, *columns}
+
+    def cells() -> Iterator[list[object]]:
+        for row in rows:
+            if extra := row.keys() - known:
+                msg = f"{source['id']}: row has fields not in the header: {sorted(extra)}"
+                raise ValueError(msg)
+            yield [row.get(column) for column in columns]
+
+    return _write_cells(source, out, stamp, columns, cells())
+
+
+def _write_cells(
+    source: Source, out: Path, stamp: dict[str, str], columns: list[str], rows: Iterable[Sequence[object]]
+) -> int:
+    """Write CSV or Parquet with provenance columns first, and return the number of rows written.
+
+    Each row holds its cells in `columns` order. None is written as "", anything else through
+    str(), as csv.writer does.
+    """
     if clash := stamp.keys() & set(columns):
         msg = f"{source['id']}: source columns {sorted(clash)} collide with the provenance columns"
         raise ValueError(msg)
+    fields, head = [*stamp, *columns], list(stamp.values())
+    stamped = ([*head, *row] for row in rows)
     if out.suffix == _PARQUET_SUFFIX:
         pa, pq = _arrow()
-        fields = [*stamp, *columns]
         schema = pa.schema([(field, pa.string()) for field in fields])
-
-        def table_rows() -> Iterator[dict[str, str]]:
-            for row in rows:
-                if extra := row.keys() - set(fields):
-                    msg = f"{source['id']}: row has fields not in the header: {sorted(extra)}"
-                    raise ValueError(msg)
-                # Same cells as csv.DictWriter writes: None as "", anything else through str().
-                cells = {k: "" if v is None else str(v) for k, v in row.items()}
-                yield {**dict.fromkeys(columns, ""), **cells, **stamp}
-
         count = 0
-        pending = table_rows()
         with _replacing(out) as fh, pq.ParquetWriter(fh, schema, compression="zstd") as writer:
-            while batch := list(itertools.islice(pending, _PARQUET_BATCH_ROWS)):
-                writer.write_table(pa.Table.from_pylist(batch, schema=schema))
+            while batch := list(itertools.islice(stamped, _PARQUET_BATCH_ROWS)):
+                arrays = [
+                    pa.array(["" if cell is None else str(cell) for cell in column], pa.string())
+                    for column in zip(*batch, strict=True)
+                ]
+                writer.write_table(pa.Table.from_arrays(arrays, schema=schema))
                 count += len(batch)
         return count
     with _replacing(out) as fh:
         text = io.TextIOWrapper(fh, encoding="utf-8", newline="")
-        writer = csv.DictWriter(text, fieldnames=[*stamp, *columns])
-        writer.writeheader()
-        # The stamp last: a parser's row cannot overwrite a provenance column.
+        writer = csv.writer(text)
+        writer.writerow(fields)
         count = 0
-        for row in rows:
-            writer.writerow({**row, **stamp})
+        for row in stamped:
+            writer.writerow(row)
             count += 1
         text.detach()  # flushes; _replacing closes fh
     return count
