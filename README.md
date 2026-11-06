@@ -122,6 +122,10 @@ uv sync
 just check
 ```
 
+The documentation site is built with Astro from the Markdown in `docs/`. `just site` builds
+it into `site/dist/` (it needs Node 26 and pnpm), and every push to `main` deploys it to
+GitHub Pages at <https://simonvanlierde.com/sourceledger/>.
+
 [Contributing](.github/CONTRIBUTING.md) covers hooks, coding standards and tests.
 [Governance](GOVERNANCE.md) explains project decisions. Report vulnerabilities through
 [Security](.github/SECURITY.md).

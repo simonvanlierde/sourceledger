@@ -1,0 +1,84 @@
+---
+// The page skeleton every docs page shares. `parent` in a page's front matter names the
+// navigation entry it sits under; a page in the navigation marks itself.
+const name = "sourceledger";
+const siteDescription = "Build a dataset from published sources and keep the downloads behind it.";
+const navigation = [
+  { title: "Start here", path: "/" },
+  { title: "Worked example", path: "/getting-started.html" },
+  { title: "Manifest and commands", path: "/reference.html" },
+  { title: "How it works", path: "/architecture.html" },
+  { title: "Safe use", path: "/secure-use.html" },
+];
+const { data, path } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const url = new URL(base + path, Astro.site).href;
+const here = data.parent ?? path;
+const title = data.title === name ? `${name} | ${siteDescription}` : `${data.title} | ${name}`;
+const description = data.description ?? siteDescription;
+const jsonLd = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": data.home ? "WebSite" : "WebPage",
+  description,
+  headline: data.title,
+  ...(data.home && { name }),
+  url,
+});
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>{title}</title>
+    <meta property="og:title" content={data.title} />
+    <meta property="og:locale" content="en" />
+    <meta name="description" content={description} />
+    <meta property="og:description" content={description} />
+    <link rel="canonical" href={url} />
+    <meta property="og:url" content={url} />
+    <meta property="og:site_name" content={name} />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
+    <meta property="twitter:title" content={data.title} />
+    <script type="application/ld+json" set:html={jsonLd} />
+    <link rel="stylesheet" href={`${base}/assets/site.css`} />
+    <script is:inline src={`${base}/assets/site.js`} defer></script>
+  </head>
+  <body class={data.home ? "home" : undefined}>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="wordmark" href={`${base}/`}>{name}</a>
+      <a class="source-link" href="https://github.com/simonvanlierde/sourceledger">Source on GitHub</a>
+    </header>
+    <div class="reading-layout">
+      <aside>
+        <details class="site-navigation" open>
+          <summary>Documentation</summary>
+          <nav aria-label="Documentation">
+            {navigation.map((item) => (
+              <a href={base + item.path} aria-current={here === item.path ? "page" : undefined}>{item.title}</a>
+            ))}
+          </nav>
+        </details>
+      </aside>
+      <main id="main" tabindex="-1">
+        <article>
+          <slot />
+        </article>
+        <footer class="page-footer">
+          <p>These docs may include unreleased features. Check source terms before publishing data.</p>
+          <div>
+            <a href="https://pypi.org/project/sourceledger/">PyPI</a>
+            <a href="https://github.com/simonvanlierde/sourceledger/issues">Issues</a>
+            <a href="https://github.com/simonvanlierde/sourceledger/blob/main/CHANGELOG.md">Changelog</a>
+            <a href="https://github.com/simonvanlierde/sourceledger/blob/main/LICENSE">MIT license</a>
+          </div>
+        </footer>
+      </main>
+    </div>
+    <p class="copy-status" role="status" aria-live="polite"></p>
+  </body>
+</html>

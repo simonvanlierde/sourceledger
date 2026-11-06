@@ -1,0 +1,63 @@
+---
+// The home page's revision demo. tests/test_docs.py checks revision.json against a real
+// fetch, build and validate, so the numbers here are the pipeline's own.
+import revision from "../../../docs/_data/revision.json";
+
+const rows = (csv) =>
+  csv
+    .trim()
+    .split("\n")
+    .slice(1)
+    .map((line) => line.split(","));
+const original = rows(revision.before);
+const tables = [
+  { id: "before", label: "Fetched", fetched: original },
+  { id: "after", label: "Revised", fetched: rows(revision.after) },
+];
+---
+
+<section class="revision-example" data-revision-example aria-label="A publisher revision and its provenance">
+  <div class="provenance-flow" aria-labelledby="provenance-title">
+    <h2 id="provenance-title">From published bytes to a built dataset</h2>
+    <ol aria-label="Original dataset provenance">
+      <li><h3>Published source</h3><p>annual.csv · declared in sources.toml</p><code>2023 · 419.31 ppm</code></li>
+      <li><h3>Recorded download</h3><p>SHA-256 · first 12 characters</p><code>{revision.before_sha256.slice(0, 12)}</code></li>
+      <li><h3>Built output</h3><p>data/processed/co2.csv</p><code>Linked to the original download</code></li>
+    </ol>
+  </div>
+  <div class="revision-comparison">
+    <div class="revision-heading">
+      <h2>A one-value change leaves a trail.</h2>
+      <div class="revision-controls" hidden>
+        <button type="button" data-version="before" aria-controls="version-before" aria-pressed="false">Original download</button>
+        <button type="button" data-version="after" aria-controls="version-after" aria-pressed="true">After the revision</button>
+      </div>
+    </div>
+    {tables.map(({ id, label, fetched }) => (
+      <div id={`version-${id}`} data-version-panel={id}>
+        <div class="table-scroll" tabindex="0" role="region" aria-label="Data table">
+          <table>
+            <caption>Synthetic example · CO₂ concentration, ppm</caption>
+            <thead><tr><th scope="col">Year</th><th scope="col">Original</th><th scope="col">{label}</th></tr></thead>
+            <tbody>
+              {original.map(([year, value], i) => (
+                <tr><th scope="row">{year}</th><td>{value}</td><td>{fetched[i][1] === value ? fetched[i][1] : <mark>{fetched[i][1]}</mark>}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {id === "before" ? (
+          <p class="revision-result">The built output matches the original download. <strong>Validation passes.</strong></p>
+        ) : (
+          <p class="revision-result">The publisher changes 2023’s value: <strong>419.31 → 419.32</strong>. After a fresh fetch, validation reports that the existing output needs rebuilding.</p>
+        )}
+      </div>
+    ))}
+  </div>
+  <details>
+    <summary>Read the recorded checksums and validation report</summary>
+    <p>Original SHA-256: <code>{revision.before_sha256}</code></p>
+    <p>Revised SHA-256: <code>{revision.after_sha256}</code></p>
+    <pre><code>{revision.problem}</code></pre>
+  </details>
+</section>

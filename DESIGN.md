@@ -91,7 +91,7 @@ Dark mode follows the operating-system preference: paper becomes `#171f30`, ink 
 
 ## Typography
 
-Arimo is served locally as WOFF2 with weights 400–700 and Helvetica/Arial fallbacks. Its license is in `docs/assets/fonts/OFL.txt`. Code uses the system monospace stack; no separate display font is loaded.
+Arimo is served locally as WOFF2 with weights 400–700 and Helvetica/Arial fallbacks. Its license is in `site/public/assets/fonts/OFL.txt`. Code uses the system monospace stack; no separate display font is loaded.
 
 The frontmatter records desktop homepage display, documentation headline, section title, body and code-block roles. Third-level headings use 1.5rem at weight 500; fourth-level headings use 1.2rem bold. Documentation introductions use 1.3rem with 1.6 line height; the homepage introduction uses 1.25rem. Headings balance their lines. The wordmark is bold, 1.625rem with −0.03em tracking.
 
