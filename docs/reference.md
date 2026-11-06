@@ -77,6 +77,16 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 
 - `init` writes a starter `sources.toml` in the current directory, or at `--manifest PATH`:
   the schema line and one example source, commented out. It won't overwrite an existing one.
+- `record ID PATH --retrieved-at TIME` takes in a file that another tool, such as pooch,
+  DVC or your own script, downloaded for source `ID`. It copies the file into `data/raw/`,
+  checks the `sha256` pin, and writes the same log line and record as `fetch`, marked
+  `"recorded": true`. `TIME` is when the file was downloaded, in ISO 8601 with a time zone
+  (`2026-11-05T09:30:00Z`). `--url URL` names where it came from if that is not the source's
+  `url`. `--etag` and `--last-modified` keep the server's validators for a later
+  conditional `fetch`, but only when the URL is the source's own. `--parameter NAME=VALUE`,
+  repeatable, keeps request metadata such as a query's country code. Never put credentials
+  in it. The library function is `record()`. The report and `datapackage.json` mark the
+  output as recorded, not fetched.
 - `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
   log. Copy the log before you fetch (`cp data/fetches.jsonl before.jsonl`), then run
   `sourceledger revisions before.jsonl`. A weekly CI run can use it to report a

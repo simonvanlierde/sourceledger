@@ -162,6 +162,21 @@ class FetchRecord:
     # from their line in the log. Empty when the source does not ask for one, or the archive
     # did not answer with one.
     archive_url: str = ""
+    # True when `record()` took the bytes from a file another tool downloaded. With
+    # `parameters`, left out of the log and sidecar while empty, so a fetched record is
+    # written as 0.4.0 wrote it.
+    recorded: bool = False
+    # The request's own metadata, as the caller passed it to `record()`.
+    parameters: dict[str, str | int] = dataclasses.field(default_factory=dict)
+
+
+def _fields(record: FetchRecord) -> dict[str, Any]:
+    """The record as written to the log and sidecar."""
+    fields = dataclasses.asdict(record)
+    for key in ("recorded", "parameters"):
+        if not fields[key]:
+            del fields[key]
+    return fields
 
 
 class FetchError(OSError):
@@ -733,7 +748,7 @@ def _append(log: Path, record: FetchRecord) -> None:
                 fh.truncate(start)
             else:
                 lead = b"\n"
-        fh.write(lead + json.dumps(dataclasses.asdict(record)).encode() + b"\n")
+        fh.write(lead + json.dumps(_fields(record)).encode() + b"\n")
         fh.flush()
         os.fsync(fh.fileno())
 
@@ -902,20 +917,114 @@ def _keep(
         env_headers=sorted(source.get("headers", {})),
         archive_url=archived,
     )
+    _commit(source, download.path, record, raw, log, logged)
+    return record
+
+
+def _commit(
+    source: Source, temp: Path, record: FetchRecord, raw: Path, log: Path, logged: dict[str, dict[str, Any]]
+) -> None:
+    """Move `temp`, whose bytes `record` describes, into place as the raw file, and log and record it."""
     name = raw_name(source)
-    download.path.replace(raw / name)
+    temp.replace(raw / name)
     # Logged before the record is written: until the record matches the raw file, the next
     # run fetches in full, so a crash in between loses nothing.
     _log_new_version(log, logged, record)
-    _write_atomic(raw / f"{name}.fetch.json", (json.dumps(dataclasses.asdict(record), indent=2) + "\n").encode())
-    return record
+    _write_atomic(raw / f"{name}.fetch.json", (json.dumps(_fields(record), indent=2) + "\n").encode())
+
+
+def record(  # the fetch record's fields, as keywords
+    source: Source,
+    path: Path,
+    *,
+    retrieved_at: str,
+    url: str | None = None,
+    etag: str = "",
+    last_modified: str = "",
+    parameters: dict[str, str | int] | None = None,
+    raw: Path = RAW,
+    log: Path = FETCH_LOG,
+) -> FetchRecord:
+    """Take a file another tool downloaded for `source` into `raw`, and log and record it as `fetch` would.
+
+    The file is copied, never moved, so the other tool keeps its cache. The record is marked
+    `recorded`, and the same pin, lock, log and sidecar rules apply as for a fetch. Nothing
+    goes over the network.
+
+    `retrieved_at` is when the other tool downloaded the file: an ISO 8601 time with a time
+    zone, stored in UTC. `url` is where it came from, the source's URL by default; another
+    URL is kept as the record's `final_url`. `etag` and `last_modified` are kept only when
+    `url` is the source's URL, so a later `fetch` never sends one URL's validators to another.
+    `parameters` describes the request: flat, with str or int values, and never credentials,
+    since it is written to the log and every copy of the dataset's metadata.
+
+    Raises ValueError for a source that is not implemented, a URL with a user name or
+    password, a time without a time zone, other `parameters`, or bytes that miss the
+    manifest's `sha256` pin. Raises OSError when another fetch holds the lock on `raw`.
+    """
+    sid = source["id"]
+    if source.get("status") != IMPLEMENTED:
+        msg = f"{sid}: only an implemented source can be recorded"
+        raise ValueError(msg)
+    url = url or source["url"]
+    if urlsplit(url).username is not None or urlsplit(url).password is not None:
+        msg = f"{sid}: the URL holds a user name or password; record it without them"
+        raise ValueError(msg)
+    parameters = parameters or {}
+    # Not isinstance: bool is an int subclass.
+    if not all(isinstance(k, str) and type(v) in (str, int) for k, v in parameters.items()):
+        msg = f"{sid}: parameters must map names to str or int values"
+        raise ValueError(msg)
+    if url != source["url"] and (etag or last_modified):
+        _logger.warning("%s: ETag and Last-Modified from %s are not the source URL's; not kept", sid, url)
+        etag = last_modified = ""
+    try:
+        when = datetime.fromisoformat(retrieved_at)
+    except (TypeError, ValueError) as error:
+        msg = f"{sid}: retrieved_at {retrieved_at!r} is not an ISO 8601 time"
+        raise ValueError(msg) from error
+    if when.tzinfo is None:
+        msg = f"{sid}: retrieved_at {retrieved_at!r} needs a time zone, such as Z"
+        raise ValueError(msg)
+    raw.mkdir(parents=True, exist_ok=True)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with _lock(raw):
+        logged = _last_records(log)
+        fd, name = tempfile.mkstemp(dir=raw, prefix=f".{sid}.", suffix=".part")
+        temp = Path(name)
+        try:
+            with os.fdopen(fd, "wb") as fh, path.open("rb") as src:
+                shutil.copyfileobj(src, fh, _CHUNK_BYTES)
+                fh.flush()
+                os.fsync(fh.fileno())
+            digest = _digest(temp)  # of the copy: the bytes `verify` will read
+            if source.get("sha256", digest) != digest:
+                msg = f"{sid}: {path} hashes to {digest}, not the sha256 in sources.toml"
+                raise ValueError(msg)
+            result = FetchRecord(
+                source_id=sid,
+                url=source["url"],
+                retrieved_at=when.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                sha256=digest,
+                bytes=temp.stat().st_size,
+                vintage=_vintage(source),
+                last_modified=last_modified,
+                etag=etag,
+                final_url="" if url == source["url"] else url,
+                recorded=True,
+                parameters=dict(parameters),
+            )
+            _commit(source, temp, result, raw, log, logged)
+        finally:
+            temp.unlink(missing_ok=True)  # gone already once moved into place
+    return result
 
 
 def _log_new_version(log: Path, logged: dict[str, dict[str, Any]], record: FetchRecord) -> None:
     # Appended, not rewritten: the log is history. A re-download of the same bytes adds nothing.
     if logged.get(record.source_id, {}).get("sha256") != record.sha256:
         _append(log, record)
-        logged[record.source_id] = dataclasses.asdict(record)
+        logged[record.source_id] = _fields(record)
 
 
 def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:
@@ -1426,6 +1535,8 @@ def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path)
         "final_url": record.final_url,
         "redistribute": source.get("redistribute"),
     }
+    if record.recorded:
+        resource["sourceledger"]["recorded"] = True
     return resource
 
 

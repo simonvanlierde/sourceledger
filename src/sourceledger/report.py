@@ -89,7 +89,10 @@ def report(sources: list[Source], *, processed: Path = PROCESSED, log: Path = FE
         }
         source_fields = {
             "URL": _url(source.get("url", "")),
-            "Fetched at": stamp.get("retrieved_at", "not stated"),
+            # A file another tool downloaded: sourceledger only took the time that tool reported.
+            ("Recorded, not fetched; downloaded at" if stamp.get("recorded") is True else "Fetched at"): stamp.get(
+                "retrieved_at", "not stated"
+            ),
             "Vintage": stamp.get("vintage", "not stated"),
             "Raw SHA-256": stamp.get("raw_sha256", "not stated"),
             "Final URL": _url(stamp.get("final_url", "")),

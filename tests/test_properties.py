@@ -31,11 +31,13 @@ _records = st.builds(
     final_url=_texts,
     env_headers=st.lists(_texts, max_size=3),
     archive_url=_texts,
+    recorded=st.booleans(),
+    parameters=st.dictionaries(_texts, _texts | st.integers(), max_size=3),
 )
 
 
 def _last_by_id(written: list[ledger.FetchRecord]) -> dict[str, dict[str, object]]:
-    return {record.source_id: dataclasses.asdict(record) for record in written}
+    return {record.source_id: ledger._fields(record) for record in written}
 
 
 # No deadline where an example writes and fsyncs files: a slow CI disk is not a failure.
@@ -245,6 +247,6 @@ def test_streamed_history_preserves_splitlines_records(
 ) -> None:
     with tempfile.TemporaryDirectory() as folder:
         log = Path(folder) / "history.jsonl"
-        text = separator.join(json.dumps(dataclasses.asdict(record)) for record in written)
+        text = separator.join(json.dumps(ledger._fields(record)) for record in written)
         log.write_bytes((text + (separator if terminated else "")).encode())
         assert ledger._last_records(log) == _last_by_id(written)  # noqa: SLF001

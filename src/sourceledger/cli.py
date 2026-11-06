@@ -21,12 +21,15 @@ from sourceledger.ledger import (
     _fetch,
     _load_output_format,
     _revision_records,
+    _select,
     _status_records,
     attribution,
     init,
     load_manifest,
+    logged_versions,
     one_line,
     parse_source,
+    record,
     revisions,
     status,
     validate,
@@ -34,12 +37,18 @@ from sourceledger.ledger import (
 )
 from sourceledger.report import report
 
-_STAGES = ("init", "fetch", "build", "validate", "status", "attribution", "revisions", "verify", "report")
+_STAGES = ("init", "fetch", "record", "build", "validate", "status", "attribution", "revisions", "verify", "report")
 # Stages that take --only.
 _SELECTABLE = ("fetch", "build", "validate")
 _JSON_STAGES = ("status", "validate", "revisions")
-# Stages that take a path, and what it is.
-_NEEDS_PATH = {"revisions": "an earlier copy of the fetch log", "verify": "the folder of a published dataset"}
+# Stages that take operands, and what they are.
+_OPERANDS = {
+    "revisions": ("an earlier copy of the fetch log",),
+    "verify": ("the folder of a published dataset",),
+    "record": ("a source id", "the file another tool downloaded"),
+}
+_RECORD = "record"
+_RECORD_OPTIONS = ("url", "retrieved_at", "etag", "last_modified", "parameter")
 
 
 def _fetch_line(record: FetchRecord, before: dict[str, str]) -> str:
@@ -58,12 +67,13 @@ def main(  # argument validation and reporting for each stage
     user_agent: str = USER_AGENT,
     manifest: Path = MANIFEST,
 ) -> int:
-    """Run one stage: init, fetch, build, validate, status, attribution, revisions, verify or report.
+    """Run one stage: init, fetch, record, build, validate, status, attribution, revisions, verify or report.
 
     `report` writes standalone HTML to stdout for the current dataset.
     `--json` prints structured status, validate and revisions reports, including runtime errors.
     `revisions` takes an earlier copy of the fetch log, and `verify` the folder of a published
     dataset. `--only ID`, repeatable, restricts fetch, build and validate to those sources.
+    `record ID PATH --retrieved-at TIME` takes in a file another tool downloaded, as `record()` does.
 
     A project's own entry point calls this with its `parse`, its name as `prog`, and that name
     as `user_agent`. `manifest` is the sources.toml to read, `./sources.toml` by default; a
@@ -73,10 +83,11 @@ def main(  # argument validation and reporting for each stage
     parser = argparse.ArgumentParser(prog=prog, description="Fetch, build and validate the sources in sources.toml.")
     parser.add_argument("stage", choices=_STAGES)
     parser.add_argument(
-        "path",
-        nargs="?",
-        type=Path,
-        help="revisions: an earlier copy of data/fetches.jsonl; verify: the folder of a published dataset",
+        "operands",
+        nargs="*",
+        metavar="ARG",
+        help="revisions: an earlier copy of data/fetches.jsonl; verify: the folder of a published dataset; "
+        "record: a source id and the file another tool downloaded",
     )
     parser.add_argument(
         "--only", action="append", metavar="ID", help="fetch, build and validate: only this source (repeatable)"
@@ -85,13 +96,16 @@ def main(  # argument validation and reporting for each stage
         "--manifest", type=Path, default=manifest, metavar="PATH", help="the manifest to read (default: %(default)s)"
     )
     parser.add_argument("--json", action="store_true", help="status, validate and revisions: print JSON")
+    parser.add_argument("--url", help="record: where the file came from (default: the source's url)")
+    parser.add_argument("--retrieved-at", metavar="TIME", help="record: when it was downloaded, ISO 8601 with a zone")
+    parser.add_argument("--etag", default="", help="record: the ETag the server sent")
+    parser.add_argument("--last-modified", default="", help="record: the Last-Modified the server sent")
+    parser.add_argument(
+        "--parameter", action="append", default=[], metavar="NAME=VALUE", help="record: request metadata (repeatable)"
+    )
     args = parser.parse_intermixed_args(argv)
-    if args.json and args.stage not in _JSON_STAGES:
-        parser.error(f"--json works with {', '.join(_JSON_STAGES)}, not {args.stage}")
-    if args.only is not None and args.stage not in _SELECTABLE:
-        parser.error(f"--only works with {', '.join(_SELECTABLE)}, not {args.stage}")
-    if args.stage in _NEEDS_PATH and args.path is None:
-        parser.error(f"{args.stage} needs {_NEEDS_PATH[args.stage]}")
+    _check(parser, args)
+    args.path = Path(args.operands[-1]) if args.operands else None
     # Retries and recovered fetch logs are reported as warnings, on stderr.
     logging.basicConfig(format=f"{prog}: %(message)s", level=logging.WARNING)
     if args.json:
@@ -99,7 +113,11 @@ def main(  # argument validation and reporting for each stage
     # Filled by fetch, for the lines of a run that fails.
     before: dict[str, str] = {}
     try:
-        problems = _run(args.stage, args.path, args.only, parse, user_agent, before, args.manifest)
+        problems = (
+            _record(args, before)
+            if args.stage == _RECORD
+            else _run(args.stage, args.path, args.only, parse, user_agent, before, args.manifest)
+        )
     except FetchError as error:
         for record in error.records:
             print(_fetch_line(record, before))
@@ -114,6 +132,42 @@ def main(  # argument validation and reporting for each stage
     for problem in problems:
         print(problem, file=sys.stderr)
     return 1 if problems else 0
+
+
+def _check(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Exit with a usage error for an option or operand the stage does not take."""
+    if args.json and args.stage not in _JSON_STAGES:
+        parser.error(f"--json works with {', '.join(_JSON_STAGES)}, not {args.stage}")
+    if args.only is not None and args.stage not in _SELECTABLE:
+        parser.error(f"--only works with {', '.join(_SELECTABLE)}, not {args.stage}")
+    wanted = _OPERANDS.get(args.stage, ())
+    if len(args.operands) != len(wanted):
+        parser.error(f"{args.stage} needs {' and '.join(wanted)}" if wanted else f"{args.stage} takes no arguments")
+    if args.stage != _RECORD and any(getattr(args, name) for name in _RECORD_OPTIONS):
+        parser.error(
+            f"--url, --retrieved-at, --etag, --last-modified and --parameter work with record, not {args.stage}"
+        )
+    if args.stage == _RECORD and args.retrieved_at is None:
+        parser.error("record needs --retrieved-at: when the other tool downloaded the file")
+    if bad := [p for p in args.parameter if not p.partition("=")[1]]:
+        parser.error(f"--parameter takes NAME=VALUE, not {bad[0]!r}")
+
+
+def _record(args: argparse.Namespace, before: dict[str, str]) -> list[str]:
+    """Record one file and print its line, as fetch prints one. Never has problems to return."""
+    (source,) = _select(load_manifest(args.manifest), [args.operands[0]])
+    before.update(logged_versions())
+    result = record(
+        source,
+        args.path,
+        retrieved_at=args.retrieved_at,
+        url=args.url,
+        etag=args.etag,
+        last_modified=args.last_modified,
+        parameters=dict(p.split("=", 1) for p in args.parameter),
+    )
+    print(_fetch_line(result, before))
+    return []
 
 
 def _json_run(stage: str, path: Path | None, only: list[str] | None, manifest: Path) -> int:
