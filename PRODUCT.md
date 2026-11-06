@@ -10,7 +10,7 @@ Researchers who use Python or a CLI and are new to provenance tooling. Dataset r
 
 ## Product Purpose
 
-Help researchers build datasets from published sources, record downloads, trace outputs to their sources and detect publisher revisions.
+Help researchers build datasets from published sources, record downloads (their own or another tool's), trace outputs to their sources and detect publisher revisions.
 
 ## Operating Context
 
@@ -18,7 +18,7 @@ A Python library and CLI configured with sources.toml. The website explains inst
 
 ## Capabilities and Constraints
 
-The documentation uses static Jekyll pages on GitHub Pages. Preserve readable documentation, installation links, accessible navigation and a working revision demonstration. Offline verification already exists. A standalone HTML provenance report is implemented separately and is intended for 0.4, pending integration and release review.
+The documentation uses static Jekyll pages on GitHub Pages. Preserve readable documentation, installation links, accessible navigation and a working revision demonstration. Offline verification and the standalone HTML provenance report ship with the library. Downloads by pooch, DVC, dlt or a project's own code enter through `record`, documented as recipes, not plugins.
 
 ## Brand Commitments
 

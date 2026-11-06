@@ -18,6 +18,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 - The HTML report puts the integrity result in a box at the top, lists the outputs with links under one heading, and names hashes and times in plain words ("SHA-256 of the downloaded file", "Served from"). It follows the reader's dark mode, prints without the in-page links, wraps long ids, and shows a recorded file's request parameters. A script that reads the report's HTML needs updating.
 - Stages that take no operand refuse one: `build foo` exits 2 instead of ignoring `foo`.
+- The website has [recipes](docs/recipes.md) for recording files from pooch, DVC, dlt and your own fetcher, and a [where it fits](docs/where-it-fits.md) page in place of the tool comparison. JSON and HTML reports moved into the [reference](docs/reference.md#json-reports), and release verification into [safe use](docs/secure-use.md#check-a-sourceledger-release); the old addresses redirect.
 - The CLI reports build row counts without rereading the outputs. Fetch history is read in small batches, once per CLI fetch, retaining only each source's latest record.
 - Builds stream gzipped CSV inputs with the default reader, while enforcing the decompressed size limit. JSON parsing releases each decoded object as it converts the rows, reducing peak memory. Output bytes and parser errors stay the same.
 
@@ -37,9 +38,9 @@ Move manually added files out of `data/processed/` before running `validate`.
 
 ### Added
 
-- `report` creates a [standalone HTML provenance report](docs/provenance-report.md) that recipients can read offline. It links outputs to their sources and lists integrity problems without including raw data.
+- `report` creates a [standalone HTML provenance report](docs/reference.md#html-provenance-report) that recipients can read offline. It links outputs to their sources and lists integrity problems without including raw data.
 - An [assurance case](docs/assurance-case.md) explains the trust assumptions, safeguards and limits behind integrity and provenance checks.
-- `status`, `validate` and `revisions` accept `--json` for scripts and CI. See [JSON reports](docs/reports.md).
+- `status`, `validate` and `revisions` accept `--json` for scripts and CI. See [JSON reports](docs/reference.md#json-reports).
 - Per-source `timeout_s` sets the fetch budget, including retries and waits. The default
   remains 300 seconds; see [download limits and retries](docs/fetching.md).
 - `format = "file"` keeps files unchanged and validates their bytes, provenance and
@@ -57,15 +58,15 @@ Move manually added files out of `data/processed/` before running `validate`.
 
 ### Fixed
 
-- [JSON status reports](docs/reports.md#source-status) render non-text status values as text instead of crashing on TOML dates and times.
+- [JSON status reports](docs/reference.md#source-status) render non-text status values as text instead of crashing on TOML dates and times.
 
 - [File validation](docs/architecture.md#validate) checks each output hash once while preserving the checks of its provenance and package metadata.
 
-- The [HTML provenance report](docs/provenance-report.md) flags missing, duplicate or no-longer-implemented outputs instead of reporting successful checks for an incomplete package.
+- The [HTML provenance report](docs/reference.md#html-provenance-report) flags missing, duplicate or no-longer-implemented outputs instead of reporting successful checks for an incomplete package.
 
-- The citation helper removes old Zenodo version, date and DOI overrides so each release can receive its own archive metadata. See [release verification](docs/releases.md).
+- The citation helper removes old Zenodo version, date and DOI overrides so each release can receive its own archive metadata. See [release verification](docs/secure-use.md#check-a-sourceledger-release).
 
-- A malformed resource name in `datapackage.json` produces [validation problems](docs/reports.md#problems-failures-and-exit-codes) instead of an uncaught error.
+- A malformed resource name in `datapackage.json` produces [validation problems](docs/reference.md#problems-failures-and-exit-codes) instead of an uncaught error.
 
 - Command options can appear between the stage and its path on Python 3.12, including
   `revisions --json OLD_LOG`. See the [command reference](docs/reference.md#other-commands).

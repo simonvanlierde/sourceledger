@@ -5,6 +5,7 @@ baseurl: /sourceledger
 repository: simonvanlierde/sourceledger
 lang: en
 plugins:
+  - jekyll-redirect-from
   - jekyll-relative-links
   - jekyll-seo-tag
 defaults:

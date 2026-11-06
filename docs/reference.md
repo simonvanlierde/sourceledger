@@ -1,11 +1,15 @@
 ---
 title: Manifest and command reference
+redirect_from:
+  - /reports.html
+  - /provenance-report.html
 ---
 
 # Manifest and commands
 
-For [JSON reports](reports.md), [custom readers](readers.md) and [download behavior](fetching.md),
-follow the linked guides.
+This page lists the manifest keys, the commands, their [JSON reports](#json-reports) and the
+[HTML provenance report](#html-provenance-report). [Recipes](recipes.md) covers custom readers and
+other download tools, and [download behavior](fetching.md) the retries and limits.
 
 ## sources.toml
 
@@ -101,7 +105,7 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 - `attribution` prints a Markdown table of the implemented sources, in manifest order:
   name, terms in the publisher's words, licence, terms URL, and whether the raw file may be
   republished. Paste it into a dataset's README or release notes.
-- `report` writes a [standalone HTML provenance report](provenance-report.md) to stdout.
+- `report` writes a [standalone HTML provenance report](#html-provenance-report) to stdout.
   Save it with `sourceledger report > provenance.html`. It works offline and returns 0
   when it produces a report, including one that lists integrity problems.
 - `verify DIR` is for someone who downloaded a published dataset. It reads
@@ -120,4 +124,103 @@ sources' entries in `datapackage.json` as the last build wrote them, and
 Every command that reads the manifest reads `./sources.toml` unless given `--manifest PATH`.
 The data folder stays `data/` in the current directory either way.
 
-`status`, `validate` and `revisions` accept `--json`; see [JSON reports](reports.md) for fields and exit codes.
+`status`, `validate` and `revisions` accept `--json`; see [JSON reports](#json-reports) for fields and exit codes.
+
+## JSON reports
+
+Use `--json` when a script needs to read a report:
+
+```sh
+sourceledger status --json
+sourceledger validate --json --only co2
+sourceledger revisions before.jsonl --json
+```
+
+These commands print one JSON object on stdout. They do not print the usual text report.
+Every object has `stage` (the command name) and `errors` (a list of runtime error messages).
+A successful run has an empty `errors` list. Existing warnings can still appear on stderr.
+Other commands do not accept `--json`.
+
+| Command | Result field | Meaning |
+| --- | --- | --- |
+| `status` | `sources` | One object per source, in manifest order. |
+| `validate` | `problems` | The same list of problem messages the Python function returns. |
+| `revisions` | `revisions` | One object per changed source, in current-log order. New sources are excluded, as in text output. |
+
+### Source status
+
+Each `sources` object has `source_id`, `status`, `vintage`, `retrieved_at`, `recorded_at`,
+`sha256`, `license` and `redistribute`. Hashes have all 64 characters. Missing fetch information
+is `null`; an absent licence or unknown redistribution flag is also `null`. `recorded_at` is
+`null` for a fetched file and the record time for a file `record` took in; its
+`retrieved_at` is then `""` when the other tool reported no download time.
+`redistribute` is otherwise a JSON boolean. The `status` field is text, or `null` when absent.
+The command reads no raw files and makes no network requests.
+
+### Revisions
+
+Each revision has `source_id`, `before_sha256` and `after`.
+`before_sha256` is the earlier full hash. `after` is the complete latest fetch record,
+with the same fields as a line in `data/fetches.jsonl`.
+The two logs must exist. An empty `revisions` list means no existing source changed bytes.
+
+### Problems, failures and exit codes
+
+A validation run with no problems prints:
+
+```json
+{"stage": "validate", "errors": [], "problems": []}
+```
+
+Validation problems go in `problems` and cause exit code 1. Runtime failures, such as a
+missing manifest or log, go in `errors` and cause exit code 1. A failed run omits its
+result field. For example:
+
+```json
+{"stage": "status", "errors": ["sources.toml is missing"]}
+```
+
+Other successful reports exit 0. Finding revisions also exits 0: your downstream checks
+decide whether a revision breaks the dataset. Invalid command arguments, such as a
+missing `revisions` path, use argparse's text error on stderr and exit code 2.
+
+These JSON structures are part of the CLI contract. Read fields by name; JSON object key
+order and whitespace are not significant. The [stability policy](https://github.com/simonvanlierde/sourceledger/blob/main/README.md#stability) applies.
+
+## HTML provenance report
+
+After building a dataset, create a standalone HTML report for someone who receives it:
+
+```sh
+sourceledger report > provenance.html
+```
+
+Keep the report outside `data/processed/`: validation expects that folder to hold only
+outputs described by the data package. Open `provenance.html` in a browser. It uses no
+scripts, remote styles, fonts or network requests.
+
+The command reads `sources.toml`, `data/fetches.jsonl` and the built package in
+`data/processed/`. It checks that the listed outputs match the implemented manifest
+sources and that their files match the package. It also flags a build that predates the
+last logged revision. Each output links to its source details: URL, vintage, fetch
+timestamp, raw and output hashes, licence and reuse terms. For a file that `record` took
+in from another tool, the report gives the download time that tool reported, or "not
+stated", and the time it was recorded, instead of a fetch time.
+
+Source details come from the current manifest; the fetch stamps describe the last build.
+If a file or its provenance is stale, the report lists the problem. The command returns 0
+when it produces a report, including one with integrity problems. A fatal input error
+returns 1 and writes no HTML. A missing fetch log produces a provenance problem in the report. Run `validate` to gate a pipeline on those problems.
+
+The report includes no raw values or header names and values. Displayed HTTP URLs omit
+user information, query parameters and fragments. Local and non-HTTP URLs are omitted.
+Review free-text names and reuse terms before sharing: sourceledger cannot recognize
+secrets someone wrote into those fields or into a URL path. Displayed metadata is escaped
+so it cannot become executable HTML.
+
+Passing integrity checks does not authenticate the package, establish scientific
+correctness or grant publication permission. Recipients must obtain the package and
+report from a source they trust, and review the source terms.
+
+In Python, `sourceledger.report(sources, processed=folder, log=fetch_log)` returns the HTML
+as a string. It reads the same files and does not write the report itself.
