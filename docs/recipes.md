@@ -50,18 +50,20 @@ After `dvc import-url https://example.org/annual.csv data/import/annual.csv`, th
 
 ```sh
 sourceledger record annual data/import/annual.csv \
-  --url https://example.org/annual.csv --etag '<deps[0].etag from annual.csv.dvc>'
+  --url https://example.org/annual.csv --etag '<deps[0].etag from annual.csv.dvc, double quotes included>'
 ```
 
 The ETag is kept only when the URL is the source's own, so a later `sourceledger fetch`
-can ask the server whether the file changed.
+can ask the server whether the file changed. Copy it with its double quotes (`'"f432…-5"'`):
+without them the server cannot match it.
 
 ### dlt
 
 [dlt](https://dlthub.com)'s `RESTClient` follows pagination and authentication. It yields
 parsed pages, not files, so write the items you keep to one file and record that. The
 provenance then points at this file, not at the bytes the API sent, so pass the request
-in `parameters`:
+in `parameters`. The items must be a JSON array of objects, and the source needs
+`format = "json"`, since an API URL has no `.json` ending to tell the reader:
 
 ```python
 import json

@@ -91,10 +91,11 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   URL keeps its secret there. `--etag` and `--last-modified` keep the server's validators
   for a later conditional `fetch`, but only when the URL is the source's own.
   `--parameter NAME=VALUE`, repeatable, keeps request metadata such as a query's country
-  code; it is published with the dataset, so a name such as `token` or `api_key` is
-  refused. The file must be a regular file within the source's `max_bytes`. The library
-  function is `record()`. `status`, the report and `datapackage.json` show the output as
-  recorded, not fetched.
+  code; it is published with the dataset, as text, so a name such as `token`, `x-api-key` or
+  `sig` is refused ([safe use](secure-use.md) lists the rule). The file must be a regular
+  file within the source's `max_bytes`. The library function is `record()`. The report and
+  `datapackage.json` show the output as recorded, not fetched, and `status` shows the record
+  time when there is no download time.
 - `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
   log. Copy the log before you fetch (`cp data/fetches.jsonl before.jsonl`), then run
   `sourceledger revisions before.jsonl`. A weekly CI run can use it to report a

@@ -85,8 +85,10 @@ It applies the same checks as a fetch to the bytes: the `sha256` pin and `max_by
 only a regular file, never a pipe or device. The log, the record and `datapackage.json`
 go out with your dataset, so `record` keeps nothing it can recognize as a secret: a URL
 with a user name or password is refused, another URL loses its query and fragment, and a
-parameter named like `token`, `api_key` or `password` is refused. A secret under another
-name gets through, so pass only what describes the request.
+parameter whose name holds `token`, `secret`, `passw` or `credential`, or has `key`, `auth`,
+`sig`, `session` or `cookie` as a part (`x-api-key`, `sig`), is refused. Values are published
+as given, and a secret under another name gets through, so pass only what describes the
+request.
 
 ## Check redistribute before you publish raw files
 
