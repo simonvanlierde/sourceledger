@@ -17,6 +17,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 ### Changed
 
 - The HTML report puts the integrity result in a box at the top, lists the outputs with links under one heading, and names hashes and times in plain words ("SHA-256 of the downloaded file", "Served from"). It follows the reader's dark mode, prints without the in-page links, wraps long ids, and shows a recorded file's request parameters. A script that reads the report's HTML needs updating.
+- The CLI help ends with a first run and a link to the docs, and `--version` prints the installed version. Ctrl-C ends a stage with one line and exit code 130 instead of a traceback. `init` says what to do next, and a count of one reads "1 problem".
 - Stages that take no operand refuse one: `build foo` exits 2 instead of ignoring `foo`.
 - The website has [recipes](docs/recipes.md) for recording files from pooch, DVC, dlt and your own fetcher, and a [where it fits](docs/where-it-fits.md) page in place of the tool comparison. JSON and HTML reports moved into the [reference](docs/reference.md#json-reports), and release verification into [safe use](docs/secure-use.md#check-a-sourceledger-release); the old addresses redirect.
 - The CLI reports build row counts without rereading the outputs. Fetch history is read in small batches, once per CLI fetch, retaining only each source's latest record.

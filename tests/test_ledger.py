@@ -1810,7 +1810,7 @@ def test_the_fetch_build_and_init_lines_are_exact(
     (tmp_path / "fresh").mkdir()
     monkeypatch.chdir(tmp_path / "fresh")
     assert main(["init"]) == 0
-    assert capsys.readouterr().out == "wrote sources.toml\n"
+    assert capsys.readouterr().out == "wrote sources.toml; fill in your sources, then run: sourceledger fetch\n"
 
 
 def test_an_unknown_stage_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
@@ -3477,9 +3477,9 @@ def test_a_parameter_value_may_be_empty_or_hold_an_equals_sign(upstream: Path, v
         "--only ID", "fetch, build and validate: only this source (repeatable)",
         "--manifest PATH", "the manifest to read (default: sources.toml)",
         "--url URL", "record: where the file came from (default: the source's url)",
-        "--retrieved-at TIME", "record: when it was downloaded, ISO 8601 with a zone",
+        "--retrieved-at TIME", "record: when it was downloaded, ISO 8601 with a zone, such as 2026-11-05T09:30:00Z;",
         "--etag ETAG", "record: the ETag the server sent",
-        "--last-modified LAST_MODIFIED", "record: the Last-Modified the server sent",
+        "--last-modified HTTP_DATE", "record: the Last-Modified the server sent",
         "--parameter NAME=VALUE", "record: request metadata (repeatable)",
         "[ARG ...]", "revisions: an earlier copy of data/fetches.jsonl; verify: the folder of a published dataset;",
         "record: a source id and the file another tool downloaded",
@@ -3601,3 +3601,30 @@ def test_a_record_with_parameters_that_are_not_text_is_not_a_record() -> None:
     assert ledger._is_record(fields)  # noqa: SLF001
     for damaged in ({"parameters": []}, {"parameters": {"n": 3}}, {"recorded_at": None}):
         assert not ledger._is_record({**fields, **damaged})  # noqa: SLF001
+
+
+def test_ctrl_c_ends_a_stage_with_one_line_and_exit_130(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Interrupting a long fetch prints what happened, not a traceback."""
+
+    def interrupted(*_: object) -> list[str]:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("sourceledger.cli._run", interrupted)
+    assert main(["fetch"]) == 130
+    assert capsys.readouterr().err == "fetch: interrupted; what finished before is kept\n"
+
+
+def test_version_names_the_package(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exit_:
+        main(["--version"])
+    assert exit_.value.code == 0
+    assert capsys.readouterr().out.startswith("sourceledger ")
+
+
+@pytest.mark.parametrize(("count", "text"), [(0, "0 problems"), (1, "1 problem"), (2, "2 problems")])
+def test_a_problem_count_reads_as_english(count: int, text: str) -> None:
+    from sourceledger.cli import _problems  # noqa: PLC0415  # private, tested alone
+
+    assert _problems(count) == text

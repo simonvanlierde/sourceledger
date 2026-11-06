@@ -7,6 +7,7 @@ import csv
 import json
 import logging
 import sys
+from importlib.metadata import version
 from pathlib import Path
 
 from sourceledger.ledger import (
@@ -59,6 +60,21 @@ def _fetch_line(record: FetchRecord, before: dict[str, str]) -> str:
     )
 
 
+_EPILOG = """\
+a first run:
+  {prog} init        write a starter sources.toml
+  {prog} fetch       download every source and log it
+  {prog} build       write data/processed/ and datapackage.json
+  {prog} validate    check the outputs against the log and the manifest
+
+docs: https://simonvanlierde.com/sourceledger/reference.html
+"""
+
+
+def _problems(count: int) -> str:
+    return f"{count} problem{'' if count == 1 else 's'}"
+
+
 def main(  # argument validation and reporting for each stage
     argv: list[str] | None = None,
     *,
@@ -80,7 +96,13 @@ def main(  # argument validation and reporting for each stage
     project that ships it inside its package passes that path, and `--manifest PATH` overrides
     both. Returns the exit code: 0, or 1 for any failure or validation problem.
     """
-    parser = argparse.ArgumentParser(prog=prog, description="Fetch, build and validate the sources in sources.toml.")
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Fetch, build and validate the sources in sources.toml.",
+        epilog=_EPILOG.format(prog=prog),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--version", action="version", version=f"sourceledger {version('sourceledger')}")
     parser.add_argument("stage", choices=_STAGES)
     parser.add_argument(
         "operands",
@@ -97,9 +119,16 @@ def main(  # argument validation and reporting for each stage
     )
     parser.add_argument("--json", action="store_true", help="status, validate and revisions: print JSON")
     parser.add_argument("--url", help="record: where the file came from (default: the source's url)")
-    parser.add_argument("--retrieved-at", metavar="TIME", help="record: when it was downloaded, ISO 8601 with a zone")
+    parser.add_argument(
+        "--retrieved-at",
+        metavar="TIME",
+        help="record: when it was downloaded, ISO 8601 with a zone, such as 2026-11-05T09:30:00Z; "
+        "without it the record states no download time",
+    )
     parser.add_argument("--etag", default="", help="record: the ETag the server sent")
-    parser.add_argument("--last-modified", default="", help="record: the Last-Modified the server sent")
+    parser.add_argument(
+        "--last-modified", default="", metavar="HTTP_DATE", help="record: the Last-Modified the server sent"
+    )
     parser.add_argument(
         "--parameter", action="append", default=[], metavar="NAME=VALUE", help="record: request metadata (repeatable)"
     )
@@ -108,6 +137,16 @@ def main(  # argument validation and reporting for each stage
     args.path = Path(args.operands[-1]) if args.operands else None
     # Retries and recovered fetch logs are reported as warnings, on stderr.
     logging.basicConfig(format=f"{prog}: %(message)s", level=logging.WARNING)
+    try:
+        return _main(args, parse, prog, user_agent)
+    except KeyboardInterrupt:
+        # A fetch moves each file into place whole, so what finished is kept and logged.
+        print(f"{args.stage}: interrupted; what finished before is kept", file=sys.stderr)
+        return 130
+
+
+def _main(args: argparse.Namespace, parse: Parser, prog: str, user_agent: str) -> int:
+    """Run the checked stage and report it; the exit code."""
     if args.json:
         return _json_run(args.stage, args.path, args.only, args.manifest)
     # Filled by fetch, for the lines of a run that fails.
@@ -116,7 +155,7 @@ def main(  # argument validation and reporting for each stage
         problems = (
             _record(args, before)
             if args.stage == _RECORD
-            else _run(args.stage, args.path, args.only, parse, user_agent, before, args.manifest)
+            else _run(args.stage, args.path, args.only, parse, user_agent, before, args.manifest, prog)
         )
     except FetchError as error:
         for record in error.records:
@@ -200,6 +239,7 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
     user_agent: str,
     logged: dict[str, str],
     manifest: Path,
+    prog: str,
 ) -> list[str]:
     """Run `stage`, print its report, and return its problems: only validate and verify have any.
 
@@ -210,7 +250,7 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
     match stage, path:
         case "init", _:
             init(manifest)
-            print(f"wrote {manifest}")
+            print(f"wrote {manifest}; fill in your sources, then run: {prog} fetch")
         case "revisions", Path():
             # Not a failure: a revised source is news, and the tripwire test decides whether it breaks anything.
             for line in revisions(path):
@@ -219,7 +259,7 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
             print(report(load_manifest(manifest)), end="")
         case "verify", Path():
             problems = verify(path)
-            print(f"{len(problems)} problems")
+            print(_problems(len(problems)))
             return problems
         case "fetch", _:
             for record in _fetch(load_manifest(manifest), user_agent=user_agent, only=only, before=logged):
@@ -240,6 +280,6 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
                 print(line)
         case _:
             problems = validate(load_manifest(manifest), only=only, output_format=_load_output_format(manifest))
-            print(f"{len(problems)} problems")
+            print(_problems(len(problems)))
             return problems
     return []
