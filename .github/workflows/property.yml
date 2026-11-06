@@ -2,7 +2,7 @@ name: property
 
 # The property tests at length once a week, with the same `just <stack>-property`
 # recipes you run by hand. The test job runs them briefly on every change; this run
-# tries far more inputs, and fuzzes Go's FuzzAdd. A failing input fails the job. Run it from the
+# tries far more inputs. A failing input fails the job. Run it from the
 # Actions tab with "Run workflow" after you change the tests.
 on:
   schedule:

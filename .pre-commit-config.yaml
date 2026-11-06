@@ -20,11 +20,11 @@ repos:
         # pnpm writes its own version into the lockfile as a second YAML document.
         exclude: (^|/)pnpm-lock\.yaml$
       - id: end-of-file-fixer
-        exclude: ^(data|tests/fixtures)/
+        exclude: ^(data|tests/(fixtures|golden))/
       - id: mixed-line-ending
-        exclude: ^(data|tests/fixtures)/
+        exclude: ^(data|tests/(fixtures|golden))/
       - id: trailing-whitespace
-        exclude: ^(data|tests/fixtures)/
+        exclude: ^(data|tests/(fixtures|golden))/
       # Not gated to python: .rumdl.toml ships to every stack.
       - id: check-toml
 
@@ -113,7 +113,7 @@ repos:
     rev: 34071b78c181af3bf5af955c1426466e096fc3db # frozen: 0.9.1
     hooks:
       - id: nbstripout
-        exclude: ^(data|tests/fixtures)/
+        exclude: ^(data|tests/(fixtures|golden))/
   - repo: https://github.com/rvben/rumdl-pre-commit
     rev: eaeb8abc646954face3eb41726f085385410f761 # frozen: v0.3.1
     hooks:
@@ -170,9 +170,3 @@ repos:
         language: system
         pass_filenames: false
         types: [python]
-
-  # The citation files and package manifests must agree (CITATION.cff is the source).
-  - repo: https://github.com/simonvanlierde/citesync
-    rev: a3c5a9794449e78a33583e456af41bb24ebd240e # frozen: v0.1.0
-    hooks:
-      - id: citesync

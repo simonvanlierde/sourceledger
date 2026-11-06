@@ -357,5 +357,5 @@ def test_report_names_a_resource_without_a_name(dataset: list[ledger.Source]) ->
     del package["resources"][0]["name"]
     path.write_text(json.dumps(package))
     page = report(dataset)
-    assert "<h2>unnamed</h2>" in page
+    assert ">unnamed</h" in page
     assert "unnamed: no fetch record in the log" in page

@@ -127,14 +127,17 @@ and remove it a week later ([how](https://github.com/simonvanlierde/project-temp
 
 ## Make a release
 
-The maintainer runs `just release X.Y.Z`. [Publishing](https://github.com/simonvanlierde/project-templates/blob/main/docs/usage.md#publishing) has the steps and the one-time setup.
+The maintainer first sets `version` and `date-released` in `CITATION.cff`, runs
+`uv version X.Y.Z` for `pyproject.toml` and `uv.lock`, and `just citation` for `codemeta.json`.
+Then `just release X.Y.Z` cuts the changelog, and a second run tags the merged release commit. [Publishing](https://github.com/simonvanlierde/project-templates/blob/main/docs/usage.md#publishing) has the steps and the one-time setup.
 
 ## Sign off your commits
 
 Every commit in a pull request carries a `Signed-off-by:` line, which says you wrote the
 change or have the right to submit it under this project's license: the
 [Developer Certificate of Origin 1.1](https://developercertificate.org/). `git commit -s`
-adds the line, and the commit-msg hook refuses a commit without it.
+adds the line, and the commit-msg hook refuses a commit without it; after a refusal,
+`git commit -s -F .git/COMMIT_EDITMSG` commits again with the message you wrote.
 
 To add it to commits you already made, run `git fetch origin`, then
 `git rebase --signoff origin/main`. That works in a clone of this repository, where `origin`
