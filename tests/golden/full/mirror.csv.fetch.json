@@ -7,7 +7,7 @@
   "vintage": "2024-06-01",
   "last_modified": "",
   "etag": "",
-  "final_url": "https://mirror.example.org/mirror.csv?country=NL",
+  "final_url": "https://mirror.example.org/mirror.csv",
   "env_headers": [],
   "archive_url": "",
   "recorded_at": "2026-11-05T09:30:00Z",

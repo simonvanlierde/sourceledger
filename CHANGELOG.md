@@ -10,7 +10,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Added
 
-- [`record`](docs/reference.md#other-commands), and `record()` in the library, take in a file that another tool such as pooch, DVC or your own script downloaded. It copies the file into `data/raw/`, checks the `sha256` pin, and writes the same log line and fetch record as `fetch`, with a `recorded_at` time and optional request `parameters`. The download time is the one the other tool reports, or empty. `datapackage.json`, `status` and the HTML report show these outputs as recorded, not fetched.
+- [`record`](docs/reference.md#other-commands), and `record()` in the library, take in a file that another tool such as pooch, DVC or your own script downloaded. It copies the file into `data/raw/`, checks the `sha256` pin, and writes the same log line and fetch record as `fetch`, with a `recorded_at` time and optional request `parameters`. The download time is the one the other tool reports, or empty. `datapackage.json`, `status` and the HTML report show these outputs as recorded, not fetched. A recorded URL other than the source's loses its query, and a parameter named like a credential is refused, since both are published with the dataset.
 - [Parquet outputs](docs/reference.md#sourcestoml) through `sourceledger[parquet]` and the project-wide `output_format = "parquet"` setting. Tables use zstd compression and an explicit string schema, with the same provenance columns and validation as CSV. `build`, `validate` and `read_output` accept `output_format=` in the library.
   Writing and validation use batches of at most 10,000 rows through PyArrow, including full-column decoding to detect corruption.
 

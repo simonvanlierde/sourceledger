@@ -7,6 +7,7 @@ import io
 import json
 import sys
 import tempfile
+from datetime import datetime
 from email.message import Message
 from pathlib import Path
 
@@ -256,8 +257,11 @@ def test_streamed_history_preserves_splitlines_records(
 @given(
     payload=st.binary(max_size=2048),
     fmt=st.sampled_from(["file", "csv"]),
-    parameters=st.dictionaries(st.text(max_size=8), st.text(max_size=8) | st.integers(), max_size=3),
-    retrieved_at=st.none() | st.datetimes(timezones=st.timezones()),
+    parameters=st.dictionaries(
+        st.text("xyz_09", min_size=1, max_size=8), st.text(max_size=8) | st.integers(), max_size=3
+    ),
+    # Naive bounds, as hypothesis wants; the timezones strategy makes each value aware.
+    retrieved_at=st.none() | st.datetimes(max_value=datetime(2026, 1, 1), timezones=st.timezones()),  # noqa: DTZ001
 )
 def test_a_recorded_file_verifies_and_reads_back(
     payload: bytes, fmt: str, parameters: dict[str, str | int], retrieved_at: object

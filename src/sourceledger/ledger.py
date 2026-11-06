@@ -31,6 +31,7 @@ import os
 import re
 import shutil
 import socket
+import stat
 import sys
 import tempfile
 import time
@@ -42,7 +43,7 @@ import zipfile
 import zlib
 from collections import Counter
 from collections.abc import Callable, Collection, Generator, Iterable, Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
 from importlib.metadata import version
@@ -963,13 +964,19 @@ def record(
     an ISO 8601 string with a time zone, stored in UTC. Leave it out when that tool does not
     say; the record then states no download time rather than pass the record time off as one.
     `url` is where the file came from, the source's URL by default; another URL is kept as
-    the record's `final_url`. `etag` and `last_modified` are kept only when `url` is the
-    source's URL, so a later `fetch` never sends one URL's validators to another.
-    `parameters` describes the request: flat, with str or int values, and never credentials,
-    since it is written to the log and to every copy of the dataset's metadata.
+    the record's `final_url`, without its query or fragment, which can hold a signature or
+    key. `etag` and `last_modified` are kept only when `url` is the source's URL, so a later
+    `fetch` never sends one URL's validators to another. `parameters` describes the
+    request: flat, with str or int values. It is written to the log and to every copy of
+    the dataset's metadata, so a name that looks like a credential is refused.
+
+    The same bytes recorded again for the same request add no log line; recorded after a
+    fetch, or for other `parameters`, they add one, so the log's last line always matches
+    the sidecar.
 
     Raises ValueError for a source that is not implemented, a URL with a user name or
-    password, a time without a time zone, other `parameters`, or bytes that miss the
+    password, a time without a time zone or in the future, other `parameters`, a path that
+    is not a regular file, a file over the source's `max_bytes`, or bytes that miss the
     manifest's `sha256` pin. Raises OSError when another fetch holds the lock on `raw`.
     """
     sid = source["id"]
@@ -981,12 +988,13 @@ def record(
     if parts.username is not None or parts.password is not None:
         msg = f"{sid}: the URL holds a user name or password; record it without them"
         raise ValueError(msg)
-    parameters = parameters or {}
-    # Not isinstance: bool is an int subclass.
-    if not all(isinstance(k, str) and type(v) in (str, int) for k, v in parameters.items()):
-        msg = f"{sid}: parameters must map names to str or int values"
-        raise ValueError(msg)
-    downloaded = "" if retrieved_at is None else _timestamp(_aware(sid, retrieved_at))
+    if url != source["url"] and (parts.query or parts.fragment):
+        # A signed or keyed download URL carries its secret in the query; the manifest's own URL is reviewed.
+        _logger.warning("%s: kept %s without its query and fragment; put what they asked for in parameters", sid, url)
+        url = parts._replace(query="", fragment="").geturl()
+    parameters = _checked_parameters(sid, parameters or {})
+    now = datetime.now(UTC)
+    downloaded = "" if retrieved_at is None else _timestamp(_aware(sid, retrieved_at, now))
     if url != source["url"] and (etag or last_modified):
         _logger.warning("%s: ETag and Last-Modified from %s are not the source URL's; not kept", sid, url)
         etag = last_modified = ""
@@ -998,9 +1006,7 @@ def record(
         temp = Path(name)
         try:
             with os.fdopen(fd, "wb") as fh, path.open("rb") as src:
-                shutil.copyfileobj(src, fh, _CHUNK_BYTES)
-                fh.flush()
-                os.fsync(fh.fileno())
+                _copy_file(source, src, fh)
             digest = _digest(temp)  # of the copy: the bytes `verify` will read
             if source.get("sha256", digest) != digest:
                 msg = f"{sid}: {path} hashes to {digest}, not the sha256 in sources.toml"
@@ -1015,7 +1021,7 @@ def record(
                 last_modified=last_modified,
                 etag=etag,
                 final_url="" if url == source["url"] else url,
-                recorded_at=_timestamp(datetime.now(UTC)),
+                recorded_at=_timestamp(now),
                 parameters=dict(parameters),
             )
             _commit(source, temp, result, raw, log, logged)
@@ -1024,8 +1030,41 @@ def record(
     return result
 
 
-def _aware(sid: str, when: datetime | str) -> datetime:
-    """`when` as a datetime, refused unless it is a time with a time zone."""
+_SECRET_NAME = re.compile(r"token|secret|passw|api_?key|auth|credential|signature", re.IGNORECASE)
+# How far ahead of this host's clock a reported download time may be.
+_CLOCK_SKEW = timedelta(minutes=5)
+
+
+def _checked_parameters(sid: str, parameters: dict[str, str | int]) -> dict[str, str | int]:
+    """A copy of `parameters`, refused unless flat, with str or int values, and with no name that suggests a secret."""
+    # Not isinstance: bool is an int subclass.
+    if not all(isinstance(k, str) and k and type(v) in (str, int) for k, v in parameters.items()):
+        msg = f"{sid}: parameters must map non-empty names to str or int values"
+        raise ValueError(msg)
+    if secret := sorted(k for k in parameters if _SECRET_NAME.search(k)):
+        msg = f"{sid}: parameters {secret} look like credentials; they would be published with the dataset"
+        raise ValueError(msg)
+    return dict(parameters)
+
+
+def _copy_file(source: Source, src: IO[bytes], fh: IO[bytes]) -> None:
+    """Copy a regular file into `fh`, flushed to disk, within the source's `max_bytes`."""
+    if not stat.S_ISREG(os.fstat(src.fileno()).st_mode):
+        msg = f"{source['id']}: {src.name} is not a regular file"
+        raise ValueError(msg)
+    cap, size = source.get("max_bytes", _MAX_BYTES), 0
+    while chunk := src.read(_CHUNK_BYTES):
+        size += len(chunk)
+        if size > cap:
+            msg = f"{source['id']}: {src.name} exceeds {cap} bytes; raise max_bytes in sources.toml if expected"
+            raise ValueError(msg)
+        fh.write(chunk)
+    fh.flush()
+    os.fsync(fh.fileno())
+
+
+def _aware(sid: str, when: datetime | str, now: datetime) -> datetime:
+    """`when` as a datetime, refused unless it is a time with a time zone, and not later than `now`."""
     try:
         parsed = when if isinstance(when, datetime) else datetime.fromisoformat(when)
     except (TypeError, ValueError) as error:
@@ -1033,6 +1072,9 @@ def _aware(sid: str, when: datetime | str) -> datetime:
         raise ValueError(msg) from error
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         msg = f"{sid}: retrieved_at {when!r} needs a time zone, such as Z"
+        raise ValueError(msg)
+    if parsed > now + _CLOCK_SKEW:
+        msg = f"{sid}: retrieved_at {when!r} is in the future"
         raise ValueError(msg)
     return parsed
 
@@ -1043,8 +1085,15 @@ def _timestamp(when: datetime) -> str:
 
 
 def _log_new_version(log: Path, logged: dict[str, dict[str, Any]], record: FetchRecord) -> None:
-    # Appended, not rewritten: the log is history. A re-download of the same bytes adds nothing.
-    if logged.get(record.source_id, {}).get("sha256") != record.sha256:
+    # Appended, not rewritten: the log is history. A re-download of the same bytes adds nothing,
+    # but the same bytes fetched after being recorded, or recorded for another request, do: the
+    # log's last line and the sidecar must agree on how the bytes came in.
+    last = logged.get(record.source_id, {})
+    if (last.get("sha256"), bool(last.get("recorded_at")), last.get("parameters", {})) != (
+        record.sha256,
+        bool(record.recorded_at),
+        record.parameters,
+    ):
         _append(log, record)
         logged[record.source_id] = _fields(record)
 
@@ -1559,6 +1608,8 @@ def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path)
     }
     if record.recorded_at:
         resource["sourceledger"]["recorded_at"] = record.recorded_at
+    if record.parameters:
+        resource["sourceledger"]["parameters"] = record.parameters
     return resource
 
 

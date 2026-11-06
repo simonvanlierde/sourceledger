@@ -147,8 +147,11 @@ def _check(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
         parser.error(
             f"--url, --retrieved-at, --etag, --last-modified and --parameter work with record, not {args.stage}"
         )
-    if bad := [p for p in args.parameter if not p.partition("=")[1]]:
+    if bad := [p for p in args.parameter if not (p.partition("=")[0] and p.partition("=")[1])]:
         parser.error(f"--parameter takes NAME=VALUE, not {bad[0]!r}")
+    names = [p.partition("=")[0] for p in args.parameter]
+    if dupes := sorted({n for n in names if names.count(n) > 1}):
+        parser.error(f"--parameter names {dupes} more than once")
 
 
 def _record(args: argparse.Namespace, before: dict[str, str]) -> list[str]:

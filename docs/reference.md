@@ -82,12 +82,15 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   `sha256` pin, and writes the same log line and record as `fetch`, with `recorded_at` set
   to now. `--retrieved-at TIME` is when the file was downloaded, in ISO 8601 with a time
   zone (`2026-11-05T09:30:00Z`). Without it the record and the rows' `retrieved_at` stay
-  empty rather than claim a download time. `--url URL` names where it came from if that is not the source's
-  `url`. `--etag` and `--last-modified` keep the server's validators for a later
-  conditional `fetch`, but only when the URL is the source's own. `--parameter NAME=VALUE`,
-  repeatable, keeps request metadata such as a query's country code. Never put credentials
-  in it. The library function is `record()`. The report and `datapackage.json` mark the
-  output as recorded, not fetched.
+  empty rather than claim a download time. `--url URL` names where it came from if that
+  is not the source's `url`; its query and fragment are dropped, since a signed download
+  URL keeps its secret there. `--etag` and `--last-modified` keep the server's validators
+  for a later conditional `fetch`, but only when the URL is the source's own.
+  `--parameter NAME=VALUE`, repeatable, keeps request metadata such as a query's country
+  code; it is published with the dataset, so a name such as `token` or `api_key` is
+  refused. The file must be a regular file within the source's `max_bytes`. The library
+  function is `record()`. `status`, the report and `datapackage.json` show the output as
+  recorded, not fetched.
 - `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
   log. Copy the log before you fetch (`cp data/fetches.jsonl before.jsonl`), then run
   `sourceledger revisions before.jsonl`. A weekly CI run can use it to report a
