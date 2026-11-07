@@ -121,9 +121,9 @@ def test_the_publisher_revision_tutorial_runs(tmp_path: Path, monkeypatch: pytes
             assert [main([stage]) for stage in ("fetch", "validate")] == [0, 1]
             assert main(["revisions", "before.jsonl"]) == 0
             assert [main([stage]) for stage in ("build", "validate")] == [0, 0]
-    assert ledger.read_output(Path("data/processed/co2.csv"))[-1]["co2_ppm"] == "419.32"
+    assert list(ledger.read_output(Path("data/processed/co2.csv")))[-1]["co2_ppm"] == "419.32"
     assert _shell(_block(guide, "## Record a file another tool downloaded", "sh")) == [0] * 5
-    rows = ledger.read_output(Path("data/processed/co2.csv"))
+    rows = list(ledger.read_output(Path("data/processed/co2.csv")))
     assert {row["retrieved_at"] for row in rows} == {"2026-11-05T09:30:00Z"}
 
 

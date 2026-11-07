@@ -25,6 +25,7 @@ import tomllib
 import tracemalloc
 import urllib.error
 import urllib.request
+import zipfile
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta, tzinfo
 from datetime import time as dt_time
@@ -151,7 +152,7 @@ def test_the_whole_pipeline_runs_from_a_local_file(upstream: Path) -> None:
     assert record["retrieved_at"].endswith("Z")
     assert record["vintage"] == "not stated"
 
-    rows = ledger.read_output(OUT)
+    rows = list(ledger.read_output(OUT))
     assert [(r["year"], r["value"]) for r in rows] == [("2020", "1.5"), ("2021", "2.5")]
     assert {(r["source_url"], r["raw_sha256"]) for r in rows} == {(record["url"], record["sha256"])}
 
@@ -328,6 +329,31 @@ def test_an_empty_manifest_is_no_sources(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.chdir(tmp_path)
     assert ledger.load_manifest() == []
     assert _run("fetch", "build", "validate") == [0, 0, 0]
+
+
+@pytest.mark.parametrize(
+    ("text", "hint"),
+    [
+        ("[[sources]]\nid = 'a'\nstatus = 'implemented'\n", "source"),
+        ("[[Source]]\nid = 'a'\nstatus = 'implemented'\n", "source"),
+        ("output-format = 'parquet'\n", "output_format"),
+    ],
+)
+def test_a_misspelt_top_level_key_is_refused_before_any_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str, hint: str
+) -> None:
+    """A typo must not read as an empty manifest, or build writes an empty datapackage.json over a good one."""
+    (tmp_path / "sources.toml").write_text(text, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match=rf"not a sources.toml key.*did you mean {hint}"):
+        ledger.load_manifest()
+    assert _run("build") == [1]
+    assert not (tmp_path / "data").exists()
+
+
+def test_the_schema_closes_the_top_level() -> None:
+    assert SCHEMA["additionalProperties"] is False
+    assert set(SCHEMA["properties"]) == {"output_format", "source"}
 
 
 def test_build_refuses_a_fetch_made_for_a_different_request(
@@ -1203,14 +1229,16 @@ def test_a_redirect_to_a_signed_url_keeps_no_signature(publisher: str, tmp_path:
     assert "s3cr3t" not in Path("data/fetches.jsonl").read_text(encoding="utf-8")
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no O_NOFOLLOW to refuse a symlink with")
 @pytest.mark.usefixtures("upstream")
 def test_a_symlinked_lock_file_leaves_its_target_alone(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """A checkout can carry a symlink at data/raw/.lock; taking the lock must not empty the file it points at."""
     victim = tmp_path / "victim.txt"
     victim.write_text("keep me", encoding="utf-8", newline="")
     RAW.parent.mkdir(parents=True)
-    (RAW.parent / ".lock").symlink_to(victim)
+    try:
+        (RAW.parent / ".lock").symlink_to(victim)
+    except OSError:  # Windows without Developer Mode
+        pytest.skip("this host cannot make symlinks")
     assert _run("fetch") == [1]
     assert "data/raw/.lock" in capsys.readouterr().err
     assert victim.read_text(encoding="utf-8") == "keep me"
@@ -1256,6 +1284,45 @@ def test_a_second_fetch_at_once_is_refused(capsys: pytest.CaptureFixture[str]) -
 
 
 @pytest.mark.usefixtures("upstream")
+def test_temp_files_a_killed_run_left_are_swept_under_the_lock(tmp_path: Path) -> None:
+    """A SIGKILL mid-download or mid-record leaves its temp file; the next run that holds the lock removes it."""
+    RAW.parent.mkdir(parents=True)
+    stale = [RAW.parent / ".example.abc123.part", RAW.parent / ".example.csv.fetch.json.def456.part"]
+    for path in stale:
+        path.write_bytes(b"half a file")
+    kept = RAW.parent / "notes.part"  # not a temp file sourceledger names
+    kept.write_text("mine", encoding="utf-8")
+    assert _run("fetch") == [0]
+    assert not any(path.exists() for path in stale)
+    assert kept.read_text(encoding="utf-8") == "mine"
+    (RAW.parent / ".example.ghi789.part").write_bytes(b"half a file")
+    download = tmp_path / "download.csv"
+    download.write_text(FIXTURE, encoding="utf-8")
+    ledger.record(ledger.load_manifest()[0], download)
+    assert not list(RAW.parent.glob(".*.part"))
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_refused_fetch_leaves_temp_files_alone(capsys: pytest.CaptureFixture[str]) -> None:
+    """Another run holds the lock, so its temp file may still be in use: only the lock holder sweeps."""
+    RAW.parent.mkdir(parents=True)
+    other = RAW.parent / ".x.part"
+    with ledger._lock(RAW.parent):  # noqa: SLF001
+        other.write_bytes(b"being written")
+        assert _run("fetch") == [1]
+    assert "another fetch is already running" in capsys.readouterr().err
+    assert other.exists()
+
+
+@pytest.mark.usefixtures("upstream")
+def test_an_unremovable_temp_file_does_not_stop_a_fetch() -> None:
+    """A virus scanner holding a temp file, or a directory named like one, must not abort the run."""
+    RAW.parent.mkdir(parents=True)
+    (RAW.parent / ".x.part").mkdir()
+    assert _run("fetch") == [0]
+
+
+@pytest.mark.usefixtures("upstream")
 def test_a_download_streams_to_disk_in_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
     """A body larger than one chunk arrives whole, and a refused one leaves no temp file behind."""
     monkeypatch.setattr(ledger, "_CHUNK_BYTES", 4)
@@ -1296,7 +1363,7 @@ def test_the_default_reader_follows_the_format(
     _manifest(tmp_path, upstream.as_uri(), terms=f"{TERMS}\n{extra}")
     monkeypatch.chdir(tmp_path)
     assert _run("fetch", "build", "validate") == [0, 0, 0]
-    rows = ledger.read_output(OUT)
+    rows = list(ledger.read_output(OUT))
     assert [(r["year"], r["value"]) for r in rows] == [("2020", "1.5"), ("2021", "2.5")]
 
 
@@ -2025,7 +2092,16 @@ def test_a_csv_field_keeps_its_line_break() -> None:
 def test_a_quoted_line_break_survives_read_output(tmp_path: Path) -> None:
     out = tmp_path / "o.csv"
     out.write_bytes(b'a\r\n"one\r\ntwo"\r\n')
-    assert ledger.read_output(out) == [{"a": "one\r\ntwo"}]
+    assert list(ledger.read_output(out)) == [{"a": "one\r\ntwo"}]
+
+
+def test_read_output_streams_rows(tmp_path: Path) -> None:
+    """A table of millions of rows is read one row at a time, not into one list."""
+    out = tmp_path / "o.csv"
+    out.write_bytes(b"a\r\n1\r\n2\r\n")
+    rows = ledger.read_output(out)
+    assert next(rows) == {"a": "1"}
+    assert list(rows) == [{"a": "2"}]
 
 
 @pytest.mark.parametrize("payload", [b"[1]", b"{}", b'"x"'])
@@ -2093,6 +2169,19 @@ def test_an_excel_workbook_that_expands_past_max_bytes_is_refused(tmp_path: Path
     ):
         ledger.parse_xlsx({"id": "x", "max_bytes": 1000}, payload)
     assert len(ledger.parse_xlsx({"id": "x", "max_bytes": 10 * len(payload)}, payload)[1]) == 100
+
+
+def test_an_excel_workbook_exactly_at_max_bytes_is_read(tmp_path: Path) -> None:
+    """As for a gzip, the cap is the most a workbook may expand to, not one byte less."""
+    payload = _xlsx(tmp_path, ("year", "value"), (2020, 1.5))
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        expanded = sum(info.file_size for info in archive.infolist())
+    assert ledger.parse_xlsx({"id": "x", "max_bytes": expanded}, payload) == (
+        ["year", "value"],
+        [{"year": "2020", "value": "1.5"}],
+    )
+    with pytest.raises(ValueError, match="decompresses past"):
+        ledger.parse_xlsx({"id": "x", "max_bytes": expanded - 1}, payload)
 
 
 def test_a_cell_right_of_the_excel_header_is_refused(tmp_path: Path) -> None:
@@ -2394,6 +2483,28 @@ def test_archive_asks_for_a_snapshot_of_new_bytes_only(tmp_path: Path, monkeypat
     assert [json.loads(line)["archive_url"] for line in LOG.read_text(encoding="utf-8").splitlines()] == [
         _SNAPSHOT,
         newer,
+    ]
+
+
+@pytest.mark.usefixtures("upstream")
+def test_record_keeps_the_snapshot_of_the_same_bytes_and_asks_for_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """As fetch does for bytes it downloads again; record makes no request, so new bytes get no snapshot."""
+    _manifest(tmp_path, _DATA, terms=f"{TERMS}\narchive = true")
+    calls = _serve(monkeypatch, _Response(FIXTURE.encode()), _Response(b"", url=_SNAPSHOT))
+    assert _run("fetch") == [0]
+    download = tmp_path / "download.csv"
+    download.write_text(FIXTURE, encoding="utf-8", newline="")
+    source = ledger.load_manifest()[0]
+    assert ledger.record(source, download).archive_url == _SNAPSHOT
+    download.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8", newline="")
+    assert ledger.record(source, download).archive_url == ""
+    assert len(calls) == 2
+    assert [json.loads(line)["archive_url"] for line in LOG.read_text(encoding="utf-8").splitlines()] == [
+        _SNAPSHOT,
+        _SNAPSHOT,
+        "",
     ]
 
 
@@ -3096,7 +3207,7 @@ def test_public_build_preserves_custom_parser(upstream: Path):
         return ["custom"], [{"custom": "kept"}]
 
     assert ledger.build(sources, parse=parse) == [OUT]
-    row = ledger.read_output(OUT)[0]
+    row = next(ledger.read_output(OUT))
     assert row["custom"] == "kept"
     assert row["source_id"] == "example"
 
@@ -3140,7 +3251,7 @@ def test_a_recorded_file_builds_like_a_fetched_one(upstream: Path) -> None:
     """The same bytes, fetched or recorded, give the same rows; only the record says which happened."""
     (fetched,) = ledger.fetch(ledger.load_manifest())
     ledger.build(ledger.load_manifest())
-    fetched_rows = ledger.read_output(OUT)
+    fetched_rows = list(ledger.read_output(OUT))
     shutil.rmtree("data")
 
     recorded = ledger.record(_source(), upstream, retrieved_at=WHEN, last_modified="Tue, 03 Nov 2026 08:00:00 GMT")

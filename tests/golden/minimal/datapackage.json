@@ -9,8 +9,8 @@
       "format": "csv",
       "mediatype": "text/csv",
       "encoding": "utf-8",
-      "bytes": "<varies with the port>",
-      "hash": "<varies with the port>",
+      "bytes": 351,
+      "hash": "sha256:02073aed4ddaf41d91993d2d7ab747f116cae8b590a4979182b6a86e440e6708",
       "schema": {
         "fields": [
           {

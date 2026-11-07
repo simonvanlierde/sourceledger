@@ -36,7 +36,8 @@ The [reference](reference.md) lists the manifest keys and command options. This 
 [what to commit](https://github.com/simonvanlierde/sourceledger#what-to-commit).
 
 Each raw file, record and output is written to a temporary file in the same folder and
-then renamed into place, so a crash never leaves half a file. The log is appended to
+then renamed into place, so a crash never leaves half a file. A temp file that a killed
+`fetch` or `record` left in `data/raw/` is removed by the next one, once it holds the lock. The log is appended to
 instead, one line per new version. A last line cut off by a crash is dropped on the next fetch. A complete record that only
 lacks its final newline is kept.
 
