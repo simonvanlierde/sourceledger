@@ -192,7 +192,7 @@ def test_fetch_retries_a_server_error_with_backoff(monkeypatch: pytest.MonkeyPat
 def test_fetch_gives_up_after_four_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
     """A publisher that stays down fails the run after four tries, not a fifth."""
     calls = _serve(monkeypatch, *(_http_error(503) for _ in range(5)))
-    assert _run("fetch") == [1]
+    assert _run("fetch") == [3]
     assert len(calls) == 4
 
 
