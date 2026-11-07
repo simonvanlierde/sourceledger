@@ -64,7 +64,9 @@ jobs:
 
       - run: uv run ruff check --output-format=github
       - run: uv run ruff format --check
+      # Linux only: ty on Windows flags the POSIX-only calls the tests guard with skipif.
       - run: uv run ty check
+        if: runner.os != 'Windows'
       # Fails below the fail_under in pyproject.toml.
       - run: uv run pytest --cov
 
