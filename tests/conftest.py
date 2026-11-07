@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Self
 
 import pytest
+from hypothesis import settings
 
 from sourceledger import ledger
 
@@ -106,3 +107,9 @@ def golden(request: pytest.FixtureRequest) -> Callable[[str, str], None]:
         assert text == path.read_bytes().decode(), f"{name} changed; {hint} if intended"
 
     return check
+
+
+# `just py-property` runs the tests under this profile. A new profile copies the loaded one,
+# which in CI is Hypothesis's derandomized "ci" profile: derandomize=False makes each weekly
+# run draw new inputs, and print_blob prints how to replay a failure.
+settings.register_profile("long", max_examples=10_000, derandomize=False, print_blob=True)

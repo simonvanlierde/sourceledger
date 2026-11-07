@@ -189,6 +189,14 @@ def test_fetch_retries_a_server_error_with_backoff(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.usefixtures("upstream")
+def test_fetch_gives_up_after_four_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A publisher that stays down fails the run after four tries, not a fifth."""
+    calls = _serve(monkeypatch, *(_http_error(503) for _ in range(5)))
+    assert _run("fetch") == [1]
+    assert len(calls) == 4
+
+
+@pytest.mark.usefixtures("upstream")
 def test_fetch_waits_for_retry_after(monkeypatch: pytest.MonkeyPatch, sleeps: list[float]) -> None:
     """A 429 waits as long as the server asks, when that is longer than the backoff."""
     _serve(monkeypatch, _http_error(429, Retry_After="30"), _Response(FIXTURE.encode()))

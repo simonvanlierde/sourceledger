@@ -13,7 +13,11 @@
           { "context": "git hooks", "integration_id": 15368 },
           { "context": "pull request title", "integration_id": 15368 },
           { "context": "DCO sign-off", "integration_id": 15368 },
-          { "context": "dependency review", "integration_id": 15368 }
+          { "context": "dependency review", "integration_id": 15368 },
+          { "context": "python: lint, types, tests (3.12)", "integration_id": 15368 },
+          { "context": "python: lint, types, tests (3.13)", "integration_id": 15368 },
+          { "context": "python: lint, types, tests (3.14)", "integration_id": 15368 },
+          { "context": "python: lint, types, tests (3.15)", "integration_id": 15368 }
         ]
       }
     }

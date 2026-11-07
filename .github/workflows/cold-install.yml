@@ -7,7 +7,7 @@ name: cold install
 # before the first release, so keep those under another heading.
 on:
   pull_request:
-    paths: [README.md, .github/workflows/cold-install.yml, justfile, "just/**"]
+    paths: [README.md, .github/workflows/cold-install.yml, justfile, "just/**", "**/pyproject.toml", "**/uv.lock", "**/.python-version"]
   schedule:
     - cron: "47 5 * * 1" # Mondays, 05:47 UTC
   workflow_dispatch:
@@ -27,7 +27,7 @@ jobs:
     # Debian with git, curl and a C compiler, like a new contributor's machine. Pinned
     # to a digest, so a moved tag can't swap the image. Renovate bumps it; Dependabot
     # doesn't read workflow images, so with Dependabot it moves on `copier update`.
-    container: buildpack-deps:trixie@sha256:880a5e3d451b50a7b1acd06093a980771a40c2fac2bce29a2145e0f4825266f4
+    container: buildpack-deps:trixie@sha256:8db3a3d1e68e0a88ed31c2256d0c0e3b127f80685e6b1f3a9bb31e22638b5e7b
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,8 +38,8 @@ jobs:
         with:
           # The weekly run saves the cache; a pull request only reads it.
           save-cache: ${{ github.event_name != 'pull_request' }}
-          version: "0.13.5"
-      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+          version: "0.13.6"
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: just@1.59.0
 
@@ -52,7 +52,7 @@ jobs:
           awk '/^## /{dev = ($0 == "## Development")}
                dev && /^```/{code = !code && /^```(sh|bash|shell)[[:space:]]*$/; next}
                dev && code' README.md |
-            grep -vE '^[[:space:]]*just +(up|pipeline|ts-e2e|[a-z]+-(mutation|property))( |$)' >"$RUNNER_TEMP/readme.sh" || true
+            grep -vE '^[[:space:]]*just +(up|pipeline|ts-(e2e|shots)|[a-z]+-(mutation(-diff)?|property|matrix))( |$)' >"$RUNNER_TEMP/readme.sh" || true
           if ! test -s "$RUNNER_TEMP/readme.sh"; then
             echo "README.md has no sh block under ## Development to run. Add one with the setup commands, or delete .github/workflows/cold-install.yml." >&2
             exit 1

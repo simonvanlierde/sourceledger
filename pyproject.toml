@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 authors = [{ name = "Simon van Lierde", email = "code@duinlab.nl" }]
 license = "MIT"
 license-files = ["LICENSE"]
+# citesync compares keywords with CITATION.cff.
 keywords = ["provenance", "data pipeline", "reproducibility", "open data", "research software", "FAIR"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -30,6 +31,7 @@ sourceledger = "sourceledger.cli:main"
 [project.urls]
 Homepage = "https://github.com/simonvanlierde/sourceledger"
 Issues = "https://github.com/simonvanlierde/sourceledger/issues"
+Changelog = "https://github.com/simonvanlierde/sourceledger/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 xlsx = [
@@ -42,19 +44,17 @@ parquet = [
 [dependency-groups]
 dev = [
   "frictionless>=5.20",
-  "hypothesis>=6.170.1",
+  "hypothesis>=6.170.13",
   "jsonschema>=4.26",
+  "mutmut>=3.8.1",
   "openpyxl>=3.1",
   "polars>=1.35",
   "pyarrow>=23",
-  "pytest>=9.1.1",
+  "pytest>=9.2.0",
   "pytest-codspeed>=5.0.3",
   "pytest-cov>=7.1.0",
-  "ruff>=0.17.1",
-  "ty>=0.0.89",
-]
-mutation = [
-  "mutmut>=3.8.0",
+  "ruff>=0.17.3",
+  "ty>=0.0.93",
 ]
 
 [build-system]

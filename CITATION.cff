@@ -1,7 +1,6 @@
-# GitHub reads this for its "Cite this repository" button. Zenodo reads
-# .zenodo.json instead when it archives a release, and software indexes read
-# codemeta.json: change authors in all three. Check the name split below: the
-# first word becomes the given name.
+# GitHub reads this for its "Cite this repository" button, and Zenodo when it archives a
+# release. Software indexes read codemeta.json; citesync checks that it agrees with this file.
+# Check the name split below: the first word becomes the given name.
 cff-version: 1.2.0
 message: If you use this software, please cite it as below.
 title: "sourceledger"

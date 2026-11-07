@@ -12,6 +12,7 @@ body:
       description: What you did, what you expected, and what happened instead.
     validations:
       required: true
+
   - type: textarea
     id: reproduce
     attributes:

@@ -348,3 +348,14 @@ def test_report_says_what_it_does_not_know_about_times(dataset: list[ledger.Sour
     assert "<dt>Fetched at</dt><dd>not stated</dd>" in page
     assert "<dt>Downloaded by another tool at</dt><dd>not stated by that tool</dd>" in page
     assert "<dt>Recorded at</dt><dd>2026-11-05T09:30:00Z</dd>" in page
+
+
+def test_report_names_a_resource_without_a_name(dataset: list[ledger.Source]) -> None:
+    """A damaged package still gets a report, with the nameless output called "unnamed"."""
+    path = Path("data/processed/datapackage.json")
+    package = json.loads(path.read_text())
+    del package["resources"][0]["name"]
+    path.write_text(json.dumps(package))
+    page = report(dataset)
+    assert ">unnamed</h" in page
+    assert "unnamed: no fetch record in the log" in page

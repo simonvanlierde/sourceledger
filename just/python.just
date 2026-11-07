@@ -23,31 +23,51 @@ py-cov:
 py-test *args:
     uv run pytest {{ args }}
 
-# Mutation testing over src/, about 2 minutes. Mutant globs narrow it:
-# `just py-mutation 'sourceledger.ledger.x_parse*'`. Fails when a function has more
-# survivors than tests/mutation-baseline.txt lists for it.
-py-mutation *mutants:
+# The tests on every Python version python.yml tests, each in a throwaway environment.
+py-matrix:
+    for v in 3.12 3.13 3.14 3.15; do uv run --isolated --locked --python "$v" pytest || exit 1; done
+
+# Plant small bugs in the package. Fails on a mutant the tests miss (or that no test
+# reaches) unless tests/mutation-baseline.txt lists it, and on a listed one that no longer
+# survives. Slow: CI runs it weekly (mutation.yml); run it by hand after writing tests.
+# Give mutmut patterns (`just py-mutation 'pkg.mod.x_name__mutmut_*'`) to mutate only
+# those; that run skips the check for listed ones. `mutmut browse` shows survivors.
+py-mutation *names:
     #!/usr/bin/env bash
     set -euo pipefail
-    # Mutant globs pass through to mutmut, not the shell.
+    # Byte order, so sort and comm agree on the ǁ in class method mutant names.
+    export LC_ALL=C
+    # mutmut reuses results from mutants/ even after the tests change, so start clean.
+    rm -rf mutants
+    # The patterns hold *, so keep the shell from expanding them as file names.
     set -f
-    # Low priority on half the cores by default, so the machine stays usable.
-    nice -n 10 uv run --group mutation mutmut run --max-children "${MUTMUT_JOBS:-$(( ($(nproc) + 1) / 2 ))}" {{ mutants }}
-    mkdir -p reports/mutation
-    uv run --group mutation mutmut results | sed -n 's/^ *\(.*\): survived$/\1/p' | LC_ALL=C sort > reports/mutation/survivors.txt
-    # Mutant numbers shift whenever a function changes, so compare survivor counts per function.
-    sed 's/__mutmut_[0-9]*$//' reports/mutation/survivors.txt | LC_ALL=C sort | uniq -c \
-        | awk 'FILENAME == ARGV[1] { base[$2] = $1; next } $1 > base[$2] { print $2, base[$2] + 0, "->", $1 }' \
-            tests/mutation-baseline.txt - > reports/mutation/new-survivors.txt
-    echo "$(wc -l < reports/mutation/survivors.txt) survivors; functions above baseline:"
-    cat reports/mutation/new-survivors.txt
-    test ! -s reports/mutation/new-survivors.txt
+    uv run mutmut run {{ names }}
+    survivors=$(uv run mutmut results | sed -nE 's/^ *(.*): (survived|no tests)$/\1/p' | sort)
+    listed=$(grep -vE '^(#|$)' tests/mutation-baseline.txt | awk '{ print $1 }' | sort || true)
+    new=$(comm -23 <(echo "$survivors" | sed '/^$/d') <(echo "$listed" | sed '/^$/d'))
+    echo "$(echo "$survivors" | grep -c . || true) survivors; not in tests/mutation-baseline.txt:"
+    echo "${new:-none}"
+    gone=
+    if [ -z "{{ names }}" ]; then
+        gone=$(comm -13 <(echo "$survivors") <(echo "$listed" | sed '/^$/d'))
+        echo "listed but no longer surviving (drop them):"
+        echo "${gone:-none}"
+    fi
+    [ -z "$new$gone" ]
 
-# Rebaseline after triaging survivors. Only after a full run: it replaces the whole
-# file, so a narrowed run would drop every other function.
-py-mutation-baseline:
-    sed 's/__mutmut_[0-9]*$//' reports/mutation/survivors.txt | LC_ALL=C sort | uniq -c | awk '{ print $1, $2 }' > tests/mutation-baseline.txt
+# The same check for the functions this branch changed since it split off a git ref
+# (origin/main unless you give one): fast enough to run on each change. Fails on a
+# survivor not in the baseline.
+# Run `just py-mutation` before a release, since it also finds the listed ones to drop.
+py-mutation-diff base='origin/main':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    patterns=$(uv run python {{ justfile_directory() }}/just/mutation_diff.py "$(git merge-base {{ base }} HEAD)")
+    if [ -z "$patterns" ]; then echo "no changed function in a mutated module"; exit 0; fi
+    set -f
+    {{ just_executable() }} --justfile {{ justfile() }} py-mutation $patterns
 
-# Benchmarks, measured as CodSpeed's CI does (needs the codspeed CLI).
-py-bench:
-    codspeed run --mode simulation -- uv run pytest tests/test_benchmarks.py --codspeed
+# The tests under Hypothesis's "long" profile (tests/conftest.py): 10,000 examples a
+# property instead of 100. CI runs it weekly (property.yml).
+py-property:
+    uv run pytest --hypothesis-profile=long

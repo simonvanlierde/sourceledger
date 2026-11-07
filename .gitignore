@@ -35,8 +35,14 @@ coverage/
 
 # Rust
 target/
+
+# Test extras: Hypothesis's example database and what the mutation tools write
+.hypothesis/
 mutants/
-reports/mutation/
+.stryker-tmp/
+# Stryker writes it beside the package, which may be nested.
+**/reports/mutation/
+mutants.out*/
 
 # Local documentation build
 _site/

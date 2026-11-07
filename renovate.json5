@@ -11,7 +11,8 @@
 // merge, so CI cannot test them first.
 //
 // `minimumReleaseAge` holds a version update back until the release has been public for
-// a week, long enough for a compromised release to be caught and yanked. Security
+// a week, long enough for a compromised release to be caught and yanked, majors
+// included. Security
 // updates ignore it and the schedule. They need Dependabot alerts on in the repo settings,
 // and cover only the dependencies a manifest names.
 //
@@ -59,11 +60,6 @@
       matchDepTypes: ['dependency-groups', 'devDependencies', 'dev-dependencies'],
       matchUpdateTypes: ['minor', 'patch'],
       groupName: 'dev tooling',
-    },
-    {
-      matchManagers: ['pep621', 'npm', 'cargo', 'gomod'],
-      matchUpdateTypes: ['major'],
-      minimumReleaseAge: '30 days',
     },
     // Template releases, from .copier-answers.yml. Their tags carry no release date,
     // so the week's wait above would hold them back for good.

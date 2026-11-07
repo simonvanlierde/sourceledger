@@ -16,7 +16,7 @@ permissions:
 env:
   # The action installs the newest prek unless told otherwise.
   # renovate: datasource=github-releases depName=j178/prek
-  PREK_VERSION: 0.5.5
+  PREK_VERSION: 0.5.7
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
