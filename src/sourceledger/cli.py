@@ -12,7 +12,11 @@ import csv
 import dataclasses
 import json
 import logging
+import re
+import shlex
 import sys
+import tomllib
+from datetime import datetime
 from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
@@ -112,6 +116,7 @@ class _Run:
     """One stage's arguments, and the fields of its --json report as the stage fills them."""
 
     args: argparse.Namespace
+    argv: list[str]
     parse: Parser
     prog: str
     user_agent: str
@@ -131,7 +136,12 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
         epilog=_EPILOG.format(prog=prog),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--version", action="version", version=f"sourceledger {version('sourceledger')}")
+    release = f"sourceledger {version('sourceledger')}"
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=release if prog == "sourceledger" else f"{prog} ({release})",  # noqa: PLR2004
+    )
     # For the stages without these options: text output, and the manifest an error may name.
     parser.set_defaults(json=False, manifest=manifest)
     stages = parser.add_subparsers(dest="stage", required=True, metavar="STAGE", title="stages")
@@ -166,6 +176,7 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
     sub["record"].add_argument("--url", help="where the file came from (default: the source's url)")
     sub["record"].add_argument(
         "--retrieved-at",
+        type=_time,
         metavar="TIME",
         help="when it was downloaded, ISO 8601 with a zone, such as 2026-11-05T09:30:00Z; "
         "without it the record states no download time",
@@ -183,6 +194,16 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
     for name, stage_parser in sub.items():
         stage_parser.set_defaults(parser=stage_parser, run=_HANDLERS[name])
     return parser
+
+
+def _time(text: str) -> str:
+    """`text` as given, once it reads as an ISO 8601 time; the library checks its zone and that it is past."""
+    try:
+        datetime.fromisoformat(text)
+    except ValueError:
+        msg = f"{text!r} is not an ISO 8601 time, such as 2026-11-05T09:30:00Z"
+        raise argparse.ArgumentTypeError(msg) from None
+    return text
 
 
 def _check_parameters(args: argparse.Namespace) -> None:
@@ -212,6 +233,11 @@ def main(  # the entry point: parse, run one stage, report it
     Returns the exit code the module docstring lists. A usage error exits through SystemExit
     with code 2, as argparse does.
     """
+    # Windows writes redirected output in the locale's code page with CRLF; the HTML report says UTF-8.
+    for stream, newline in ((sys.stdout, {"newline": "\n"}), (sys.stderr, {})):
+        if reconfigure := getattr(stream, "reconfigure", None):
+            reconfigure(encoding="utf-8", **newline)
+    argv = sys.argv[1:] if argv is None else argv
     args, extra = _parser(prog, manifest).parse_known_args(argv)
     if extra:  # reported by the stage's parser, so the usage and help name the stage
         args.parser.error(f"unrecognized arguments: {' '.join(extra)}")
@@ -219,13 +245,7 @@ def main(  # the entry point: parse, run one stage, report it
         check(args)
     # Retries and recovered fetch logs are reported as warnings, on stderr.
     logging.basicConfig(format=f"{prog}: %(message)s", level=logging.WARNING)
-    run = _Run(args, parse, prog, user_agent)
-    try:
-        return _main(run)
-    except KeyboardInterrupt:
-        # A fetch moves each file into place whole, so what finished is kept and logged.
-        _error(f"{args.stage} was interrupted", f"what finished before is kept; run `{prog} {args.stage}` to finish")
-        return EXIT_INTERRUPTED
+    return _main(_Run(args, argv, parse, prog, user_agent))
 
 
 def _main(run: _Run) -> int:
@@ -247,7 +267,15 @@ def _main(run: _Run) -> int:
     # OSError: a missing file, a failed download or a held lock. ValueError: a bad manifest,
     # a download that fails its checks, or a stale fetch. csv.Error: a source that is not CSV.
     except (OSError, ValueError, csv.Error) as error:
-        errors = [(one_line(error), _help(error, run))]
+        errors = [_explain(error, run)]
+        code = EXIT_FAILED
+    except KeyboardInterrupt:
+        # A fetch moves each file into place whole, so what finished is kept and logged.
+        rerun = shlex.join([run.prog, *run.argv])
+        errors = [(f"{run.args.stage} was interrupted", f"what finished before is kept; run `{rerun}` to finish")]
+        code = EXIT_INTERRUPTED
+    except Exception as error:  # noqa: BLE001  # such as a project's parser failing: one line, not a traceback
+        errors = [(f"{type(error).__name__}: {error}", None)]
         code = EXIT_FAILED
     if run.args.json:
         document = {"schema_version": JSON_SCHEMA_VERSION, "stage": run.args.stage, **run.result}
@@ -259,6 +287,24 @@ def _main(run: _Run) -> int:
     return code
 
 
+# What to pass instead of a stage's PATH operand that is missing.
+_MISSING_PATH_HELP = {
+    "record": "pass the file another tool downloaded",
+    "revisions": f"pass an earlier copy of {FETCH_LOG.as_posix()}",
+    "verify": f"pass the folder that holds the dataset's {DATAPACKAGE}",
+}
+
+
+def _explain(error: Exception, run: _Run) -> tuple[str, str | None]:
+    """The error line and its help; a TOML syntax error, which names only a line, also names the manifest."""
+    if isinstance(error, tomllib.TOMLDecodeError):
+        manifest = run.args.manifest.as_posix()
+        # The line number is in the message; the error's lineno attribute is Python 3.14+.
+        line = re.search(r"at line (\d+)", str(error))
+        return f"{manifest}: {error}", line and f"fix the TOML syntax at line {line[1]} of {manifest}"
+    return one_line(error), _help(error, run)
+
+
 def _help(error: Exception, run: _Run) -> str | None:
     """What to do about an error the CLI knows the cause of; None for the rest."""
     missing = Path(error.filename) if isinstance(error, FileNotFoundError) and error.filename else None
@@ -266,9 +312,12 @@ def _help(error: Exception, run: _Run) -> str | None:
         return f"run `{run.prog} init` to write one, or pass --manifest PATH"
     if missing == FETCH_LOG:
         return f"run `{run.prog} fetch` first; it writes the log"
+    if missing and (path := getattr(run.args, "path", None)) and missing in (path, path / DATAPACKAGE):
+        return _MISSING_PATH_HELP[run.args.stage]
     if isinstance(error, FileExistsError):
         return "edit it, or pass --manifest PATH to write one elsewhere"
-    if isinstance(error.__cause__, BlockingIOError):
+    # A held lock: BlockingIOError on POSIX, PermissionError on Windows.
+    if isinstance(error.__cause__, (BlockingIOError, PermissionError)):
         return "wait for the other fetch or record to finish, then run this again"
     return None
 
@@ -324,7 +373,7 @@ def _progress(run: _Run) -> Callable[[str], None] | None:
 
 def _init_stage(run: _Run) -> list[str]:
     init(run.args.manifest)
-    run.say(f"wrote {run.args.manifest}; fill in your sources, then run: {run.prog} fetch")
+    run.say(f"wrote {run.args.manifest.as_posix()}; fill in your sources, then run: {run.prog} fetch")
     return []
 
 
@@ -338,12 +387,13 @@ def _fetch_stage(run: _Run) -> list[str]:
             run.say(f"would fetch {source['id']} from {source['url']}")
         return []
     before: dict[str, str] = {}
+    done: list[FetchRecord] = []
     try:
-        records = _fetch(sources, user_agent=run.user_agent, only=run.args.only, before=before, progress=_progress(run))
-    except FetchError as error:
-        _report_records(run, error.records, before)  # the sources that did fetch
-        raise
-    _report_records(run, records, before)
+        _fetch(
+            sources, user_agent=run.user_agent, only=run.args.only, before=before, progress=_progress(run), done=done
+        )
+    finally:  # on a failure or Ctrl-C too: the sources that did fetch
+        _report_records(run, done, before)
     return []
 
 
@@ -368,7 +418,8 @@ def _record_stage(run: _Run) -> list[str]:
         run.result["dry_run"] = True
         run.result["records"] = [{**dataclasses.asdict(result), "new": _new(result, before)}]
         state = "new" if _new(result, before) else "unchanged"
-        run.say(f"would record {source['id']} from {args.path}: {state}, {result.bytes:,} B, sha256 {result.sha256}")
+        what = f"{state}, {result.bytes:,} B, sha256 {result.sha256}"
+        run.say(f"would record {source['id']} from {args.path.as_posix()}: {what}")
     else:
         _report_records(run, [result], before)
     return []
@@ -380,12 +431,13 @@ def _build_stage(run: _Run) -> list[str]:
     if run.args.dry_run:
         for source in implemented(_select(sources, run.args.only)):
             _current(source, RAW)  # the same refusal build gives for a missing or changed raw file
-            run.say(f"would write {PROCESSED / _output_name(source, output_format)}")
-        run.say(f"would write {PROCESSED / DATAPACKAGE}")
+            run.say(f"would write {(PROCESSED / _output_name(source, output_format)).as_posix()}")
+        run.say(f"would write {(PROCESSED / DATAPACKAGE).as_posix()}")
         return []
     for out, count in _build(sources, parse=run.parse, only=run.args.only, output_format=output_format):
-        run.say(f"{out.stat().st_size} bytes -> {out}" if count is None else f"{count} rows -> {out}")
-    run.say(f"package -> {PROCESSED / DATAPACKAGE}")
+        size = f"{out.stat().st_size} bytes" if count is None else f"{count} row{'' if count == 1 else 's'}"
+        run.say(f"{size} -> {out.as_posix()}")
+    run.say(f"package -> {(PROCESSED / DATAPACKAGE).as_posix()}")
     return []
 
 
@@ -416,7 +468,7 @@ def _revisions_stage(run: _Run) -> list[str]:
     if run.args.json:
         run.result["revisions"] = _revision_records(run.args.path)
     else:
-        for line in revisions(run.args.path):
+        for line in revisions(run.args.path) or ["no revisions"]:
             print(line)
     return []
 

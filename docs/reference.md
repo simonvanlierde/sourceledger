@@ -85,7 +85,7 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   script, downloaded for source `ID`. It copies the file into `data/raw/`, checks the
   `sha256` pin, and writes the same log line and record as `fetch`, with `recorded_at` set
   to now. `--retrieved-at TIME` is when the file was downloaded, in ISO 8601 with a time
-  zone (`2026-11-05T09:30:00Z`). Without it the record and the rows' `retrieved_at` stay
+  zone (`2026-11-05T09:30:00Z`); a value that is not ISO 8601 is a usage error. Without it the record and the rows' `retrieved_at` stay
   empty rather than claim a download time. `--url URL` names where it came from if that
   is not the source's `url`; its query and fragment are dropped, since a signed download
   URL keeps its secret there. `--etag` and `--last-modified` keep the server's validators
@@ -99,8 +99,8 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   then prints what it would record and writes nothing.
 - `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
   log. Copy the log before you fetch (`cp data/fetches.jsonl before.jsonl`), then run
-  `sourceledger revisions before.jsonl`. A weekly CI run can use it to report a
-  publisher's revision.
+  `sourceledger revisions before.jsonl`. It prints `no revisions` when no source changed.
+  A weekly CI run can use it to report a publisher's revision.
 - `status` prints one line per source: its id, status and vintage, when its last logged
   version was fetched (or `never`), the start of its SHA-256, its licence, and whether
   the raw file may be republished. It reads the manifest and the log, never the network.
@@ -137,15 +137,16 @@ help: run `sourceledger init` to write one, or pass --manifest PATH
 ```
 
 When stderr is a terminal and `--json` is off, `fetch` also prints `fetching ID (n of N)`
-there before each source. The output has no colour.
+there before each source. The output has no colour. It is UTF-8 with LF line ends on
+every system, also when redirected to a file on Windows.
 
 | Exit code | Meaning |
 | --- | --- |
 | 0 | Done, with nothing to report. `revisions` exits 0 when sources changed: your downstream checks decide what a revision breaks. `report` exits 0 when it writes a report, even one that lists problems. |
 | 1 | Problems found: `validate` or `verify` found at least one. |
-| 2 | Usage error: an unknown stage or option, a missing argument, or an `--only` or `record` id that is not in `sources.toml`. Nothing is written. |
-| 3 | Could not run: a missing or invalid file, a failed download, or another fetch holding the lock. When some sources fail to fetch, the others are still written and logged. |
-| 130 | Interrupted with Ctrl-C. What finished before is kept. |
+| 2 | Usage error: an unknown stage or option, a missing argument, or an `--only` or `record` id that is not in `sources.toml`, or a `--retrieved-at` that is not an ISO 8601 time. Nothing is written. |
+| 3 | Could not run: a missing or invalid file, a failed download, another fetch holding the lock, or an unexpected error such as a project's parser failing, printed as one `error:` line with its type. When some sources fail to fetch, the others are still written and logged. |
+| 130 | Interrupted with Ctrl-C. What finished before is kept, and the `help:` line repeats the command to finish. With `--json` the report still prints, and `fetch` lists the sources fetched before. |
 
 ## JSON reports
 

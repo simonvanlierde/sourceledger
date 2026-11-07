@@ -11,7 +11,9 @@ a breaking change comes only in a minor version (see Stability in the README).
 Upgrade note for scripts that call the CLI: exit code 3 now means a stage could not run
 (it was 1), errors on stderr read `error: ...` and `help: ...` instead of `STAGE: ...`,
 `validate` and `verify` print their problems on stdout, and `--json` reports have a
-`schema_version` and error objects. Options go after the stage name. See
+`schema_version` and error objects. Options go after the stage name. `revisions` prints
+`no revisions` instead of nothing when no source changed. In Python, `main()` also returns
+3 and 130, where 0.4.0 returned only 0 or 1. See
 [options, output and exit codes](docs/reference.md#options-output-and-exit-codes).
 
 ### Added
@@ -24,7 +26,9 @@ Upgrade note for scripts that call the CLI: exit code 3 now means a stage could 
 ### Changed
 
 - The HTML report puts the integrity result in a box at the top, lists the outputs with links under one heading, and names hashes and times in plain words ("SHA-256 of the downloaded file", "Served from"). It follows the reader's dark mode, prints without the in-page links, wraps long ids, and shows a recorded file's request parameters. A script that reads the report's HTML needs updating.
-- The CLI help ends with a first run, the exit codes and a link to the docs, and `--version` prints the installed version. Ctrl-C ends a stage with an error and exit code 130 instead of a traceback. `init` says what to do next, and a count of one reads "1 problem".
+- The CLI help ends with a first run, the exit codes and a link to the docs, and `--version` prints the installed version, after the project's name when a project calls `main(prog=...)`. Ctrl-C ends a stage with an error, the command to finish it and exit code 130 instead of a traceback; under `--json` the report still prints, with the sources fetched so far. `init` says what to do next, and a count of one reads "1 problem" or "1 row".
+- An unexpected error, such as a project's parser raising `KeyError`, prints one `error:` line with its type and exits 3 instead of a traceback. A TOML syntax error names the manifest and the line to fix. A missing `record`, `revisions` or `verify` path says what to pass. A `--retrieved-at` that is not ISO 8601 is a usage error (exit 2).
+- CLI output is UTF-8 with LF line ends on every system, so `report > provenance.html` on Windows matches the encoding the HTML declares. Paths in the CLI's own lines use `/`.
 - Stages that take no operand refuse one: `build foo` exits 2 instead of ignoring `foo`.
 - **Breaking:** the CLI exits 0 when done, 1 when `validate` or `verify` finds problems, 2 for a usage error, and 3 when a stage could not run, such as a missing file, a failed download or a held lock. Before, a stage that could not run exited 1, as one that found problems does. An `--only` or `record` id that is not in `sources.toml` is a usage error. Errors print as `error: <what>`, with a `help:` line when there is a next step. `validate` and `verify` print their problems and the count on stdout, not stderr.
 - **Breaking:** every [JSON report](docs/reference.md#json-reports) has `"schema_version": 1`, and each entry in `errors` is an object with `message` and `help` instead of a string. `--json` must follow the stage name.

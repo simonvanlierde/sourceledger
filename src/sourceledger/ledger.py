@@ -869,15 +869,17 @@ def _fetch(
     only: Collection[str] | None = None,
     before: dict[str, str] | None = None,
     progress: Callable[[str], None] | None = None,
+    done: list[FetchRecord] | None = None,
 ) -> list[FetchRecord]:
     """Fetch and optionally retain the pre-fetch hashes from the same locked history read.
 
     `progress`, when given, is called before each source with its id and place, as `example (1 of 3)`.
+    `done`, when given, collects the records as they come, so a caller still has them after Ctrl-C.
     """
     sources = _select(sources, only)
     raw.mkdir(parents=True, exist_ok=True)
     log.parent.mkdir(parents=True, exist_ok=True)
-    records: list[FetchRecord] = []
+    records: list[FetchRecord] = [] if done is None else done
     failures: list[str] = []
     with _lock(raw):
         logged = _last_records(log)

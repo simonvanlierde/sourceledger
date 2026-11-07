@@ -575,7 +575,7 @@ def test_revisions_names_a_source_whose_bytes_changed(
         main(["revisions"])
     capsys.readouterr()
     assert main(["revisions", str(before)]) == 0
-    assert capsys.readouterr().out == ""
+    assert capsys.readouterr().out == "no revisions\n"
 
     upstream.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8")
     _run("fetch")
@@ -588,7 +588,7 @@ def test_revisions_names_a_source_whose_bytes_changed(
     before.write_text("", encoding="utf-8")
     capsys.readouterr()
     assert main(["revisions", str(before)]) == 0
-    assert capsys.readouterr().out == ""
+    assert capsys.readouterr().out == "no revisions\n"
 
 
 @pytest.mark.usefixtures("upstream")
@@ -1578,7 +1578,9 @@ def test_only_fetches_builds_and_validates_the_named_sources(
     assert main(["validate", "--only", "a"]) == 0
     capsys.readouterr()
     assert main(["validate"]) == 1
-    assert "not the implemented sources" in capsys.readouterr().out
+    out, err = capsys.readouterr()
+    assert "not the implemented sources" in out
+    assert err == ""
 
     assert _run("fetch", "build") == [0, 0]
     package = Path("data/processed/datapackage.json")
@@ -1645,7 +1647,9 @@ def test_validate_only_reports_a_package_that_does_not_list_the_source(capsys: p
     package.write_text('{"resources": []}', encoding="utf-8")
     capsys.readouterr()
     assert main(["validate", "--only", "example"]) == 1
-    assert "datapackage.json does not list example; re-run build" in capsys.readouterr().out
+    out, err = capsys.readouterr()
+    assert "datapackage.json does not list example; re-run build" in out
+    assert err == ""
     package.unlink()
     assert main(["validate", "--only", "example"]) == 1
     assert "datapackage.json is missing" in capsys.readouterr().out
@@ -1758,7 +1762,9 @@ def test_verify_needs_a_readable_package(
     """A folder without a package, or with a broken one, is one line and a failed exit."""
     monkeypatch.chdir(tmp_path)
     assert main(["verify", "."]) == 3
-    assert capsys.readouterr().err == "error: datapackage.json is missing\n"
+    assert capsys.readouterr().err == (
+        "error: datapackage.json is missing\nhelp: pass the folder that holds the dataset's datapackage.json\n"
+    )
     Path("datapackage.json").write_text("not json", encoding="utf-8")
     assert main(["verify", "."]) == 3
     assert capsys.readouterr().err.startswith("error: Expecting value")
@@ -2917,7 +2923,7 @@ def test_json_runtime_errors_are_one_document(
     captured = capsys.readouterr()
     assert captured.err == ""
     message, help_ = (
-        ("missing.jsonl is missing", None)
+        ("missing.jsonl is missing", "pass an earlier copy of data/fetches.jsonl")
         if stage == "revisions"
         else ("sources.toml is missing", "run `sourceledger init` to write one, or pass --manifest PATH")
     )
