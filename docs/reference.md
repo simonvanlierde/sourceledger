@@ -36,6 +36,9 @@ JSON, Excel and custom readers still hold their input and parsed rows in memory.
 `verify` checks the bytes without needing the extra.
 
 The default is `output_format = "csv"`. `format = "file"` sources keep their original bytes in either mode.
+Every CSV row repeats the five provenance columns, so a CSV output of a narrow table is many times the size of
+its raw file: a two-column table of 200,000 rows came out 14 times larger. Parquet stores those repeated values
+once per column chunk; the same table was smaller than its raw file. Use Parquet for large tables.
 When switching formats, move old outputs out of `data/processed/` before rebuilding; `validate` reports them as unclaimed files.
 Library callers pass `output_format="parquet"` to both `build` and `validate`; `load_manifest` returns only source tables.
 
