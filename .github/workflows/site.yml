@@ -1,0 +1,177 @@
+name: site
+
+# The static page in site/, which `just site` builds into site/dist/. Every pull request
+# and push builds it. A push to main deploys that build to GitHub Pages, and an open, ready
+# pull request gets a preview Worker that preview-retire.yml takes down again.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Pull requests only: a newer push to main must not cancel a deploy in flight.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: "site: build"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: just@1.59.0
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: site/package.json
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+      - run: just site
+
+      # The deploy and preview jobs both ship this one build.
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site/dist
+
+  deploy:
+    name: "site: deploy"
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    # Never cancelled halfway, so a deploy in flight finishes before the next starts.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write # to deploy to GitHub Pages
+      id-token: write # to prove the deployment comes from this workflow
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      # Fails until `just repo-settings` (or Settings > Pages > Source) selects GitHub Actions.
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          if build=$(gh api "repos/$REPO/pages" --jq .build_type 2>gh.err); then
+            if [ "$build" = workflow ]; then
+              exit 0
+            fi
+          elif ! grep -q 'HTTP 404' gh.err; then
+            cat gh.err >&2
+            exit 1
+          fi
+          # Jekyll would rebuild the live site from the stripped docs/ otherwise.
+          echo "::error::GitHub Pages is off or does not deploy from Actions: set Settings > Pages > Source to GitHub Actions (or run just repo-settings)."
+          exit 1
+
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+  # The same lifecycle as a web app's previews: docs/usage.md#static-site in the template.
+  # Fork pull requests never get the token, so they skip with a notice, as does a repo
+  # without the secret.
+  preview:
+    name: "site: preview"
+    # Bot pull requests (Renovate, Dependabot) get no preview, so their code never sees the token.
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft && !endsWith(github.event.pull_request.user.login, '[bot]')
+    # Shares the site job of preview-retire.yml, so a retire waits for a deploy in flight.
+    concurrency:
+      group: preview-site-${{ github.event.pull_request.number }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    environment:
+      name: preview
+      url: ${{ steps.upload.outputs.url }}
+    steps:
+      - id: gate
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          missing=""
+          [ -n "$TOKEN" ] || missing=CLOUDFLARE_API_TOKEN
+          [ -n "$ACCOUNT" ] || missing="${missing:+$missing and }CLOUDFLARE_ACCOUNT_ID"
+          if [ "$FORK" = "true" ]; then
+            echo "::notice::Preview skipped: fork PR."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          elif [ -n "$missing" ]; then
+            echo "::notice::Preview skipped: $missing not set."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # For deploy-worker.sh and wrangler.site.jsonc. The page itself comes from the build job.
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: "12.16.1"
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: github-pages
+          path: ${{ runner.temp }}/pages
+
+      # GitHub Pages serves the site under /sourceledger/, so the preview does too, and its
+      # root redirects there. Search engines should index the production site, not the
+      # preview copies.
+      - if: steps.gate.outputs.run == 'true'
+        run: |
+          mkdir -p site/dist/sourceledger
+          tar -xf "$RUNNER_TEMP/pages/artifact.tar" -C site/dist/sourceledger
+          printf '/ /sourceledger/ 302\n' > site/dist/_redirects
+          printf '/*\n  X-Robots-Tag: noindex\n' > site/dist/_headers
+
+      - if: steps.gate.outputs.run == 'true'
+        id: upload
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          # The same week's wait as a package's own installs: dlx resolves wrangler's
+          # dependencies without a lockfile, here with the token in reach.
+          WRANGLER: pnpm --config.minimum-release-age=10080 dlx wrangler@4.154.0
+        run: |-
+          # This job may have queued behind a close or a draft switch: a retire that
+          # ran first must not be undone by a deploy.
+          state=$(gh api "repos/$REPO/pulls/$PR" --jq '.state + " " + (.draft|tostring)')
+          if [ "$state" != "open false" ]; then
+            echo "::notice::Preview skipped: pull request $PR is no longer open and ready ($state)."
+            exit 0
+          fi
+          "$GITHUB_WORKSPACE/.github/scripts/deploy-worker.sh" Preview "sourceledger-site-pr-$PR" --config wrangler.site.jsonc

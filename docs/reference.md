@@ -199,6 +199,8 @@ sourceledger report > provenance.html
 Keep the report outside `data/processed/`: validation expects that folder to hold only
 outputs described by the data package. Open `provenance.html` in a browser. It uses no
 scripts, remote styles, fonts or network requests.
+[See an example report](https://simonvanlierde.com/sourceledger/example-report.html), made
+from the test suite's sample sources.
 
 The command reads `sources.toml`, `data/fetches.jsonl` and the built package in
 `data/processed/`. It checks that the listed outputs match the implemented manifest
