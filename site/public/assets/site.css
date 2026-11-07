@@ -587,8 +587,8 @@ mark {
     border-left: 4px solid CanvasText;
   }
 }
-/* Narrow screens: each row becomes a card, every cell labelled with its column by site.js.
-   Without scripts the cells have no labels, so the table keeps scrolling sideways. */
+/* Narrow screens: each row becomes a card, every cell labelled with its column (data-label,
+   set at build time). Only with scripts on, as the cards need no sideways scroll. */
 @media (max-width: 43.75rem) {
   .js article > .table-scroll table,
   .js article > .table-scroll tbody,
@@ -640,9 +640,11 @@ mark {
   .table-scroll {
     overflow: visible;
   }
-  table,
   tr {
     break-inside: avoid;
+  }
+  thead {
+    display: table-header-group;
   }
   .provenance-flow,
   .provenance-flow h3,

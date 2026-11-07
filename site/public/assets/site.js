@@ -6,33 +6,31 @@ const updateNavigation = () => {
 updateNavigation();
 wide.addEventListener("change", updateNavigation);
 
-// Label each cell with its column, for the stacked layout on narrow screens.
-for (const table of document.querySelectorAll("article > .table-scroll table")) {
-  const headers = [...table.querySelectorAll("thead th")].map((th) => th.textContent.trim());
-  for (const row of table.querySelectorAll("tbody tr")) {
-    row.querySelectorAll("td").forEach((td, i) => {
-      if (headers[i]) td.dataset.label = headers[i];
-    });
+// Only a box that scrolls needs to take focus, so keyboard users can scroll it. Table boxes
+// are regions from the build; a scrollable code block becomes one, named after the heading above.
+const headingName = (el) => {
+  for (let node = el.closest("pre")?.previousElementSibling; node; node = node.previousElementSibling) {
+    if (/^H[1-6]$/.test(node.tagName)) return node.textContent.trim();
   }
-}
-
-// Only a box that scrolls needs to take focus, so keyboard users can scroll it; a table that
-// scrolls is also a region, named after its caption or the heading above it.
-const tableName = (box) => {
-  const caption = box.querySelector("caption");
-  if (caption) return caption.textContent.trim();
-  let node = box.previousElementSibling;
-  while (node && !/^H[1-6]$/.test(node.tagName)) node = node.previousElementSibling;
-  return node ? node.textContent.trim() : "Table";
+  return "";
+};
+// Blocks under one heading are numbered, so no two regions or buttons share a name.
+const codeName = (code) => {
+  const heading = headingName(code);
+  const same = [...document.querySelectorAll("pre code")].filter((c) => headingName(c) === heading);
+  const number = same.length > 1 ? ` ${same.indexOf(code) + 1} of ${same.length}` : "";
+  return `Code${number}${heading ? `: ${heading}` : ""}`;
 };
 const scrollable = new ResizeObserver((entries) => {
   for (const { target } of entries) {
     const overflows = target.scrollWidth > target.clientWidth;
-    const table = target.classList.contains("table-scroll");
-    if (overflows) {
+    if (target.classList.contains("table-scroll")) {
+      if (overflows) target.tabIndex = 0;
+      else target.removeAttribute("tabindex");
+    } else if (overflows) {
       target.tabIndex = 0;
-      if (table) target.setAttribute("role", "region");
-      if (table) target.setAttribute("aria-label", tableName(target));
+      target.setAttribute("role", "region");
+      target.setAttribute("aria-label", codeName(target));
     } else {
       for (const name of ["tabindex", "role", "aria-label"]) target.removeAttribute(name);
     }
@@ -49,7 +47,7 @@ for (const pre of document.querySelectorAll("pre")) {
   button.type = "button";
   button.className = "code-copy";
   button.textContent = "Copy";
-  button.setAttribute("aria-label", "Copy this code block");
+  button.setAttribute("aria-label", codeName(code).replace(/^Code/, "Copy code"));
   // aria-disabled rather than disabled, so focus stays on the button while it copies.
   button.addEventListener("click", async () => {
     if (button.getAttribute("aria-disabled") === "true") return;

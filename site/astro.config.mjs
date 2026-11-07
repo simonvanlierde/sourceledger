@@ -27,17 +27,40 @@ const docLinks = {
   },
 };
 
-// Wide tables scroll on their own, and site.js stacks them on phones and makes a box that
-// overflows focusable.
+const find = (node, tag) => (node.children ?? []).filter((c) => c.tagName === tag);
+const text = (node) => (node.type === "text" ? node.value : (node.children ?? []).map(text).join("")).trim();
+
+// Wide tables scroll on their own. Each cell is labelled with its column for the stacked
+// phone layout, and each box is a focusable region named after its caption or the heading
+// above it, so keyboard users can scroll it without scripts. site.js drops that again for
+// a box that does not overflow.
+const tableNames = new Map();
 const tableScroll = {
   name: "table-scroll",
   element: {
     filter: ["table"],
     visit(node, ctx) {
+      const headers = find(find(node, "thead")[0] ?? {}, "tr").flatMap((tr) => find(tr, "th").map(text));
+      for (const body of find(node, "tbody")) {
+        for (const tr of find(body, "tr")) {
+          find(tr, "td").forEach((td, i) => headers[i] && ctx.setProperty(td, "data-label", headers[i]));
+        }
+      }
+      const caption = find(node, "caption")[0];
+      const siblings = ctx.parent(node).children;
+      let name = caption ? text(caption) : "";
+      for (let i = ctx.indexOf(node) - 1; !name && i >= 0; i--) {
+        if (/^h[1-6]$/.test(siblings[i].tagName)) name = text(siblings[i]);
+      }
+      // Two tables under one heading are numbered, as region names must differ.
+      const used = tableNames.get(ctx.parent(node)) ?? new Map();
+      tableNames.set(ctx.parent(node), used);
+      used.set(name, (used.get(name) ?? 0) + 1);
+      if (used.get(name) > 1) name += ` (table ${used.get(name)})`;
       ctx.wrapNode(node, {
         type: "element",
         tagName: "div",
-        properties: { className: ["table-scroll"] },
+        properties: { className: ["table-scroll"], tabindex: 0, role: "region", "aria-label": name || "Table" },
         children: [],
       });
     },
