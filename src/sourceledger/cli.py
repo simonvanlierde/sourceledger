@@ -43,6 +43,7 @@ from sourceledger.ledger import (
     _revision_records,
     _select,
     _status_records,
+    _without_query,
     attribution,
     implemented,
     init,
@@ -288,7 +289,10 @@ def _main(run: _Run) -> int:
         code = EXIT_FAILED
     except KeyboardInterrupt:
         # A fetch moves each file into place whole, so what finished is kept and logged.
-        rerun = shlex.join([run.prog, *run.argv])
+        url = getattr(run.args, "url", None)
+        # record logs the URL without its query and fragment, which can hold a signature; so does the rerun.
+        argv = [a.replace(url, _without_query(url)) for a in run.argv] if url else run.argv
+        rerun = shlex.join([run.prog, *argv])
         errors = [(f"{run.args.stage} was interrupted", f"what finished before is kept; run `{rerun}` to finish")]
         code = EXIT_INTERRUPTED
     except Exception as error:  # noqa: BLE001  # such as a project's parser failing: one line, not a traceback

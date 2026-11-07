@@ -249,6 +249,25 @@ def test_ctrl_c_exits_130_with_one_error(monkeypatch: pytest.MonkeyPatch, capsys
     )
 
 
+@pytest.mark.parametrize(
+    "url", ["https://example.org/a.csv?X-Amz-Signature=SECRET", "https://example.org/a.csv#SECRET"]
+)
+@pytest.mark.parametrize("form", [["--url", "{}"], ["--url={}"]])
+def test_an_interrupted_record_prints_no_signed_url(
+    url: str, form: list[str], project: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`record` logs a URL without its query, so its suggested rerun must not print the signature either."""
+
+    def interrupted(*_: object, **__: object) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "_record_file", interrupted)
+    assert main(["record", "example", str(project), *(part.format(url) for part in form), "--json"]) == 130
+    out, err = capsys.readouterr()
+    assert "SECRET" not in out + err
+    assert "https://example.org/a.csv" in out
+
+
 @pytest.mark.usefixtures("project")
 def test_ctrl_c_under_json_prints_the_report_so_far(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
