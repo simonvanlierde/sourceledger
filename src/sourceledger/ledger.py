@@ -783,7 +783,9 @@ def logged_versions(log: Path = FETCH_LOG) -> dict[str, str]:
 def _lock(raw: Path) -> Generator[None]:
     """Hold an exclusive lock on `raw/.lock`, so two fetches at once can't interleave their writes.
 
-    Fails at once rather than waiting.
+    Once it holds the lock it removes the `.*.part` temp files a killed run left in `raw`: every
+    writer there holds the same lock, so none of them is still being written. Fails at once
+    rather than waiting.
     """
     # Never truncated, and never through a symlink: a cloned checkout could plant one to another file.
     # Windows has no O_NOFOLLOW; there a symlink needs a privilege a checkout does not grant.
@@ -799,6 +801,8 @@ def _lock(raw: Path) -> Generator[None]:
             msg = f"another fetch is already running in {raw.as_posix()}"
             raise OSError(msg) from error
         try:
+            for stale in raw.glob(".*.part"):
+                stale.unlink(missing_ok=True)
             yield
         finally:
             if sys.platform == "win32":  # noqa: PLR2004

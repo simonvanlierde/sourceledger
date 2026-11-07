@@ -1255,6 +1255,26 @@ def test_a_second_fetch_at_once_is_refused(capsys: pytest.CaptureFixture[str]) -
     assert _run("fetch") == [0]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
+@pytest.mark.usefixtures("upstream")
+def test_temp_files_a_killed_run_left_are_swept_under_the_lock(tmp_path: Path) -> None:
+    """A SIGKILL mid-download or mid-record leaves its temp file; the next run that holds the lock removes it."""
+    RAW.parent.mkdir(parents=True)
+    stale = [RAW.parent / ".example.abc123.part", RAW.parent / ".example.csv.fetch.json.def456.part"]
+    for path in stale:
+        path.write_bytes(b"half a file")
+    kept = RAW.parent / "notes.part"  # not a temp file sourceledger names
+    kept.write_text("mine", encoding="utf-8")
+    assert _run("fetch") == [0]
+    assert not any(path.exists() for path in stale)
+    assert kept.read_text(encoding="utf-8") == "mine"
+    (RAW.parent / ".example.ghi789.part").write_bytes(b"half a file")
+    download = tmp_path / "download.csv"
+    download.write_text(FIXTURE, encoding="utf-8")
+    ledger.record(ledger.load_manifest()[0], download)
+    assert not list(RAW.parent.glob(".*.part"))
+
+
 @pytest.mark.usefixtures("upstream")
 def test_a_download_streams_to_disk_in_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
     """A body larger than one chunk arrives whole, and a refused one leaves no temp file behind."""

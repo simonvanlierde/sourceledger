@@ -26,6 +26,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Fixed
 
+- `fetch` and `record` remove the `.part` temp files that a killed run left in `data/raw/`. Before, each download or record cut short by a kill stayed on disk.
 - `fetch` and `record` take the `data/raw/.lock` lock on Windows too, so a second run is refused there as on Linux and macOS. The test suite and CI now run on Windows.
 - The HTML report said "Local or non-HTTP URL omitted" for an empty final or terms URL, and "None" for an unknown redistribution flag. It now says "the URL above", "not stated in sources.toml", and "yes" or "no".
 - HTTPS downloads keep the SSL context on their own handler instead of reading a private standard-library attribute.
