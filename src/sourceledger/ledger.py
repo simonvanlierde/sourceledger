@@ -415,7 +415,7 @@ class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
             # _PeerCheck sees only HTTP connections; urllib would also follow a redirect to ftp.
             if urlsplit(newurl).scheme.lower() not in ("http", "https"):
                 fp.close()
-                msg = f"refused a redirect from a public host to {newurl}, which is not HTTP or HTTPS"
+                msg = f"refused a redirect from a public host to {_without_query(newurl)}, which is not HTTP or HTTPS"
                 raise _InwardRedirectError(msg)
             new.public_only = True  # ty: ignore[unresolved-attribute]  # read back by _PeerCheck
         # urllib copies every header to the new request. A token meant for one host must not
@@ -448,7 +448,7 @@ class _PeerCheck(http.client.HTTPConnection):
         address = self.sock.getpeername()[0]
         if not ipaddress.ip_address(address).is_global:
             self.close()
-            msg = f"refused a redirect from a public host to {self.req.full_url}, which is at {address}"
+            msg = f"refused a redirect from a public host to {_without_query(self.req.full_url)}, which is at {address}"
             raise _InwardRedirectError(msg)
 
 
@@ -934,12 +934,17 @@ def _keep(
     return record
 
 
+def _without_query(url: str) -> str:
+    """`url` without its query and fragment, which can hold a signature."""
+    return urlsplit(url)._replace(query="", fragment="").geturl()
+
+
 def _served_from(source: Source, url: str) -> str:
     """Where the bytes came from when not the source's own URL, without the query and fragment.
 
     A redirect target or another tool's download URL can carry a signature or key there.
     """
-    served = urlsplit(url)._replace(query="", fragment="").geturl()
+    served = _without_query(url)
     return "" if url == source["url"] or served == source["url"] else served
 
 
@@ -951,8 +956,8 @@ def _commit(
     temp.replace(raw / name)
     # Logged before the record is written: until the record matches the raw file, the next
     # run fetches in full, so a crash in between loses nothing.
-    _log_new_version(log, logged, record)
-    _write_atomic(raw / f"{name}.fetch.json", (json.dumps(_fields(record), indent=2) + "\n").encode())
+    fields = _log_new_version(log, logged, record)
+    _write_atomic(raw / f"{name}.fetch.json", (json.dumps(fields, indent=2) + "\n").encode())
 
 
 def record(
@@ -984,7 +989,7 @@ def record(
     the log and to every copy of the dataset's metadata, so a name that looks like a
     credential is refused; a value is published as given.
 
-    The same bytes recorded again for the same request, URL and download time add no log
+    The same bytes recorded again for the same request, URL, download time and validators add no log
     line; anything else adds one, so the log's last line names how the sidecar's bytes came
     in. A record replaces the previous record's ETag and Last-Modified with its own.
 
@@ -1050,9 +1055,12 @@ def record(
 
 
 # A name holding one of these, or with one of the words below as a part of it (`x-api-key`, `sig`).
-_SECRET_IN = re.compile(r"token|secret|passw|credential|apikey|accesskey|privatekey", re.IGNORECASE)
+_SECRET_IN = re.compile(
+    r"token|secret|passw|credential|apikey|accesskey|privatekey|authkey|authcode|sessionid|sessid|userkey",
+    re.IGNORECASE,
+)
 _SECRET_PART = frozenset(
-    {"key", "auth", "authorization", "sig", "signature", "pwd", "jwt", "session", "bearer", "cookie", "sas"}
+    {"key", "auth", "oauth", "authorization", "sig", "signature", "pwd", "jwt", "session", "bearer", "cookie", "sas"}
 )
 # How far ahead of this host's clock a reported download time may be.
 _CLOCK_SKEW = timedelta(minutes=5)
@@ -1071,9 +1079,12 @@ def _checked_parameters(sid: str, parameters: dict[str, str | int]) -> dict[str,
 
 
 def _secret_name(name: str) -> bool:
-    """Whether a parameter name looks like it holds a credential: `api_key` and `sig` do, `author` does not."""
+    """Whether a parameter name looks like it holds a credential: `api_key`, `authKey` and `sig` do, `author` does not.
+
+    A camelCase name is split into parts first. `session_date` is refused, as a part `session` is.
+    """
     return bool(_SECRET_IN.search(name.replace("_", "").replace("-", ""))) or not _SECRET_PART.isdisjoint(
-        re.split(r"[^a-z0-9]+", name.lower())
+        re.split(r"[^a-z0-9]+", re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name).lower())
     )
 
 
@@ -1103,18 +1114,25 @@ def _timestamp(when: datetime) -> str:
     return when.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _log_new_version(log: Path, logged: dict[str, dict[str, Any]], record: FetchRecord) -> None:
+def _log_new_version(log: Path, logged: dict[str, dict[str, Any]], record: FetchRecord) -> dict[str, Any]:
+    """Log `record` when it is a new version; return the fields the sidecar must hold."""
     # Appended, not rewritten: the log is history. A re-download of the same bytes adds nothing,
     # but the same bytes fetched after being recorded, or recorded for another request, do: the
     # log's last line and the sidecar must agree on how the bytes came in.
-    if _version(logged.get(record.source_id, {})) != _version(_fields(record)):
-        _append(log, record)
-        logged[record.source_id] = _fields(record)
+    last = logged.get(record.source_id, {})
+    if _version(last) == _version(_fields(record)):
+        # A recorded file keeps its logged fields, so recording it again changes no byte of the
+        # sidecar and the package built from it stays current.
+        return last if last.get("recorded_at") else _fields(record)
+    _append(log, record)
+    logged[record.source_id] = _fields(record)
+    return _fields(record)
 
 
 def _version(fields: dict[str, Any]) -> tuple[object, ...]:
-    """What makes a log line new: the bytes and how they came in; for a recorded file, also where from and when."""
-    stated = (fields.get("final_url"), fields.get("retrieved_at")) if fields.get("recorded_at") else ()
+    """What makes a log line new: the bytes and how they came in; for a recorded file, also where, when, validators."""
+    keys = ("final_url", "retrieved_at", "etag", "last_modified")
+    stated = tuple(fields.get(k) for k in keys) if fields.get("recorded_at") else ()
     return fields.get("sha256"), bool(fields.get("recorded_at")), fields.get("parameters", {}), *stated
 
 

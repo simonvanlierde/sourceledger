@@ -1044,6 +1044,30 @@ def test_a_redirect_to_a_name_that_rebinds_inward_is_refused(
     assert not RAW.exists()
 
 
+def test_a_refused_redirect_names_no_query_or_fragment() -> None:
+    """A presigned URL's signature must not reach a log or the CLI's output."""
+    handler = ledger._NoRedirectInward()  # noqa: SLF001
+    public = urllib.request.Request("http://93.184.215.14/data.csv")
+    with pytest.raises(ledger._InwardRedirectError) as refused:  # noqa: SLF001
+        handler.redirect_request(
+            public, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "ftp://10.0.0.1/a?sig=s3cr3t#frag"
+        )
+    assert "ftp://10.0.0.1/a," in str(refused.value)
+    assert "s3cr3t" not in str(refused.value)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Rebinder)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        request = urllib.request.Request(f"http://127.0.0.1:{server.server_address[1]}/a.csv?sig=s3cr3t")
+        request.public_only = True  # ty: ignore[unresolved-attribute]
+        connection = ledger._PeerCheck("127.0.0.1", port=server.server_address[1], req=request)  # noqa: SLF001
+        with pytest.raises(ValueError, match=r"/a\.csv, which is at") as inward:
+            connection.connect()
+        assert "s3cr3t" not in str(inward.value)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_the_peer_check_is_skipped_through_a_proxy() -> None:
     """Through a proxy the socket reaches the proxy, not the host the URL names."""
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Rebinder)
@@ -3491,7 +3515,21 @@ def test_record_logs_no_query_it_drops(upstream: Path, caplog: pytest.LogCapture
         ("accessToken", True),
         ("pwd", True),
         ("session", True),
+        ("authKey", True),
+        ("authCode", True),
+        ("oauth", True),
+        ("oauth_code", True),
+        ("sessionid", True),
+        ("PHPSESSID", True),
+        ("userKey", True),
+        ("auth_code", True),
+        ("apiKey", True),
+        ("accessKeyId", True),
+        ("session_date", True),
         ("author", False),
+        ("authors", False),
+        ("year", False),
+        ("format", False),
         ("keyword", False),
         ("country", False),
     ],
@@ -3535,6 +3573,19 @@ def test_validate_sees_a_package_built_before_the_same_bytes_were_recorded_again
     assert _run("build", "validate") == [0, 0]
     ledger.record(_source(), upstream, parameters={"country": "BE"})
     assert any("describes an earlier fetch" in p for p in ledger.validate(ledger.load_manifest()))
+
+
+def test_recording_the_same_bytes_again_leaves_the_sidecar_as_logged(
+    upstream: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A no-op record keeps the logged time, so the package built after the first stays current."""
+    ticks = iter(range(10, 60))
+    monkeypatch.setattr(ledger, "_timestamp", lambda _when: f"2026-11-05T09:30:{next(ticks)}Z")
+    ledger.record(_source(), upstream)
+    assert _run("build") == [0]
+    ledger.record(_source(), upstream)
+    assert ledger.validate(ledger.load_manifest()) == []
+    assert _lines()[-1] == json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
 
 
 def test_a_record_with_parameters_that_are_not_text_is_not_a_record() -> None:
