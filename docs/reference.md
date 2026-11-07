@@ -45,7 +45,8 @@ When switching formats, move old outputs out of `data/processed/` before rebuild
 Library callers pass `output_format="parquet"` to both `build` and `validate`; `load_manifest` returns only source tables.
 
 `output_format` and `[[source]]` are the only top-level keys. Any other, such as a misspelt
-`[[sources]]`, is refused with the nearest valid name, so a typo never reads as an empty manifest.
+`[[sources]]`, is refused, with the intended name when one is close, so a typo never reads as
+an empty manifest.
 A source table may hold extra keys for your own reader.
 
 Each `[[source]]` table takes these keys:

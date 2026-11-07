@@ -16,6 +16,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Changed
 
+- **Breaking:** `sources.toml` accepts only `output_format` and `[[source]]` at the top level. A misspelt key such as `[[sources]]` is refused, with the intended key when one is close; it used to read as a manifest with no sources, so `build` wrote an empty `datapackage.json` over a good one. A project that kept its own table there, for its reader's settings, moves it into its own file or into each `[[source]]`, whose other keys stay allowed.
 - **Breaking:** `read_output()` is a generator that yields one row at a time, CSV row by row and Parquet in batches of at most 10,000 rows, so reading a table of 1.5 million rows no longer holds them all in one list. Wrap the call in `list()` where the code indexes the rows, takes their length, or reads them twice. Every error, a missing file included, now raises on the first `next()`, and an unfinished iterator keeps the file open, which on Windows blocks replacing the output.
 - Windows is supported and tested in CI. 0.4.0 said it was not.
 - The HTML report puts the integrity result in a box at the top, lists the outputs with links under one heading, and names hashes and times in plain words ("SHA-256 of the downloaded file", "Served from"). It follows the reader's dark mode, prints without the in-page links, wraps long ids, and shows a recorded file's request parameters. A script that reads the report's HTML needs updating.
@@ -27,7 +28,6 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Fixed
 
-- A misspelt top-level key in `sources.toml`, such as `[[sources]]`, is refused and names the key it was probably meant to be. It used to read as a manifest with no sources, so `build` wrote an empty `datapackage.json` over a good one.
 - `fetch` and `record` remove the `.part` temp files that a killed run left in `data/raw/`. Before, each download or record cut short by a kill stayed on disk.
 - `fetch` and `record` take the `data/raw/.lock` lock on Windows too, so a second run is refused there as on Linux and macOS. The test suite and CI now run on Windows.
 - The HTML report said "Local or non-HTTP URL omitted" for an empty final or terms URL, and "None" for an unknown redistribution flag. It now says "the URL above", "not stated in sources.toml", and "yes" or "no".
