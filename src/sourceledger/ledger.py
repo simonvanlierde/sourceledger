@@ -799,7 +799,10 @@ def _lock(raw: Path) -> Generator[None]:
     rather than waiting.
     """
     # Never truncated, and never through a symlink: a cloned checkout could plant one to another file.
-    # Windows has no O_NOFOLLOW; there a symlink needs a privilege a checkout does not grant.
+    # Windows has no O_NOFOLLOW, and Git there makes symlinks under Developer Mode: check first.
+    if (raw / ".lock").is_symlink():
+        msg = f"{(raw / '.lock').as_posix()} is a symlink; the lock must be a file of its own"
+        raise OSError(msg)
     flags = os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(raw / ".lock", flags, 0o644)
     with os.fdopen(fd, "wb") as fh:

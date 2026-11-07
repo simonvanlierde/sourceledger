@@ -1229,14 +1229,16 @@ def test_a_redirect_to_a_signed_url_keeps_no_signature(publisher: str, tmp_path:
     assert "s3cr3t" not in Path("data/fetches.jsonl").read_text(encoding="utf-8")
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no O_NOFOLLOW to refuse a symlink with")
 @pytest.mark.usefixtures("upstream")
 def test_a_symlinked_lock_file_leaves_its_target_alone(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """A checkout can carry a symlink at data/raw/.lock; taking the lock must not empty the file it points at."""
     victim = tmp_path / "victim.txt"
     victim.write_text("keep me", encoding="utf-8", newline="")
     RAW.parent.mkdir(parents=True)
-    (RAW.parent / ".lock").symlink_to(victim)
+    try:
+        (RAW.parent / ".lock").symlink_to(victim)
+    except OSError:  # Windows without Developer Mode
+        pytest.skip("this host cannot make symlinks")
     assert _run("fetch") == [1]
     assert "data/raw/.lock" in capsys.readouterr().err
     assert victim.read_text(encoding="utf-8") == "keep me"
