@@ -35,6 +35,8 @@ These checks apply to every fetch:
   a redirect from https.
 - Redirects discard their unused response bodies, so a redirect cannot make urllib
   buffer an unlimited body before following the destination URL.
+- The URL a redirect ends at is logged as `final_url` without its query and fragment, so
+  the signature of a signed download link is not published with the dataset.
 - The file is requested and stored uncompressed, so the SHA-256 is always that of the file
   as published.
 
@@ -85,8 +87,9 @@ It applies the same checks as a fetch to the bytes: the `sha256` pin and `max_by
 only a regular file, never a pipe or device. The log, the record and `datapackage.json`
 go out with your dataset, so `record` keeps nothing it can recognize as a secret: a URL
 with a user name or password is refused, another URL loses its query and fragment, and a
-parameter whose name holds `token`, `secret`, `passw` or `credential`, or has `key`, `auth`,
-`sig`, `session` or `cookie` as a part (`x-api-key`, `sig`), is refused. Values are published
+parameter whose name looks like a credential is refused. That covers, for example, a name
+that holds `token`, `secret`, `passw` or `credential`, or has `key`, `auth`, `sig`,
+`session` or `cookie` as a part (`x-api-key`, `apiKey`, `sig`). Values are published
 as given, and a secret under another name gets through, so pass only what describes the
 request.
 
