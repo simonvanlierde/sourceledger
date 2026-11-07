@@ -1234,6 +1234,17 @@ def test_a_symlinked_fetch_log_is_refused(tmp_path: Path, capsys: pytest.Capture
     assert victim.read_text(encoding="utf-8") == ""
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="patches fcntl")
+def test_another_lock_error_is_not_reported_as_a_running_fetch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(*_: object) -> None:
+        raise OSError(errno.ENOLCK, "no locks available")
+
+    monkeypatch.setattr(ledger.fcntl, "flock", fail)
+    with pytest.raises(OSError, match="no locks available") as caught, ledger._lock(tmp_path):  # noqa: SLF001
+        pass
+    assert "already running" not in str(caught.value)
+
+
 @pytest.mark.usefixtures("upstream")
 def test_a_second_fetch_at_once_is_refused(capsys: pytest.CaptureFixture[str]) -> None:
     """Two runs interleaving their writes could pair one run's raw file with the other's record."""
@@ -1710,13 +1721,22 @@ def test_verify_checks_a_published_dataset_against_its_package(capsys: pytest.Ca
 _X_HASH = f"sha256:{hashlib.sha256(b'x\n').hexdigest()}"
 
 
+# Paths Windows reads as absolute or climbing out, which POSIX reads as plain names.
+WINDOWS_ESCAPES = ["..\\a.csv", "C:\\x.csv", "\\\\srv\\share\\x.csv", "\\x.csv", "C:x.csv"]
+
+
 @pytest.mark.parametrize(
     ("resources", "expected"),
     [
-        ([{"path": "gone.csv", "hash": "sha256:00"}], ["d/gone.csv is missing"]),
+        ([{"path": "gone.csv", "hash": "sha256:00"}], ["d: resource 'gone.csv' is missing"]),
         ([{"path": "a.csv"}], ["d/a.csv: the package lists no sha256 hash to check it against"]),
         ([{"path": "../a.csv"}], ["d/datapackage.json: resource path '../a.csv' is not a file in d"]),
         ([{"path": "/etc/hostname"}], ["d/datapackage.json: resource path '/etc/hostname' is not a file in d"]),
+        *[
+            ([{"path": name}], [f"d/datapackage.json: resource path {name!r} is not a file in d"])
+            for name in WINDOWS_ESCAPES
+        ],
+        ([{"path": "gone\x1b[2J.csv", "hash": "sha256:00"}], ["d: resource 'gone\\x1b[2J.csv' is missing"]),
         ([{"path": "https://example.org/a.csv"}], ["d/datapackage.json: resource path 'https://example.org/a.csv'"]),
         (["a.csv"], ["d/datapackage.json: resource path None is not a file in d"]),
         ({"a": 1}, ["d/datapackage.json has no list of resources"]),
@@ -2513,7 +2533,9 @@ def _peak(run: Callable[[], object]) -> int:
 @pytest.fixture
 def big(upstream: Path) -> int:
     """The upstream file grown to about 2 MB and fetched: its size."""
-    upstream.write_text("year,value,note\n" + "".join(f"{i},{i * 0.5},row {i}\n" for i in range(100_000)))
+    upstream.write_text(
+        "year,value,note\n" + "".join(f"{i},{i * 0.5},row {i}\n" for i in range(100_000)), encoding="utf-8"
+    )
     assert _run("fetch") == [0]
     return upstream.stat().st_size
 
@@ -2804,7 +2826,7 @@ def test_unselected_reserved_file_names_do_not_block_validation(status: str) -> 
 def test_redirects_do_not_need_the_redirect_response_body(publisher: str, tmp_path: Path) -> None:
     _manifest(tmp_path, f"{publisher}/unreadable-redirect.csv", terms=f"{TERMS}\nmax_bytes = {len(FIXTURE)}")
     assert _run("fetch", "build", "validate") == [0, 0, 0]
-    assert RAW.read_text() == FIXTURE
+    assert RAW.read_text(encoding="utf-8") == FIXTURE
 
 
 @pytest.mark.usefixtures("upstream")
@@ -2841,7 +2863,7 @@ def test_json_status_keeps_types_and_full_hashes(capsys: pytest.CaptureFixture[s
     capsys.readouterr()
     assert main(["status", "--json"]) == 0
     report = json.loads(capsys.readouterr().out)
-    record = json.loads(Path("data/raw/example.csv.fetch.json").read_text())
+    record = json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
     assert report["sources"][0]["sha256"] == record["sha256"]
     assert report["sources"][0]["retrieved_at"] == record["retrieved_at"]
 
@@ -2860,10 +2882,10 @@ def test_json_revisions_describes_changed_bytes(
     assert _run("fetch") == [0]
     before = Path("before.jsonl")
     shutil.copyfile(LOG, before)
-    old = json.loads(before.read_text())
-    upstream.write_text(FIXTURE + "2022,3.5\n")
+    old = json.loads(before.read_text(encoding="utf-8"))
+    upstream.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8")
     assert _run("fetch") == [0]
-    new = json.loads(LOG.read_text().splitlines()[-1])
+    new = json.loads(LOG.read_text(encoding="utf-8").splitlines()[-1])
     capsys.readouterr()
     assert main(args) == 0
     assert json.loads(capsys.readouterr().out) == {
@@ -2881,7 +2903,7 @@ def test_json_validation_preserves_problems_and_selection(capsys: pytest.Capture
     capsys.readouterr()
     assert main(["validate", "--json", "--only", "example"]) == 0
     assert json.loads(capsys.readouterr().out) == {"stage": "validate", "errors": [], "problems": []}
-    OUT.write_text("changed")
+    OUT.write_text("changed", encoding="utf-8")
     expected = ledger.validate(ledger.load_manifest())
     assert main(["validate", "--json"]) == 1
     captured = capsys.readouterr()
@@ -2918,7 +2940,7 @@ def test_json_reports_honor_manifest_and_report_bad_input(capsys: pytest.Capture
     assert json.loads(capsys.readouterr().out)["sources"][0]["source_id"] == "example"
     assert main(["validate", "--json", "--manifest", "alternate.toml", "--only", "missing"]) == 1
     assert "not in sources.toml" in json.loads(capsys.readouterr().out)["errors"][0]
-    Path("alternate.toml").write_text("bad toml [")
+    Path("alternate.toml").write_text("bad toml [", encoding="utf-8")
     assert main(["status", "--json", "--manifest", "alternate.toml"]) == 1
     assert json.loads(capsys.readouterr().out)["errors"]
 
@@ -2927,14 +2949,17 @@ def test_json_reports_honor_manifest_and_report_bad_input(capsys: pytest.Capture
 def test_status_uses_a_custom_log_and_marks_invalid_reuse_terms(capsys: pytest.CaptureFixture[str]) -> None:
     assert _run("fetch") == [0]
     capsys.readouterr()
-    record = json.loads(LOG.read_text())
+    record = json.loads(LOG.read_text(encoding="utf-8"))
     other = Path("other.jsonl")
     LOG.rename(other)
     lines = ledger.status(ledger.load_manifest(), log=other)
     assert record["sha256"][:12] in lines[0]
     assert record["retrieved_at"] in lines[0]
     manifest = Path("sources.toml")
-    manifest.write_text(manifest.read_text().replace("redistribute = true", 'redistribute = "unknown"'))
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace("redistribute = true", 'redistribute = "unknown"'),
+        encoding="utf-8",
+    )
     assert main(["status", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["sources"][0]["redistribute"] is None
 
@@ -2953,9 +2978,9 @@ def test_json_validate_reports_a_malformed_resource_name(capsys: pytest.CaptureF
     assert main(["fetch"]) == 0
     assert main(["build"]) == 0
     path = Path("data/processed/datapackage.json")
-    package = json.loads(path.read_text())
+    package = json.loads(path.read_text(encoding="utf-8"))
     package["resources"][0]["name"] = name
-    path.write_text(json.dumps(package))
+    path.write_text(json.dumps(package), encoding="utf-8")
     capsys.readouterr()
     assert main(["validate", "--json"]) == 1
     result = json.loads(capsys.readouterr().out)
@@ -2967,7 +2992,7 @@ def test_json_status_describes_non_text_status_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], value: str
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    Path("sources.toml").write_text(f'[[source]]\nid = "example"\nstatus = {value}\n')
+    Path("sources.toml").write_text(f'[[source]]\nid = "example"\nstatus = {value}\n', encoding="utf-8")
     assert main(["status", "--json"]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["sources"][0]["status"] == str(ledger.load_manifest()[0]["status"])

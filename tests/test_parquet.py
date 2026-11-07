@@ -52,7 +52,7 @@ def test_parquet_build_and_validate(project: Path, capsys: pytest.CaptureFixture
     assert [(row["code"], row["value"]) for row in rows] == [("001", "1.10"), ("002", "")]
     assert {row["source_id"] for row in rows} == {"example"}
     package_path = Path("data/processed/datapackage.json")
-    resource = json.loads(package_path.read_text())["resources"][0]
+    resource = json.loads(package_path.read_text(encoding="utf-8"))["resources"][0]
     assert resource["format"] == "parquet"
     assert resource["mediatype"] == "application/vnd.apache.parquet"
     assert "encoding" not in resource
@@ -89,7 +89,7 @@ def test_parquet_damage_is_a_validation_problem(damage: bytes | None) -> None:
 @pytest.mark.usefixtures("project")
 def test_unknown_output_format_fails(value: str) -> None:
     manifest = Path("sources.toml")
-    manifest.write_text(manifest.read_text().replace('"parquet"', value), encoding="utf-8", newline="")
+    manifest.write_text(manifest.read_text(encoding="utf-8").replace('"parquet"', value), encoding="utf-8", newline="")
     with pytest.raises(ValueError, match=r"^output_format must be 'csv' or 'parquet'$"):
         ledger.load_manifest()
 

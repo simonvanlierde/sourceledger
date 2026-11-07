@@ -210,7 +210,7 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
     match stage, path:
         case "init", _:
             init(manifest)
-            print(f"wrote {manifest}")
+            print(f"wrote {manifest.as_posix()}")
         case "revisions", Path():
             # Not a failure: a revised source is news, and the tripwire test decides whether it breaks anything.
             for line in revisions(path):

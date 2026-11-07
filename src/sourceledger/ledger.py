@@ -794,10 +794,14 @@ def _lock(raw: Path) -> Generator[None]:
                 msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)  # locks byte 0, even past the end
             else:
                 fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as error:  # BlockingIOError on POSIX, PermissionError on Windows
+        except (BlockingIOError, PermissionError) as error:  # held elsewhere; other OSErrors propagate
             msg = f"another fetch is already running in {raw.as_posix()}"
             raise OSError(msg) from error
-        yield
+        try:
+            yield
+        finally:
+            if sys.platform == "win32":  # noqa: PLR2004
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)  # before the file closes
 
 
 def revisions(before: Path, *, log: Path = FETCH_LOG) -> list[str]:
@@ -1781,7 +1785,9 @@ def _output_problems(source: Source, raw: Path, out: Path, resource: dict[str, A
         problems.append(f"{out.as_posix()}: rows come from an earlier fetch than {raw_name(source)}; re-run build")
     # The rows' stamp misses a record of the same bytes for another request; the package's block does not.
     elif resource is not None and resource.get("sourceledger") != _provenance(source, record):
-        problems.append(f"{out.parent / DATAPACKAGE} describes an earlier fetch of {raw_name(source)}; re-run build")
+        problems.append(
+            f"{(out.parent / DATAPACKAGE).as_posix()} describes an earlier fetch of {raw_name(source)}; re-run build"
+        )
     return problems
 
 
@@ -1932,7 +1938,7 @@ def verify(folder: Path) -> list[str]:
 def leaves_folder(name: str) -> bool:
     """Whether a package's resource path is a URL, absolute, or climbs out, on any platform's reading of it."""
     windows = PureWindowsPath(name)  # also splits on "/"
-    absolute = PurePosixPath(name).is_absolute() or windows.is_absolute()
+    absolute = PurePosixPath(name).is_absolute() or bool(windows.anchor)  # also "C:x" and "\\x"
     return bool(urlsplit(name).scheme) or absolute or os.pardir in windows.parts
 
 
@@ -1944,7 +1950,7 @@ def _file_problems(folder: Path, resource: dict[str, Any]) -> list[str]:
         return [f"{(folder / DATAPACKAGE).as_posix()}: resource path {name!r} is not a file in {folder.as_posix()}"]
     file = folder / name
     if not file.is_file():
-        return [f"{file.as_posix()} is missing"]
+        return [f"{folder.as_posix()}: resource {name!r} is missing"]
     # A symlink inside the folder can still lead out of it.
     if not file.resolve().is_relative_to(folder.resolve()):
         return [f"{(folder / DATAPACKAGE).as_posix()}: resource path {name!r} is not a file in {folder.as_posix()}"]
