@@ -123,6 +123,25 @@ new download's full SHA-256:
 b5e4e235da3066bccd4bf836b9f823b45709fb5e06afdb2b5328210c62c796e5
 ```
 
+## Record a file another tool downloaded
+
+If a tool such as pooch, DVC or your own script already downloads a source, keep it, and
+give its file to `record` instead of running `fetch`. A copy stands in for that download here:
+
+```sh
+mkdir downloads
+cp publisher/annual.csv downloads/annual.csv
+sourceledger record co2 downloads/annual.csv --retrieved-at 2026-11-05T09:30:00Z
+sourceledger build
+sourceledger validate
+```
+
+`record` checks and copies the file into `data/raw/`, and logs it as recorded, not
+fetched. The bytes are the ones you fetched last, so it reports `unchanged`. Validation
+reports `0 problems`, and every row now says it was retrieved at `2026-11-05T09:30:00Z`.
+[Recipes](recipes.md#record-a-file-another-tool-downloaded) shows the code for pooch, DVC,
+dlt and your own fetcher.
+
 Keep `sources.toml` and the fetch log in version control. Keep the raw and processed
 files out of git; [what to commit](https://github.com/simonvanlierde/sourceledger#what-to-commit)
 explains why.

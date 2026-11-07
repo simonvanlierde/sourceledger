@@ -1,4 +1,5 @@
 ---
+parent: /secure-use.html
 title: What sourceledger's checks establish
 description: The trust boundaries, safeguards, evidence and limits behind a sourceledger dataset.
 ---
@@ -25,7 +26,7 @@ Keep the manifest and fetch log in version control, and review changes to them.
 
 Dataset recipients must obtain `datapackage.json` from a source they trust. An attacker
 who replaces both that descriptor and its files can produce matching checksums.
-[Software release attestations](releases.md) authenticate the sourceledger distribution;
+[Software release attestations](secure-use.md#check-a-sourceledger-release) authenticate the sourceledger distribution;
 they do not sign your dataset or its fetch records.
 
 ## Claims and evidence
@@ -81,7 +82,7 @@ The library uses the standard library at runtime; the optional Excel reader adds
 openpyxl. Development tools are locked and audited. See the
 [dependency policy](https://github.com/simonvanlierde/sourceledger/blob/main/.github/CONTRIBUTING.md#dependencies).
 The release workflow tests the source and the built wheel before publishing.
-[Release verification](releases.md) explains the attestations and reproducible-build check.
+[Release verification](secure-use.md#check-a-sourceledger-release) explains the attestations and reproducible-build check.
 
 Report a suspected vulnerability through the
 [private reporting process](https://github.com/simonvanlierde/sourceledger/security/policy).

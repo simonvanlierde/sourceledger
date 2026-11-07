@@ -20,14 +20,14 @@
           <summary>Documentation</summary>
           <nav aria-label="Documentation">
             {% for item in site.navigation %}
-              <a href="{{ item.path | relative_url }}"{% if page.url == item.path or page.url == '/index.html' and item.path == '/' %} aria-current="page"{% endif %}>{{ item.title }}</a>
+              <a href="{{ item.path | relative_url }}"{% assign here = page.parent | default: page.url %}{% if here == item.path or here == '/index.html' and item.path == '/' %} aria-current="page"{% endif %}>{{ item.title }}</a>
             {% endfor %}
           </nav>
         </details>
       </aside>
       <main id="main" tabindex="-1">
         <article>
-          {{ content | replace: '<table>', '<div class="table-scroll" tabindex="0" role="region" aria-label="Data table; scroll horizontally to read all columns"><table>' | replace: '</table>', '</table></div>' }}
+          {{ content | replace: '<table>', '<div class="table-scroll" tabindex="0" role="region" aria-label="Data table"><table>' | replace: '</table>', '</table></div>' }}
         </article>
         <footer class="page-footer">
           <p>These docs may include unreleased features. Check source terms before publishing data.</p>

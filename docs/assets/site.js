@@ -6,6 +6,16 @@ const updateNavigation = () => {
 updateNavigation();
 wide.addEventListener("change", updateNavigation);
 
+// Label each cell with its column, for the stacked layout on narrow screens.
+for (const table of document.querySelectorAll("article > .table-scroll table")) {
+  const headers = [...table.querySelectorAll("thead th")].map((th) => th.textContent.trim());
+  for (const row of table.querySelectorAll("tbody tr")) {
+    row.querySelectorAll("td").forEach((td, i) => {
+      if (headers[i]) td.dataset.label = headers[i];
+    });
+  }
+}
+
 const status = document.querySelector(".copy-status");
 let statusTimer;
 for (const pre of document.querySelectorAll("pre")) {

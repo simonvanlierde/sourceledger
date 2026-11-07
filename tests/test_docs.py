@@ -1,8 +1,11 @@
 """The examples in the README and the docs page, run as written, with a local file for the publisher."""
 
+import ast
 import json
 import re
 import runpy
+import shlex
+import shutil
 from importlib.metadata import version
 from pathlib import Path
 
@@ -14,7 +17,7 @@ from sourceledger.cli import main
 ROOT = Path(__file__).parents[1]
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 REFERENCE = (ROOT / "docs" / "reference.md").read_text(encoding="utf-8")
-READERS = (ROOT / "docs" / "readers.md").read_text(encoding="utf-8")
+RECIPES = (ROOT / "docs" / "recipes.md").read_text(encoding="utf-8")
 SCHEMA = json.loads((Path(ledger.__file__).parent / "sources.schema.json").read_text(encoding="utf-8"))
 FIXTURE = "year,mean,unc\n2022,418.53,0.12\n2023,421.08,0.12\n"
 
@@ -53,7 +56,7 @@ def test_the_quick_start_runs() -> None:
 def test_the_own_reader_example_runs(project: Path) -> None:
     """The project entry point in "Your own readers" runs every stage with its reader."""
     module = project / "pipeline.py"
-    module.write_text(_block(READERS, "# Write a custom reader", "python"), encoding="utf-8")
+    module.write_text(_block(RECIPES, "## Write a custom reader", "python"), encoding="utf-8")
     entry = runpy.run_path(str(module))["main"]
     assert [entry([stage]) for stage in ("fetch", "build", "validate")] == [0, 0, 0]
 
@@ -119,3 +122,58 @@ def test_the_publisher_revision_tutorial_runs(tmp_path: Path, monkeypatch: pytes
             assert main(["revisions", "before.jsonl"]) == 0
             assert [main([stage]) for stage in ("build", "validate")] == [0, 0]
     assert ledger.read_output(Path("data/processed/co2.csv"))[-1]["co2_ppm"] == "419.32"
+    assert _shell(_block(guide, "## Record a file another tool downloaded", "sh")) == [0] * 5
+    rows = ledger.read_output(Path("data/processed/co2.csv"))
+    assert {row["retrieved_at"] for row in rows} == {"2026-11-05T09:30:00Z"}
+
+
+def _shell(script: str) -> list[int]:
+    """Run a docs shell block's mkdir, cp and sourceledger lines in-process; the exit code of each."""
+    codes = []
+    for line in script.splitlines():
+        command, *args = shlex.split(line)
+        if command == "mkdir":
+            Path(*args).mkdir()
+            codes.append(0)
+        elif command == "cp":
+            shutil.copy(*args)
+            codes.append(0)
+        else:
+            assert command == "sourceledger", line
+            codes.append(main(args))
+    return codes
+
+
+def test_every_recipe_is_python_that_parses() -> None:
+    """The recipes for tools the tests do not install must at least be valid Python."""
+    blocks = re.findall(r"```python\n(.*?)```", RECIPES, re.DOTALL)
+    assert len(blocks) == 5
+    for block in blocks:
+        ast.parse(block)
+
+
+def test_the_own_fetcher_recipe_records_each_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The loop downloads with urllib, here from local files, and records one source per country."""
+    monkeypatch.chdir(tmp_path)
+    entries = []
+    for country in ("nl", "be"):
+        upstream = tmp_path / "upstream" / f"{country}.csv"
+        upstream.parent.mkdir(exist_ok=True)
+        upstream.write_text(f"year,people\n2024,{len(country)}\n", encoding="utf-8")
+        entries.append(
+            f'[[source]]\nid = "population-{country}"\nstatus = "implemented"\nurl = "{upstream.as_uri()}"\n'
+            'terms = "CC0"\nterms_url = "https://example.org"\nlicense = "CC0-1.0"\nredistribute = true\n'
+        )
+    Path("sources.toml").write_text("\n".join(entries), encoding="utf-8")
+    exec(_block(RECIPES, "### Your own fetcher", "python"), {})  # noqa: S102  # the recipe, run as written
+    records = [json.loads(line) for line in Path("data/fetches.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [r["parameters"] for r in records] == [{"country": "nl"}, {"country": "be"}]
+    assert all(r["recorded_at"] and r["retrieved_at"] for r in records)
+
+    exec(_block(RECIPES, "## Publish a build only when it validates", "python"), {})  # noqa: S102
+    assert sorted(p.name for p in Path("data/published").iterdir()) == [
+        "datapackage.json",
+        "population-be.csv",
+        "population-nl.csv",
+    ]
+    assert ledger.verify(Path("data/published")) == []

@@ -61,7 +61,9 @@ see [table memory limits](docs/reference.md#sourcestoml).
 
 `sourceledger` reads CSV (gzipped or not), JSON and Excel, by each source's `format` or its
 URL's extension. Set `format = "file"` to keep a raster, archive or other file unchanged.
-For another table format, see [custom readers](docs/readers.md).
+For another table format, see [custom readers](docs/recipes.md#write-a-custom-reader).
+If another tool downloads a source, [record its file](docs/recipes.md#record-a-file-another-tool-downloaded)
+instead of fetching it.
 
 ### What to commit
 
@@ -80,14 +82,16 @@ runs `fetch` before `build` and `validate`.
 - **Get started:** follow the [worked example](docs/getting-started.md) to notice a revised
   source and rebuild the dataset.
 - **Configure and run:** use the [manifest and command reference](docs/reference.md),
-  [download limits and retries](docs/fetching.md), and [custom readers](docs/readers.md).
-- **Inspect and share:** consume [JSON reports](docs/reports.md) in CI, or create a
-  [standalone HTML provenance report](docs/provenance-report.md) for dataset recipients
+  [download limits and retries](docs/fetching.md), and [recipes](docs/recipes.md) for
+  pooch, DVC, dlt, your own fetcher and custom readers.
+- **Inspect and share:** consume [JSON reports](docs/reference.md#json-reports) in CI, or create a
+  [standalone HTML provenance report](docs/reference.md#html-provenance-report) for dataset recipients
   with `sourceledger report > provenance.html`.
 - **Understand the checks:** read [how it works](docs/architecture.md),
   [safe use](docs/secure-use.md), and [what the checks establish](docs/assurance-case.md).
-- **Choose and verify:** compare [related tools](docs/comparison.md), or check a
-  sourceledger release's [signed provenance and reproducible build](docs/releases.md).
+- **Choose and verify:** see [where sourceledger fits](docs/where-it-fits.md) among related
+  tools, or check a sourceledger release's
+  [signed provenance and reproducible build](docs/secure-use.md#check-a-sourceledger-release).
 
 ## Project status
 

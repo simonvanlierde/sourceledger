@@ -20,7 +20,9 @@ Follow the [complete example](getting-started.md), or review the
 
 Use the [manifest and command reference](reference.md) for your own sources.
 
-For scripts and CI, [JSON reports](reports.md) provide structured status and validation results.
+If pooch, DVC, dlt or your own code already downloads your data, keep it and
+[record each file](recipes.md#record-a-file-another-tool-downloaded).
+For scripts and CI, [JSON reports](reference.md#json-reports) provide structured status and validation results.
 If you received a dataset, you can [verify its files offline](secure-use.md#check-a-dataset-you-downloaded).
 
-See [how sourceledger compares with other tools](comparison.md) before choosing it for your project.
+See [where sourceledger fits](where-it-fits.md) among other data tools before choosing it for your project.

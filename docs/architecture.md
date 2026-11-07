@@ -8,11 +8,12 @@ description: The three main stages, the files each one reads and writes, and whe
 sourceledger turns a list of public sources into a dataset in three stages: `fetch`,
 `build` and `validate`. Each stage is a function in `sourceledger.ledger` and a command
 in `sourceledger.cli`. The stages talk to each other only through files on disk, so you
-can run them in separate CI jobs, or days apart.
+can run them in separate CI jobs, or days apart. `record` takes the place of `fetch` for
+a file another tool downloaded.
 
 ```text
 sources.toml ──fetch──> data/raw/        ──build──> data/processed/ ──validate──> problems
-                        data/fetches.jsonl
+other tool ──record──>  data/fetches.jsonl
 ```
 
 The [reference](reference.md) lists the manifest keys and command options. This page explains how the parts fit together.
@@ -22,10 +23,10 @@ The [reference](reference.md) lists the manifest keys and command options. This 
 | Path | Written by | Read by | In git |
 | --- | --- | --- | --- |
 | `sources.toml` | you (`init` writes a starter) | stages that use a manifest | yes |
-| `data/raw/<id>.<ext>` | `fetch` | `build`, `validate` | no |
-| `data/raw/<id>.<ext>.fetch.json` | `fetch` | `fetch`, `build`, `validate` | no |
-| `data/raw/.lock` | `fetch` | `fetch` | no |
-| `data/fetches.jsonl` | `fetch` | `fetch`, `status`, `revisions`, `report` | yes |
+| `data/raw/<id>.<ext>` | `fetch`, `record` | `build`, `validate` | no |
+| `data/raw/<id>.<ext>.fetch.json` | `fetch`, `record` | `fetch`, `build`, `validate` | no |
+| `data/raw/.lock` | `fetch`, `record` | `fetch`, `record` | no |
+| `data/fetches.jsonl` | `fetch`, `record` | `fetch`, `record`, `status`, `revisions`, `report` | yes |
 | `data/processed/<id>.csv` | `build` (tables) | `validate`, `verify`, `report` | no |
 | `data/processed/<id>.parquet` | `build` (Parquet tables) | `validate`, `verify`, `report` | no |
 | `data/processed/<id>.<ext>` | `build` (`format = "file"`) | `validate`, `verify`, `report` | no |
@@ -60,6 +61,19 @@ The log line goes in before the record. If a crash comes between the two, the ne
 sees no matching record and fetches in full, so no version is lost. A lock on
 `data/raw/.lock` stops a second fetch in the same project while one runs (Linux and macOS
 only). `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
+
+## record
+
+`record` writes what `fetch` writes, for a file it did not download. It copies the file
+into a temporary file in `data/raw/`, within the source's size cap, then takes the same
+steps 3 and 4: the pin check, the move into place, the log line, and the record. It holds
+the same lock and makes no request.
+
+The record keeps `recorded_at`, the time of the call. `retrieved_at` is the download time
+the other tool reported, or empty. A log line is added for new bytes, and also when the
+same bytes switch between fetched and recorded, or are recorded for other `parameters`,
+so the log's last line always describes the current record. A later `fetch` sends the
+recorded ETag or Last-Modified only when they came from the source's own URL.
 
 ## build
 
@@ -108,7 +122,7 @@ It exits 1 if it finds any problem.
 - `verify` reads only a published `datapackage.json` and the files it lists. It is for
   someone who downloaded your dataset and has neither your manifest nor your log.
 - `report` reads the manifest, fetch log, package and outputs to create a
-  [standalone HTML provenance report](provenance-report.md).
+  [standalone HTML provenance report](reference.md#html-provenance-report).
 - `init` writes a starter `sources.toml`.
 
 ## Where the code lives
@@ -131,7 +145,7 @@ requests itself.
 A project that needs another file format writes its own reader: a function that takes the
 source's manifest table and the raw bytes, and returns columns and rows. It passes the
 reader to `build`, or to `main` from its own entry point. Everything else, including the
-provenance columns, stays the same. [Custom readers](readers.md) has an
-example.
+provenance columns, stays the same. A project that downloads with another tool, or its own
+code, calls `record` for each file. [Recipes](recipes.md) has examples of both.
 
 [Use sourceledger safely](secure-use.md) covers what each stage trusts and checks.

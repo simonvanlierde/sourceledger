@@ -1,5 +1,7 @@
 ---
 title: Use sourceledger safely
+redirect_from:
+  - /releases.html
 description: What sourceledger checks for you when it downloads and builds data, and what it leaves to you.
 ---
 
@@ -33,6 +35,8 @@ These checks apply to every fetch:
   a redirect from https.
 - Redirects discard their unused response bodies, so a redirect cannot make urllib
   buffer an unlimited body before following the destination URL.
+- The URL a redirect ends at is logged as `final_url` without its query and fragment, so
+  the signature of a signed download link is not published with the dataset.
 - The file is requested and stored uncompressed, so the SHA-256 is always that of the file
   as published.
 
@@ -76,6 +80,19 @@ shown by `revisions`, but not refused.
 - The download budget is checked before attempts and after body reads. DNS lookup and HTTP
   header parsing can exceed it. See [download limits and retries](fetching.md).
 
+## Record files from other tools with care
+
+`record` takes the file at the path you give it, so treat that path like a manifest URL.
+It applies the same checks as a fetch to the bytes: the `sha256` pin and `max_bytes`, and
+only a regular file, never a pipe or device. The log, the record and `datapackage.json`
+go out with your dataset, so `record` keeps nothing it can recognize as a secret: a URL
+with a user name or password is refused, another URL loses its query and fragment, and a
+parameter whose name looks like a credential is refused. That covers, for example, a name
+that holds `token`, `secret`, `passw` or `credential`, or has `key`, `auth`, `sig`,
+`session` or `cookie` as a part (`x-api-key`, `apiKey`, `sig`). Values are published
+as given, and a secret under another name gets through, so pass only what describes the
+request.
+
 ## Check redistribute before you publish raw files
 
 Every implemented source must say whether its terms let you republish the raw file:
@@ -101,8 +118,38 @@ path that leads out of the folder, including through a symlink.
 
 ## Check a sourceledger release
 
-Each release on PyPI comes with signed provenance that ties it to the workflow that built
-it. [Release verification](releases.md) shows how to check it.
+Each release is built and published by the
+[release workflow](https://github.com/simonvanlierde/sourceledger/blob/main/.github/workflows/python-release.yml), with no API token. PyPI keeps a
+signed record of the workflow run that built each file. To check a wheel you downloaded,
+pass its path:
+
+```sh
+uvx pypi-attestations verify pypi --repository https://github.com/simonvanlierde/sourceledger \
+  sourceledger-0.3.1-py3-none-any.whl
+```
+
+From 0.2.0, GitHub also keeps a signed build-provenance attestation for each file:
+
+```sh
+gh attestation verify sourceledger-0.3.1-py3-none-any.whl --repo simonvanlierde/sourceledger
+```
+
+Both fail unless the file is byte for byte the one this repository's workflow built.
+From 0.3.1, the same provenance is also attached to each GitHub release as
+`sourceledger-<version>.sigstore.json`.
+
+You can also rebuild a release from its tag and compare. Built with the uv version the
+release workflow pins (0.13.1 for 0.3.1), the wheel and sdist match the ones on PyPI byte
+for byte:
+
+```sh
+git clone https://github.com/simonvanlierde/sourceledger && cd sourceledger
+mkdir sl-0.3.1 && git archive v0.3.1 | tar -x -C sl-0.3.1
+uvx --from uv==0.13.1 uv build sl-0.3.1 -o dist
+sha256sum dist/*
+```
+
+Compare the hashes with the ones under "Download files" on PyPI.
 
 ## How dependencies are chosen
 

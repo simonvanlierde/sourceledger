@@ -236,6 +236,9 @@ pre code {
   cursor: wait;
   color: var(--muted);
 }
+main:focus {
+  outline: none;
+}
 .table-scroll {
   max-width: 100%;
   overflow-x: auto;
@@ -453,6 +456,7 @@ table code {
 }
 .revision-comparison {
   background: var(--code);
+  border-top: 1px solid var(--rule);
   padding: 1.5rem 1.75rem;
 }
 .revision-comparison h2 {
@@ -572,5 +576,33 @@ mark {
 @media (forced-colors: active) {
   .revision-controls button[aria-pressed="true"] {
     font-weight: 700;
+  }
+}
+/* Narrow screens: each row becomes a card, every cell labelled with its column. */
+@media (max-width: 43.75rem) {
+  article > .table-scroll table,
+  article > .table-scroll tbody,
+  article > .table-scroll tr,
+  article > .table-scroll td {
+    display: block;
+    min-width: 0;
+  }
+  article > .table-scroll thead {
+    position: absolute;
+    left: -9999px;
+  }
+  article > .table-scroll tr {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  article > .table-scroll td {
+    border: 0;
+    padding: 0.15rem 0;
+  }
+  article > .table-scroll td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font: 600 0.75rem / 1.6 var(--sans);
+    color: var(--muted);
   }
 }
