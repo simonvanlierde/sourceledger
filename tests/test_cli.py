@@ -29,7 +29,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A project with one implemented source served from a local file; the test runs inside it."""
     upstream = tmp_path / "upstream" / "example.csv"
     upstream.parent.mkdir()
-    upstream.write_text("year,value\n2020,1.5\n", encoding="utf-8")
+    upstream.write_text("year,value\n2020,1.5\n", encoding="utf-8", newline="")
     (tmp_path / "sources.toml").write_text(
         f'[[source]]\nid = "example"\nstatus = "implemented"\nurl = "{upstream.as_uri()}"\n{TERMS}\n',
         encoding="utf-8",
