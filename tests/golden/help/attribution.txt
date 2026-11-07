@@ -1,0 +1,7 @@
+usage: sourceledger attribution [-h] [--manifest PATH]
+
+Print a Markdown table of the sources and their terms.
+
+options:
+  -h, --help       show this help message and exit
+  --manifest PATH  the manifest to read (default: sources.toml)

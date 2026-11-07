@@ -67,7 +67,7 @@ def test_parquet_build_and_validate(project: Path, capsys: pytest.CaptureFixture
     project.write_text("code,value\n003,2.0\n", encoding="utf-8", newline="")
     assert main(["fetch"]) == 0
     assert main(["validate"]) == 1
-    assert "earlier fetch" in capsys.readouterr().err
+    assert "earlier fetch" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("damage", [b"broken", b"", None])

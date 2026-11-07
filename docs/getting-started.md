@@ -98,6 +98,7 @@ with code 1 because the existing output was built from the earlier download:
 
 ```text
 data/processed/co2.csv: rows come from an earlier fetch than co2.csv; re-run build
+1 problem
 ```
 
 Compare the logs to see which source changed:

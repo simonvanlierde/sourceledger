@@ -1,0 +1,10 @@
+usage: sourceledger verify [-h] [--json] DIR
+
+Check a published dataset against its datapackage.json.
+
+positional arguments:
+  DIR         the folder of a published dataset
+
+options:
+  -h, --help  show this help message and exit
+  --json      print one JSON object instead of text
