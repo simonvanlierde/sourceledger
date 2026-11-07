@@ -117,14 +117,17 @@ Ideas and requests are welcome as [issues](https://github.com/simonvanlierde/sou
 
 ## Development
 
+You need [uv](https://docs.astral.sh/uv/), [just](https://just.systems), and Node 26 with
+[pnpm](https://pnpm.io) for the documentation site, which `just check` also builds.
+
 ```sh
 uv sync
 just check
 ```
 
-The documentation site is built with Astro from the Markdown in `docs/`. `just site` builds
-it into `site/dist/` (it needs Node 26 and pnpm), and every push to `main` deploys it to
-GitHub Pages at <https://simonvanlierde.com/sourceledger/>.
+The site is built with Astro from the Markdown in `docs/`. `just site` builds it into
+`site/dist/`, and every push to `main` deploys it to GitHub Pages at
+<https://simonvanlierde.com/sourceledger/>.
 
 [Contributing](.github/CONTRIBUTING.md) covers hooks, coding standards and tests.
 [Governance](GOVERNANCE.md) explains project decisions. Report vulnerabilities through
