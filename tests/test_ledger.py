@@ -25,6 +25,7 @@ import tomllib
 import tracemalloc
 import urllib.error
 import urllib.request
+import zipfile
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta, tzinfo
 from datetime import time as dt_time
@@ -2122,6 +2123,19 @@ def test_an_excel_workbook_that_expands_past_max_bytes_is_refused(tmp_path: Path
     ):
         ledger.parse_xlsx({"id": "x", "max_bytes": 1000}, payload)
     assert len(ledger.parse_xlsx({"id": "x", "max_bytes": 10 * len(payload)}, payload)[1]) == 100
+
+
+def test_an_excel_workbook_exactly_at_max_bytes_is_read(tmp_path: Path) -> None:
+    """As for a gzip, the cap is the most a workbook may expand to, not one byte less."""
+    payload = _xlsx(tmp_path, ("year", "value"), (2020, 1.5))
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        expanded = sum(info.file_size for info in archive.infolist())
+    assert ledger.parse_xlsx({"id": "x", "max_bytes": expanded}, payload) == (
+        ["year", "value"],
+        [{"year": "2020", "value": "1.5"}],
+    )
+    with pytest.raises(ValueError, match="decompresses past"):
+        ledger.parse_xlsx({"id": "x", "max_bytes": expanded - 1}, payload)
 
 
 def test_a_cell_right_of_the_excel_header_is_refused(tmp_path: Path) -> None:
