@@ -1281,7 +1281,6 @@ def test_a_second_fetch_at_once_is_refused(capsys: pytest.CaptureFixture[str]) -
     assert _run("fetch") == [0]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
 @pytest.mark.usefixtures("upstream")
 def test_temp_files_a_killed_run_left_are_swept_under_the_lock(tmp_path: Path) -> None:
     """A SIGKILL mid-download or mid-record leaves its temp file; the next run that holds the lock removes it."""
@@ -1301,7 +1300,6 @@ def test_temp_files_a_killed_run_left_are_swept_under_the_lock(tmp_path: Path) -
     assert not list(RAW.parent.glob(".*.part"))
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
 @pytest.mark.usefixtures("upstream")
 def test_a_refused_fetch_leaves_temp_files_alone(capsys: pytest.CaptureFixture[str]) -> None:
     """Another run holds the lock, so its temp file may still be in use: only the lock holder sweeps."""
@@ -1314,7 +1312,6 @@ def test_a_refused_fetch_leaves_temp_files_alone(capsys: pytest.CaptureFixture[s
     assert other.exists()
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
 @pytest.mark.usefixtures("upstream")
 def test_an_unremovable_temp_file_does_not_stop_a_fetch() -> None:
     """A virus scanner holding a temp file, or a directory named like one, must not abort the run."""
