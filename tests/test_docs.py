@@ -36,12 +36,12 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """The quick start's sources.toml, its URL pointed at a local copy; the test runs in the project."""
     upstream = tmp_path / "upstream" / "co2-annmean-mlo.csv"
     upstream.parent.mkdir()
-    upstream.write_text(FIXTURE, encoding="utf-8")
+    upstream.write_text(FIXTURE, encoding="utf-8", newline="")
     manifest, count = re.subn(
         r'^url = ".*"$', f'url = "{upstream.as_uri()}"', _block(README, "## Quick start", "toml"), flags=re.MULTILINE
     )
     assert count == 1
-    (tmp_path / "sources.toml").write_text(manifest, encoding="utf-8")
+    (tmp_path / "sources.toml").write_text(manifest, encoding="utf-8", newline="")
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -56,7 +56,7 @@ def test_the_quick_start_runs() -> None:
 def test_the_own_reader_example_runs(project: Path) -> None:
     """The project entry point in "Your own readers" runs every stage with its reader."""
     module = project / "pipeline.py"
-    module.write_text(_block(RECIPES, "## Write a custom reader", "python"), encoding="utf-8")
+    module.write_text(_block(RECIPES, "## Write a custom reader", "python"), encoding="utf-8", newline="")
     entry = runpy.run_path(str(module))["main"]
     assert [entry([stage]) for stage in ("fetch", "build", "validate")] == [0, 0, 0]
 
@@ -91,12 +91,12 @@ def test_the_website_revision_example_matches_the_pipeline(project: Path) -> Non
     assert example["after_sha256"] in guide
     upstream = project / "upstream" / "co2-annmean-mlo.csv"
     sources = ledger.load_manifest()
-    upstream.write_text(example["before"], encoding="utf-8")
+    upstream.write_text(example["before"], encoding="utf-8", newline="")
     (before,) = ledger.fetch(sources)
     ledger.build(sources)
     assert ledger.validate(sources) == []
     assert before.sha256 == example["before_sha256"]
-    upstream.write_text(example["after"], encoding="utf-8")
+    upstream.write_text(example["after"], encoding="utf-8", newline="")
     (after,) = ledger.fetch(sources)
     assert after.sha256 == example["after_sha256"]
     assert before.sha256 != after.sha256
@@ -159,12 +159,12 @@ def test_the_own_fetcher_recipe_records_each_file(tmp_path: Path, monkeypatch: p
     for country in ("nl", "be"):
         upstream = tmp_path / "upstream" / f"{country}.csv"
         upstream.parent.mkdir(exist_ok=True)
-        upstream.write_text(f"year,people\n2024,{len(country)}\n", encoding="utf-8")
+        upstream.write_text(f"year,people\n2024,{len(country)}\n", encoding="utf-8", newline="")
         entries.append(
             f'[[source]]\nid = "population-{country}"\nstatus = "implemented"\nurl = "{upstream.as_uri()}"\n'
             'terms = "CC0"\nterms_url = "https://example.org"\nlicense = "CC0-1.0"\nredistribute = true\n'
         )
-    Path("sources.toml").write_text("\n".join(entries), encoding="utf-8")
+    Path("sources.toml").write_text("\n".join(entries), encoding="utf-8", newline="")
     exec(_block(RECIPES, "### Your own fetcher", "python"), {})  # noqa: S102  # the recipe, run as written
     records = [json.loads(line) for line in Path("data/fetches.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [r["parameters"] for r in records] == [{"country": "nl"}, {"country": "be"}]

@@ -29,14 +29,19 @@ jobs:
   check:
     name: "python: lint, types, tests"
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
-    # Every version from requires-python up: a library runs on interpreters its
-    # author doesn't use.
+    # Every version from requires-python up on Linux: a library runs on interpreters its
+    # author doesn't use. One Windows entry on the newest stable: file I/O, line endings
+    # and the fetch lock differ there.
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python: ["3.12", "3.13", "3.14", "3.15"]
+        include:
+          - os: windows-latest
+            python: "3.14"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -59,7 +64,9 @@ jobs:
 
       - run: uv run ruff check --output-format=github
       - run: uv run ruff format --check
+      # Linux only: ty on Windows flags the POSIX-only calls the tests guard with skipif.
       - run: uv run ty check
+        if: runner.os != 'Windows'
       # Fails below the fail_under in pyproject.toml.
       - run: uv run pytest --cov
 

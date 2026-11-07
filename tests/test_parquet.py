@@ -21,7 +21,7 @@ from sourceledger.cli import main
 def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
     source = tmp_path / "input.csv"
-    source.write_text('code,value\n001,1.10\n002,""\n', encoding="utf-8")
+    source.write_text('code,value\n001,1.10\n002,""\n', encoding="utf-8", newline="")
     Path("sources.toml").write_text(
         f"""output_format = "parquet"
 [[source]]
@@ -52,7 +52,7 @@ def test_parquet_build_and_validate(project: Path, capsys: pytest.CaptureFixture
     assert [(row["code"], row["value"]) for row in rows] == [("001", "1.10"), ("002", "")]
     assert {row["source_id"] for row in rows} == {"example"}
     package_path = Path("data/processed/datapackage.json")
-    resource = json.loads(package_path.read_text())["resources"][0]
+    resource = json.loads(package_path.read_text(encoding="utf-8"))["resources"][0]
     assert resource["format"] == "parquet"
     assert resource["mediatype"] == "application/vnd.apache.parquet"
     assert "encoding" not in resource
@@ -64,7 +64,7 @@ def test_parquet_build_and_validate(project: Path, capsys: pytest.CaptureFixture
     assert main(["verify", "data/processed"]) == 0
     assert main(["report"]) == 0
     assert main(["validate", "--json", "--only", "example"]) == 0
-    project.write_text("code,value\n003,2.0\n", encoding="utf-8")
+    project.write_text("code,value\n003,2.0\n", encoding="utf-8", newline="")
     assert main(["fetch"]) == 0
     assert main(["validate"]) == 1
     assert "earlier fetch" in capsys.readouterr().err
@@ -89,7 +89,7 @@ def test_parquet_damage_is_a_validation_problem(damage: bytes | None) -> None:
 @pytest.mark.usefixtures("project")
 def test_unknown_output_format_fails(value: str) -> None:
     manifest = Path("sources.toml")
-    manifest.write_text(manifest.read_text().replace('"parquet"', value), encoding="utf-8")
+    manifest.write_text(manifest.read_text(encoding="utf-8").replace('"parquet"', value), encoding="utf-8", newline="")
     with pytest.raises(ValueError, match=r"^output_format must be 'csv' or 'parquet'$"):
         ledger.load_manifest()
 
@@ -144,7 +144,7 @@ def test_parquet_partial_build_and_file_sources() -> None:
 
 @pytest.mark.usefixtures("project")
 def test_parquet_empty_table_has_an_explicit_schema() -> None:
-    Path("input.csv").write_text("code,value\n", encoding="utf-8")
+    Path("input.csv").write_text("code,value\n", encoding="utf-8", newline="")
     assert main(["fetch"]) == main(["build"]) == 0
     frame = pl.read_parquet("data/processed/example.parquet")
     assert frame.height == 0
@@ -191,7 +191,7 @@ def test_output_format_schema_matches_manifest(tmp_path: Path, output_format: ob
     import jsonschema  # noqa: PLC0415
 
     manifest = tmp_path / "sources.toml"
-    manifest.write_text(f"output_format = {json.dumps(output_format)}\n", encoding="utf-8")
+    manifest.write_text(f"output_format = {json.dumps(output_format)}\n", encoding="utf-8", newline="")
     schema = json.loads(Path(ledger.__file__).with_name("sources.schema.json").read_text())
     accepted = jsonschema.Draft202012Validator(schema).is_valid({"output_format": output_format})
     try:

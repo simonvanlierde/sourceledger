@@ -27,7 +27,7 @@ uv tool install sourceledger
 For a Python project that imports the library, use `uv add sourceledger` instead.
 Use `sourceledger[xlsx]` in either command to read Excel files, or `sourceledger[parquet]`
 to write Parquet outputs.
-Python 3.12 or later is required; Linux and macOS are supported (POSIX).
+Python 3.12 or later is required; Linux, macOS and Windows are supported.
 This README follows `main`, including [unreleased features](CHANGELOG.md#unreleased).
 
 ## Quick start
