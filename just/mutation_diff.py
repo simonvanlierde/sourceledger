@@ -21,7 +21,7 @@ HUNK = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
 def changed_lines(path: str, base: str, *, untracked: bool) -> set[int]:
     """Line numbers in the new file that the diff adds or touches; all of them when untracked."""
     if untracked:
-        return set(range(1, len(Path(path).read_text().splitlines()) + 1))
+        return set(range(1, len(Path(path).read_text(encoding="utf-8").splitlines()) + 1))
     diff = subprocess.run(
         ["git", "diff", "-U0", "--relative", base, "--", path],
         check=True,
@@ -58,7 +58,7 @@ def functions(tree: ast.Module, module: str) -> list[tuple[range, str]]:
 
 def main(base: str) -> None:
     """Print one pattern per changed function."""
-    config = tomllib.loads(Path("pyproject.toml").read_text()).get("tool", {}).get("mutmut", {})
+    config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8")).get("tool", {}).get("mutmut", {})
     roots = config.get("source_paths") or ["src", "lib"]
     only = config.get("only_mutate")
     skip = config.get("do_not_mutate", [])
@@ -88,7 +88,7 @@ def main(base: str) -> None:
         parts = path.with_suffix("").parts
         module = ".".join(parts[1:] if parts[:1] == ("src",) else parts).removesuffix(".__init__")
         touched = changed_lines(name, base, untracked=name in untracked)
-        for lines, pattern in functions(ast.parse(path.read_text()), module):
+        for lines, pattern in functions(ast.parse(path.read_text(encoding="utf-8")), module):
             if touched & set(lines):
                 print(pattern)
 

@@ -365,9 +365,9 @@ def test_report_says_what_it_does_not_know_about_times(dataset: list[ledger.Sour
 def test_report_names_a_resource_without_a_name(dataset: list[ledger.Source]) -> None:
     """A damaged package still gets a report, with the nameless output called "unnamed"."""
     path = Path("data/processed/datapackage.json")
-    package = json.loads(path.read_text())
+    package = json.loads(path.read_text(encoding="utf-8"))
     del package["resources"][0]["name"]
-    path.write_text(json.dumps(package))
+    path.write_text(json.dumps(package), encoding="utf-8")
     page = report(dataset)
     assert ">unnamed</h" in page
     assert "unnamed: no fetch record in the log" in page
