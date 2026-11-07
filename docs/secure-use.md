@@ -138,6 +138,14 @@ Both fail unless the file is byte for byte the one this repository's workflow bu
 From 0.3.1, the same provenance is also attached to each GitHub release as
 `sourceledger-<version>.sigstore.json`.
 
+Release tags from 0.3.0 on are signed with the SSH key in
+[`.github/allowed_signers`](https://github.com/simonvanlierde/sourceledger/blob/main/.github/allowed_signers),
+and the release workflow publishes nothing for a tag signed with another key. To check a tag:
+
+```sh
+git -c gpg.ssh.allowedSignersFile=.github/allowed_signers tag -v v0.4.0
+```
+
 You can also rebuild a release from its tag and compare. Built with the uv version the
 release workflow pins (0.13.1 for 0.3.1), the wheel and sdist match the ones on PyPI byte
 for byte:
