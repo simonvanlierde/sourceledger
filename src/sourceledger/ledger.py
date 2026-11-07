@@ -864,8 +864,12 @@ def _fetch(
     user_agent: str = USER_AGENT,
     only: Collection[str] | None = None,
     before: dict[str, str] | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> list[FetchRecord]:
-    """Fetch and optionally retain the pre-fetch hashes from the same locked history read."""
+    """Fetch and optionally retain the pre-fetch hashes from the same locked history read.
+
+    `progress`, when given, is called before each source with its id and place, as `example (1 of 3)`.
+    """
     sources = _select(sources, only)
     raw.mkdir(parents=True, exist_ok=True)
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -875,7 +879,10 @@ def _fetch(
         logged = _last_records(log)
         if before is not None:
             before.update((sid, record["sha256"]) for sid, record in logged.items())
-        for source in implemented(sources):
+        todo = implemented(sources)
+        for number, source in enumerate(todo, 1):
+            if progress:
+                progress(f"{source['id']} ({number} of {len(todo)})")
             try:
                 records.append(_fetch_one(source, raw, log, logged, user_agent))
             except ValueError as error:  # messages already name the source
@@ -1011,7 +1018,7 @@ def record(
     )
 
 
-def _record_file(
+def _record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before and dry_run
     source: Source,
     path: Path,
     *,
@@ -1023,26 +1030,17 @@ def _record_file(
     raw: Path,
     log: Path,
     before: dict[str, str] | None = None,
+    dry_run: bool = False,
 ) -> FetchRecord:
-    """`record()`, filling `before` with the hashes logged before it, read under the lock as `_fetch` does."""
+    """`record()`, filling `before` with the hashes logged before it, read under the lock as `_fetch` does.
+
+    `dry_run` makes every check and returns the record without writing anything or taking the lock.
+    """
     sid = source["id"]
     if source.get("status") != IMPLEMENTED:
         msg = f"{sid}: only an implemented source can be recorded"
         raise ValueError(msg)
-    url = url or source["url"]
-    parts = urlsplit(url)
-    if parts.username is not None or parts.password is not None:
-        msg = f"{sid}: the URL holds a user name or password; record it without them"
-        raise ValueError(msg)
-    foreign = url != source["url"]
-    served = _served_from(source, url) if foreign else ""
-    if foreign and served != url:
-        # The manifest's own URL is reviewed; another one can carry a signature or key in its query.
-        kept = served or source["url"]
-        _logger.warning("%s: kept %s without its query and fragment; put what they asked for in parameters", sid, kept)
-    if foreign and (etag or last_modified):
-        _logger.warning("%s: ETag and Last-Modified from %s are not the source URL's; not kept", sid, served)
-        etag = last_modified = ""
+    served, etag, last_modified = _recorded_url(source, url or source["url"], etag, last_modified)
     request = _checked_parameters(sid, parameters or {})
     now = datetime.now(UTC)
     downloaded = "" if retrieved_at is None else _timestamp(_aware(sid, retrieved_at, now))
@@ -1050,17 +1048,16 @@ def _record_file(
     if not stat.S_ISREG(path.stat().st_mode):
         msg = f"{sid}: {path} is not a regular file"
         raise ValueError(msg)
-    raw.mkdir(parents=True, exist_ok=True)
-    log.parent.mkdir(parents=True, exist_ok=True)
-    with _lock(raw):
+    if not dry_run:
+        raw.mkdir(parents=True, exist_ok=True)
+        log.parent.mkdir(parents=True, exist_ok=True)
+    with contextlib.nullcontext() if dry_run else _lock(raw):
         logged = _last_records(log)
         if before is not None:
             before.update((key, fields["sha256"]) for key, fields in logged.items())
-        fd, name = tempfile.mkstemp(dir=raw, prefix=f".{sid}.", suffix=".part")
-        temp = Path(name)
+        temp = None
         try:
-            with os.fdopen(fd, "wb") as fh, path.open("rb") as src:
-                digest, size = _copy(src, fh, source, math.inf)  # a local copy has no time budget
+            digest, size, temp = _take_in(source, path, None if dry_run else raw)
             if source.get("sha256", digest) != digest:
                 msg = f"{sid}: {path} hashes to {digest}, not the sha256 in sources.toml"
                 raise ValueError(msg)
@@ -1077,10 +1074,52 @@ def _record_file(
                 recorded_at=_timestamp(now),
                 parameters=request,
             )
-            _commit(source, temp, result, raw, log, logged)
+            if temp:
+                _commit(source, temp, result, raw, log, logged)
         finally:
-            temp.unlink(missing_ok=True)  # gone already once moved into place
+            if temp:
+                temp.unlink(missing_ok=True)  # gone already once moved into place
     return result
+
+
+def _recorded_url(source: Source, url: str, etag: str, last_modified: str) -> tuple[str, str, str]:
+    """The `final_url`, ETag and Last-Modified to record for a file from `url`.
+
+    Another URL than the source's loses its query and fragment, and its validators.
+    """
+    sid = source["id"]
+    parts = urlsplit(url)
+    if parts.username is not None or parts.password is not None:
+        msg = f"{sid}: the URL holds a user name or password; record it without them"
+        raise ValueError(msg)
+    foreign = url != source["url"]
+    served = _served_from(source, url) if foreign else ""
+    if foreign and served != url:
+        # The manifest's own URL is reviewed; another one can carry a signature or key in its query.
+        kept = served or source["url"]
+        _logger.warning("%s: kept %s without its query and fragment; put what they asked for in parameters", sid, kept)
+    if foreign and (etag or last_modified):
+        _logger.warning("%s: ETag and Last-Modified from %s are not the source URL's; not kept", sid, served)
+        etag = last_modified = ""
+    return served, etag, last_modified
+
+
+def _take_in(source: Source, path: Path, raw: Path | None) -> tuple[str, int, Path | None]:
+    """The SHA-256 and size of `path`, and a copy of it in a temp file in `raw`; with no `raw`, only hashed."""
+    if raw is None:
+        size = path.stat().st_size
+        if size > (cap := source.get("max_bytes", _MAX_BYTES)):
+            msg = f"{source['id']}: {path} is {size} bytes, over max_bytes {cap} in sources.toml"
+            raise ValueError(msg)
+        return _digest(path), size, None
+    fd, name = tempfile.mkstemp(dir=raw, prefix=f".{source['id']}.", suffix=".part")
+    try:
+        with os.fdopen(fd, "wb") as fh, path.open("rb") as src:
+            digest, size = _copy(src, fh, source, math.inf)  # a local copy has no time budget
+    except BaseException:
+        Path(name).unlink(missing_ok=True)
+        raise
+    return digest, size, Path(name)
 
 
 # A name holding one of these, or with one of the words below as a part of it (`x-api-key`, `sig`).
