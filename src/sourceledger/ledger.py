@@ -1681,11 +1681,6 @@ def _provenance(source: Source, record: FetchRecord) -> dict[str, Any]:
     return stamp
 
 
-def read_output(path: Path) -> list[dict[str, str]]:
-    """A published CSV or Parquet table, as written. Parquet needs the parquet extra."""
-    return list(_output_rows(path))
-
-
 def _arrow() -> tuple[Any, Any]:  # optional dependency, imported only for Parquet
     """Load the Parquet backend, with an actionable error when the extra is missing."""
     try:
@@ -1713,8 +1708,13 @@ def _parquet_batches(path: Path) -> Iterator[Any]:
         raise ValueError(msg) from error
 
 
-def _output_rows(path: Path) -> Iterator[dict[str, str]]:
-    """Read CSV one row at a time, or Parquet in bounded batches with its optional backend."""
+def read_output(path: Path) -> Iterator[dict[str, str]]:
+    """The rows of a published CSV or Parquet table, as written, one at a time.
+
+    CSV is read row by row, Parquet in batches of at most 10,000 rows; Parquet needs the
+    parquet extra. Wrap the call in `list()` to hold the whole table. Raises ValueError, on
+    iteration, for a Parquet file that cannot be read.
+    """
     if path.suffix == _PARQUET_SUFFIX:
         for batch in _parquet_batches(path):
             yield from batch.to_pylist()

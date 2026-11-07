@@ -151,7 +151,7 @@ def test_the_whole_pipeline_runs_from_a_local_file(upstream: Path) -> None:
     assert record["retrieved_at"].endswith("Z")
     assert record["vintage"] == "not stated"
 
-    rows = ledger.read_output(OUT)
+    rows = list(ledger.read_output(OUT))
     assert [(r["year"], r["value"]) for r in rows] == [("2020", "1.5"), ("2021", "2.5")]
     assert {(r["source_url"], r["raw_sha256"]) for r in rows} == {(record["url"], record["sha256"])}
 
@@ -1316,7 +1316,7 @@ def test_the_default_reader_follows_the_format(
     _manifest(tmp_path, upstream.as_uri(), terms=f"{TERMS}\n{extra}")
     monkeypatch.chdir(tmp_path)
     assert _run("fetch", "build", "validate") == [0, 0, 0]
-    rows = ledger.read_output(OUT)
+    rows = list(ledger.read_output(OUT))
     assert [(r["year"], r["value"]) for r in rows] == [("2020", "1.5"), ("2021", "2.5")]
 
 
@@ -2045,7 +2045,16 @@ def test_a_csv_field_keeps_its_line_break() -> None:
 def test_a_quoted_line_break_survives_read_output(tmp_path: Path) -> None:
     out = tmp_path / "o.csv"
     out.write_bytes(b'a\r\n"one\r\ntwo"\r\n')
-    assert ledger.read_output(out) == [{"a": "one\r\ntwo"}]
+    assert list(ledger.read_output(out)) == [{"a": "one\r\ntwo"}]
+
+
+def test_read_output_streams_rows(tmp_path: Path) -> None:
+    """A table of millions of rows is read one row at a time, not into one list."""
+    out = tmp_path / "o.csv"
+    out.write_bytes(b"a\r\n1\r\n2\r\n")
+    rows = ledger.read_output(out)
+    assert next(rows) == {"a": "1"}
+    assert list(rows) == [{"a": "2"}]
 
 
 @pytest.mark.parametrize("payload", [b"[1]", b"{}", b'"x"'])
@@ -3116,7 +3125,7 @@ def test_public_build_preserves_custom_parser(upstream: Path):
         return ["custom"], [{"custom": "kept"}]
 
     assert ledger.build(sources, parse=parse) == [OUT]
-    row = ledger.read_output(OUT)[0]
+    row = next(ledger.read_output(OUT))
     assert row["custom"] == "kept"
     assert row["source_id"] == "example"
 
@@ -3160,7 +3169,7 @@ def test_a_recorded_file_builds_like_a_fetched_one(upstream: Path) -> None:
     """The same bytes, fetched or recorded, give the same rows; only the record says which happened."""
     (fetched,) = ledger.fetch(ledger.load_manifest())
     ledger.build(ledger.load_manifest())
-    fetched_rows = ledger.read_output(OUT)
+    fetched_rows = list(ledger.read_output(OUT))
     shutil.rmtree("data")
 
     recorded = ledger.record(_source(), upstream, retrieved_at=WHEN, last_modified="Tue, 03 Nov 2026 08:00:00 GMT")

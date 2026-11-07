@@ -31,7 +31,8 @@ The Parquet extra uses PyArrow. Writing and validation process at most 10,000 ro
 Validation decodes every column, including ordinary data columns, to detect unreadable pages.
 Memory also depends on row width, file metadata and encoded column dictionaries; this is not a fixed byte cap.
 JSON, Excel and custom readers still hold their input and parsed rows in memory.
-`read_output` still returns a list containing the whole table. `datapackage.json` records the format and media type;
+`read_output` yields one row at a time, so a large table is never held in memory; wrap it in `list()` to hold it all.
+`datapackage.json` records the format and media type;
 `verify` checks the bytes without needing the extra.
 
 The default is `output_format = "csv"`. `format = "file"` sources keep their original bytes in either mode.

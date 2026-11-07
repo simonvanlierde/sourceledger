@@ -8,14 +8,17 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+**Breaking:** `read_output()` returns an iterator over the rows instead of a list. Wrap the call in `list()` where the code indexes the rows, takes their length, or reads them twice.
+
 ### Added
 
 - [`record`](docs/reference.md#other-commands), and `record()` in the library, take in a file that another tool such as pooch, DVC or your own script downloaded. It copies the file into `data/raw/`, checks the `sha256` pin, and writes the same log line and fetch record as `fetch`, with a `recorded_at` time and optional request `parameters`, stored as text in name order. The download time is the one the other tool reports, or empty. `datapackage.json` and the HTML report show these outputs as recorded, not fetched, and `status` shows the record time when there is no download time. A recorded URL other than the source's loses its query, and a parameter named like a credential (`api_key`, `apiKey`, `authKey`, `sessionid`, `sig`) is refused, since both are published with the dataset. Recording the same bytes again leaves the fetch record as logged; from another URL or download time it adds a log line, and `validate` reports a `datapackage.json` built before such a record. A dataset with a recorded file needs this version to build: 0.4.0 refuses its fetch records.
-- [Parquet outputs](docs/reference.md#sourcestoml) through `sourceledger[parquet]` and the project-wide `output_format = "parquet"` setting. Tables use zstd compression and an explicit string schema, with the same provenance columns and validation as CSV. `build`, `validate` and `read_output` accept `output_format=` in the library.
+- [Parquet outputs](docs/reference.md#sourcestoml) through `sourceledger[parquet]` and the project-wide `output_format = "parquet"` setting. Tables use zstd compression and an explicit string schema, with the same provenance columns and validation as CSV. `build` and `validate` accept `output_format=` in the library, and `read_output` reads either format.
   Writing and validation use batches of at most 10,000 rows through PyArrow, including full-column decoding to detect corruption.
 
 ### Changed
 
+- **Breaking:** `read_output()` yields one row at a time, CSV row by row and Parquet in batches of at most 10,000 rows, so reading a table of 1.5 million rows no longer holds them all in one list.
 - Windows is supported and tested in CI. 0.4.0 said it was not.
 - The HTML report puts the integrity result in a box at the top, lists the outputs with links under one heading, and names hashes and times in plain words ("SHA-256 of the downloaded file", "Served from"). It follows the reader's dark mode, prints without the in-page links, wraps long ids, and shows a recorded file's request parameters. A script that reads the report's HTML needs updating.
 - Stages that take no operand refuse one: `build foo` exits 2 instead of ignoring `foo`.
