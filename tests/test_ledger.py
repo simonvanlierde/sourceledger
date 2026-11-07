@@ -36,9 +36,6 @@ from typing import ClassVar
 
 import pytest
 
-if sys.platform != "win32":
-    import fcntl
-
 from sourceledger import ledger
 from sourceledger.cli import main
 from sourceledger.report import report
@@ -1204,7 +1201,7 @@ def test_a_redirect_to_a_signed_url_keeps_no_signature(publisher: str, tmp_path:
     assert "s3cr3t" not in Path("data/fetches.jsonl").read_text(encoding="utf-8")
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no O_NOFOLLOW to refuse a symlink with")
 @pytest.mark.usefixtures("upstream")
 def test_a_symlinked_lock_file_leaves_its_target_alone(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """A checkout can carry a symlink at data/raw/.lock; taking the lock must not empty the file it points at."""
@@ -1235,13 +1232,11 @@ def test_a_symlinked_fetch_log_is_refused(tmp_path: Path, capsys: pytest.Capture
     assert victim.read_text(encoding="utf-8") == ""
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
 @pytest.mark.usefixtures("upstream")
 def test_a_second_fetch_at_once_is_refused(capsys: pytest.CaptureFixture[str]) -> None:
     """Two runs interleaving their writes could pair one run's raw file with the other's record."""
     RAW.parent.mkdir(parents=True)
-    with (RAW.parent / ".lock").open("w") as held:
-        fcntl.flock(held, fcntl.LOCK_EX)
+    with ledger._lock(RAW.parent):  # noqa: SLF001
         assert _run("fetch") == [1]
     assert "another fetch is already running" in capsys.readouterr().err
     assert _run("fetch") == [0]
@@ -3327,14 +3322,14 @@ def test_a_missing_file_leaves_nothing_behind(upstream: Path) -> None:
     assert not RAW.parent.exists()
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
 def test_record_waits_for_no_fetch(upstream: Path) -> None:
     """Record and fetch share the raw lock, so they never interleave their writes."""
     RAW.parent.mkdir(parents=True)
-    with (RAW.parent / ".lock").open("w") as held:
-        fcntl.flock(held, fcntl.LOCK_EX)
-        with pytest.raises(OSError, match="another fetch is already running"):
-            ledger.record(_source(), upstream, retrieved_at=WHEN)
+    with (
+        ledger._lock(RAW.parent),  # noqa: SLF001
+        pytest.raises(OSError, match="another fetch is already running"),
+    ):
+        ledger.record(_source(), upstream, retrieved_at=WHEN)
 
 
 def test_the_record_stage_records_one_file(upstream: Path, capsys: pytest.CaptureFixture[str]) -> None:

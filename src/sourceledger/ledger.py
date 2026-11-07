@@ -56,7 +56,9 @@ if TYPE_CHECKING:
     import ssl
     from email.message import Message
 
-if sys.platform != "win32":  # noqa: PLR2004
+if sys.platform == "win32":  # noqa: PLR2004
+    import msvcrt
+else:
     import fcntl
 
 MANIFEST = Path("sources.toml")
@@ -780,17 +782,19 @@ def logged_versions(log: Path = FETCH_LOG) -> dict[str, str]:
 def _lock(raw: Path) -> Generator[None]:
     """Hold an exclusive lock on `raw/.lock`, so two fetches at once can't interleave their writes.
 
-    Fails at once rather than waiting. POSIX only: on Windows no lock is taken.
+    Fails at once rather than waiting.
     """
-    if sys.platform == "win32":  # noqa: PLR2004
-        yield
-        return
     # Never truncated, and never through a symlink: a cloned checkout could plant one to another file.
-    fd = os.open(raw / ".lock", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+    # Windows has no O_NOFOLLOW; there a symlink needs a privilege a checkout does not grant.
+    flags = os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(raw / ".lock", flags, 0o644)
     with os.fdopen(fd, "wb") as fh:
         try:
-            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
+            if sys.platform == "win32":  # noqa: PLR2004
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)  # locks byte 0, even past the end
+            else:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:  # BlockingIOError on POSIX, PermissionError on Windows
             msg = f"another fetch is already running in {raw}"
             raise OSError(msg) from error
         yield
