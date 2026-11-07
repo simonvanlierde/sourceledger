@@ -1718,8 +1718,11 @@ def read_output(path: Path) -> Iterator[dict[str, str]]:
     """The rows of a published CSV or Parquet table, as written, one at a time.
 
     CSV is read row by row, Parquet in batches of at most 10,000 rows; Parquet needs the
-    parquet extra. Wrap the call in `list()` to hold the whole table. Raises ValueError, on
-    iteration, for a Parquet file that cannot be read.
+    parquet extra. Wrap the call in `list()` to hold the whole table. This is a generator, so
+    nothing runs until the first `next()`: every error, a missing file included (OSError), and
+    ValueError for a Parquet file that cannot be read, is raised there. An iterator left
+    unfinished keeps the file open; on Windows that blocks replacing the output, so exhaust it
+    or call `close()`.
     """
     if path.suffix == _PARQUET_SUFFIX:
         for batch in _parquet_batches(path):

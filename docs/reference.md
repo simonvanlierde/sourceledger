@@ -32,6 +32,8 @@ Validation decodes every column, including ordinary data columns, to detect unre
 Memory also depends on row width, file metadata and encoded column dictionaries; this is not a fixed byte cap.
 JSON, Excel and custom readers still hold their input and parsed rows in memory.
 `read_output` yields one row at a time, so a large table is never held in memory; wrap it in `list()` to hold it all.
+It is a generator: a missing or unreadable file raises on the first `next()`, not at the call,
+and an iterator left unfinished keeps the file open, which on Windows blocks replacing the output.
 `datapackage.json` records the format and media type;
 `verify` checks the bytes without needing the extra.
 
