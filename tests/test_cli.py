@@ -175,11 +175,18 @@ def test_record_dry_run_checks_everything_and_writes_nothing(
 
 
 def test_record_dry_run_keeps_the_size_cap(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The dry run refuses an over-cap file with the same message as the real record."""
     manifest = Path("sources.toml")
     manifest.write_text(manifest.read_text() + "max_bytes = 5\n")
     assert main(["record", "example", str(project), "--dry-run"]) == 3
-    assert capsys.readouterr().err == f"error: example: {project} is 20 bytes, over max_bytes 5 in sources.toml\n"
+    dry = capsys.readouterr().err
     assert not Path("data").exists()
+    assert main(["record", "example", str(project)]) == 3
+    assert (
+        capsys.readouterr().err
+        == dry
+        == ("error: example: download exceeds 5 bytes; raise max_bytes in sources.toml if expected\n")
+    )
 
 
 @pytest.mark.usefixtures("project")

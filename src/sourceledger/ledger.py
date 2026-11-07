@@ -529,8 +529,10 @@ def _download(response: _Response, source: Source, deadline: float, folder: Path
     return Path(temp), digest, size
 
 
-def _copy(response: _Response | io.BufferedReader, fh: IO[bytes], source: Source, deadline: float) -> tuple[str, int]:
-    """Copy the body into `fh` chunk by chunk, flushed to disk: its SHA-256 and size."""
+def _copy(
+    response: _Response | io.BufferedReader, fh: IO[bytes] | None, source: Source, deadline: float
+) -> tuple[str, int]:
+    """Copy the body into `fh` chunk by chunk, flushed to disk: its SHA-256 and size; with no `fh`, only hash it."""
     cap = source.get("max_bytes", _MAX_BYTES)
     digest = hashlib.sha256()
     size = 0
@@ -545,9 +547,11 @@ def _copy(response: _Response | io.BufferedReader, fh: IO[bytes], source: Source
             msg = f"{source['id']}: download exceeds {cap} bytes; raise max_bytes in sources.toml if expected"
             raise ValueError(msg)
         digest.update(chunk)
-        fh.write(chunk)
-    fh.flush()
-    os.fsync(fh.fileno())
+        if fh:
+            fh.write(chunk)
+    if fh:
+        fh.flush()
+        os.fsync(fh.fileno())
     return digest.hexdigest(), size
 
 
@@ -1107,11 +1111,8 @@ def _recorded_url(source: Source, url: str, etag: str, last_modified: str) -> tu
 def _take_in(source: Source, path: Path, raw: Path | None) -> tuple[str, int, Path | None]:
     """The SHA-256 and size of `path`, and a copy of it in a temp file in `raw`; with no `raw`, only hashed."""
     if raw is None:
-        size = path.stat().st_size
-        if size > (cap := source.get("max_bytes", _MAX_BYTES)):
-            msg = f"{source['id']}: {path} is {size} bytes, over max_bytes {cap} in sources.toml"
-            raise ValueError(msg)
-        return _digest(path), size, None
+        with path.open("rb") as src:
+            return (*_copy(src, None, source, math.inf), None)
     fd, name = tempfile.mkstemp(dir=raw, prefix=f".{source['id']}.", suffix=".part")
     try:
         with os.fdopen(fd, "wb") as fh, path.open("rb") as src:
