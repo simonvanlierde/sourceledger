@@ -2493,10 +2493,10 @@ def test_record_keeps_the_snapshot_of_the_same_bytes_and_asks_for_none(
     calls = _serve(monkeypatch, _Response(FIXTURE.encode()), _Response(b"", url=_SNAPSHOT))
     assert _run("fetch") == [0]
     download = tmp_path / "download.csv"
-    download.write_text(FIXTURE, encoding="utf-8")
+    download.write_text(FIXTURE, encoding="utf-8", newline="")
     source = ledger.load_manifest()[0]
     assert ledger.record(source, download).archive_url == _SNAPSHOT
-    download.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8")
+    download.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8", newline="")
     assert ledger.record(source, download).archive_url == ""
     assert len(calls) == 2
     assert [json.loads(line)["archive_url"] for line in LOG.read_text(encoding="utf-8").splitlines()] == [
