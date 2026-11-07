@@ -12,8 +12,10 @@ import csv
 import dataclasses
 import json
 import logging
+import os
 import re
 import shlex
+import signal
 import sys
 import tomllib
 from datetime import datetime
@@ -213,6 +215,21 @@ def _check_parameters(args: argparse.Namespace) -> None:
     names = [p.partition("=")[0] for p in args.parameter]
     if dupes := sorted({n for n in names if names.count(n) > 1}):
         args.parser.error(f"--parameter names {dupes} more than once")
+
+
+def entry() -> NoReturn:
+    """The `sourceledger` command: run `main`, and after Ctrl-C die of SIGINT, as the shell expects.
+
+    A shell loop stops on Ctrl-C only when the command was killed by the signal; an exit code of
+    130 alone does not stop it. `main` itself returns 130, for projects that call it.
+    """
+    code = main()
+    if code == EXIT_INTERRUPTED and sys.platform != "win32":  # noqa: PLR2004
+        sys.stdout.flush()
+        sys.stderr.flush()
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        os.kill(os.getpid(), signal.SIGINT)
+    sys.exit(code)
 
 
 def main(  # the entry point: parse, run one stage, report it

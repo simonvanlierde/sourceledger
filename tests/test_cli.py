@@ -380,3 +380,19 @@ def test_output_is_utf8_with_lf_in_any_locale(tmp_path: Path) -> None:
     html = cli.report(ledger.load_manifest(manifest))
     assert "Łódź ☃ data" in html
     assert out.read_bytes() == html.encode("utf-8")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no death by signal")
+def test_the_command_dies_of_sigint_after_ctrl_c() -> None:
+    """A shell loop stops on Ctrl-C only when the command died of SIGINT, not when it exited 130."""
+    result = subprocess.run(
+        [sys.executable, "-c", "from sourceledger import cli; cli.main = lambda: 130; cli.entry()"], check=False
+    )
+    assert result.returncode == -2  # SIGINT
+
+
+def test_the_command_exits_with_mains_code() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", "from sourceledger import cli; cli.main = lambda: 3; cli.entry()"], check=False
+    )
+    assert result.returncode == 3
