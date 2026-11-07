@@ -44,6 +44,10 @@ once per column chunk; the same table was smaller than its raw file. Use Parquet
 When switching formats, move old outputs out of `data/processed/` before rebuilding; `validate` reports them as unclaimed files.
 Library callers pass `output_format="parquet"` to both `build` and `validate`; `load_manifest` returns only source tables.
 
+`output_format` and `[[source]]` are the only top-level keys. Any other, such as a misspelt
+`[[sources]]`, is refused with the nearest valid name, so a typo never reads as an empty manifest.
+A source table may hold extra keys for your own reader.
+
 Each `[[source]]` table takes these keys:
 
 | Key | Required | Meaning |

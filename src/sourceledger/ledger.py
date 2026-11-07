@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import csv
 import dataclasses
+import difflib
 import errno
 import functools
 import gzip
@@ -194,10 +195,20 @@ class FetchError(OSError):
         self.failures = failures  # one line per source that did not
 
 
+_MANIFEST_KEYS = frozenset({"output_format", "source"})
+
+
 def load_manifest(path: Path = MANIFEST) -> list[Source]:
     """The `[[source]]` tables of sources.toml, after checking ids, URLs, caps, timeouts and pins."""
     with path.open("rb") as fh:
         manifest = tomllib.load(fh)
+    # A typo such as [[sources]] must not read as an empty manifest: build would then write
+    # an empty datapackage.json over a good one.
+    for key in sorted(manifest.keys() - _MANIFEST_KEYS):
+        close = difflib.get_close_matches(key.lower().replace("-", "_"), _MANIFEST_KEYS, n=1, cutoff=0.6)
+        hint = f"; did you mean {close[0]}?" if close else ""
+        msg = f"sources.toml: {key!r} is not a sources.toml key{hint}"
+        raise ValueError(msg)
     _check_output_format(manifest.get("output_format", "csv"))
     sources = manifest.get("source", [])
     if not isinstance(sources, list) or not all(isinstance(s, dict) and isinstance(s.get("id"), str) for s in sources):

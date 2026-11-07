@@ -331,6 +331,31 @@ def test_an_empty_manifest_is_no_sources(tmp_path: Path, monkeypatch: pytest.Mon
     assert _run("fetch", "build", "validate") == [0, 0, 0]
 
 
+@pytest.mark.parametrize(
+    ("text", "hint"),
+    [
+        ("[[sources]]\nid = 'a'\nstatus = 'implemented'\n", "source"),
+        ("[[Source]]\nid = 'a'\nstatus = 'implemented'\n", "source"),
+        ("output-format = 'parquet'\n", "output_format"),
+    ],
+)
+def test_a_misspelt_top_level_key_is_refused_before_any_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str, hint: str
+) -> None:
+    """A typo must not read as an empty manifest, or build writes an empty datapackage.json over a good one."""
+    (tmp_path / "sources.toml").write_text(text, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match=rf"not a sources.toml key.*did you mean {hint}"):
+        ledger.load_manifest()
+    assert _run("build") == [1]
+    assert not (tmp_path / "data").exists()
+
+
+def test_the_schema_closes_the_top_level() -> None:
+    assert SCHEMA["additionalProperties"] is False
+    assert set(SCHEMA["properties"]) == {"output_format", "source"}
+
+
 def test_build_refuses_a_fetch_made_for_a_different_request(
     upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

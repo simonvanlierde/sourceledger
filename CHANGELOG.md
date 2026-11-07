@@ -27,6 +27,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Fixed
 
+- A misspelt top-level key in `sources.toml`, such as `[[sources]]`, is refused and names the key it was probably meant to be. It used to read as a manifest with no sources, so `build` wrote an empty `datapackage.json` over a good one.
 - `fetch` and `record` remove the `.part` temp files that a killed run left in `data/raw/`. Before, each download or record cut short by a kill stayed on disk.
 - `fetch` and `record` take the `data/raw/.lock` lock on Windows too, so a second run is refused there as on Linux and macOS. The test suite and CI now run on Windows.
 - The HTML report said "Local or non-HTTP URL omitted" for an empty final or terms URL, and "None" for an unknown redistribution flag. It now says "the URL above", "not stated in sources.toml", and "yes" or "no".

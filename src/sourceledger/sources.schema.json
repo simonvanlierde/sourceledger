@@ -4,6 +4,7 @@
   "title": "sourceledger sources.toml",
   "description": "The manifest sourceledger fetches, builds and validates: one [[source]] table per input.",
   "type": "object",
+  "additionalProperties": false,
   "properties": {
     "output_format": {
       "enum": ["csv", "parquet"],
