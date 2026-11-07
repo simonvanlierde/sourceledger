@@ -9,8 +9,8 @@
       "format": "csv",
       "mediatype": "text/csv",
       "encoding": "utf-8",
-      "bytes": "<varies with the port>",
-      "hash": "<varies with the port>",
+      "bytes": 355,
+      "hash": "sha256:17c537f1c55f7a29de82054e9176044460739444ebee6ea4dff3ff875b9dbfd4",
       "schema": {
         "fields": [
           {
@@ -97,8 +97,8 @@
       "format": "csv",
       "mediatype": "text/csv",
       "encoding": "utf-8",
-      "bytes": "<varies with the port>",
-      "hash": "<varies with the port>",
+      "bytes": 211,
+      "hash": "sha256:30d26082786164192ada771f7703cd28121d3b0b835342a67bba287196fc6eb1",
       "schema": {
         "fields": [
           {
