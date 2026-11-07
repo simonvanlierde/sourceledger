@@ -31,7 +31,7 @@ def _project(root: Path, monkeypatch: pytest.MonkeyPatch, manifest: str) -> None
     """A project folder with a fixed name, since the package is named after it."""
     project = root / "golden-project"
     project.mkdir()
-    (project / "sources.toml").write_text(manifest, encoding="utf-8")
+    (project / "sources.toml").write_text(manifest, encoding="utf-8", newline="")
     monkeypatch.chdir(project)
 
 
@@ -70,7 +70,7 @@ def test_a_full_dataset_matches_its_goldens(
     """A redirected CSV, a file source and a recorded mirror download, each with every optional key."""
     download = tmp_path / "pooch-cache" / "mirror.csv"
     download.parent.mkdir()
-    download.write_text("country,value\nNL,3\n", encoding="utf-8")
+    download.write_text("country,value\nNL,3\n", encoding="utf-8", newline="")
     _project(
         tmp_path,
         monkeypatch,

@@ -73,7 +73,7 @@ def _write_manifest(root: Path, count: int = SOURCES, rows: int = ROWS, extra: s
         file.write_bytes(_csv(rows // count))
         tables.append(f'[[source]]\nid = "src{n}"\nstatus = "implemented"\nurl = "{file.as_uri()}"\n{TERMS}\n{extra}')
     tables.append('[[source]]\nid = "later"\nstatus = "unimplemented"\n')
-    (root / "sources.toml").write_text("\n".join(tables), encoding="utf-8")
+    (root / "sources.toml").write_text("\n".join(tables), encoding="utf-8", newline="")
 
 
 def _log(path: Path, sources: int, versions: int) -> None:
@@ -92,7 +92,7 @@ def _log(path: Path, sources: int, versions: int) -> None:
         for v in range(versions)
         for n in range(sources)
     ]
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
 
 
 @pytest.fixture

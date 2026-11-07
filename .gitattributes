@@ -1,3 +1,6 @@
+# LF in every checkout, so Windows runners match the committed bytes.
+* text=auto eol=lf
+
 # Byte-exact files: their hashes and goldens break if git rewrites line endings.
 tests/fixtures/** -text
 tests/golden/** -text

@@ -59,8 +59,8 @@ uses that same history read, under the fetch lock, to label downloads as new or 
 
 The log line goes in before the record. If a crash comes between the two, the next run
 sees no matching record and fetches in full, so no version is lost. A lock on
-`data/raw/.lock` stops a second fetch in the same project while one runs (Linux and macOS
-only). `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
+`data/raw/.lock` stops a second fetch in the same project while one runs (Linux, macOS and
+Windows). `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
 
 ## record
 

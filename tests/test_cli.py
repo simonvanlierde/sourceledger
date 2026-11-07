@@ -140,7 +140,8 @@ def test_every_json_report_has_a_schema_version(capsys: pytest.CaptureFixture[st
 
 @pytest.mark.usefixtures("project")
 def test_a_failed_json_run_reports_its_errors_and_exit_3(capsys: pytest.CaptureFixture[str]) -> None:
-    Path("sources.toml").write_text(Path("sources.toml").read_text().replace("file://", "bogus://"))
+    manifest = Path("sources.toml")
+    manifest.write_text(manifest.read_text(encoding="utf-8").replace("file://", "bogus://"), encoding="utf-8")
     assert main(["fetch", "--json"]) == 3
     captured = capsys.readouterr()
     report = json.loads(captured.out)
@@ -193,7 +194,7 @@ def test_record_dry_run_checks_everything_and_writes_nothing(
 def test_record_dry_run_keeps_the_size_cap(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """The dry run refuses an over-cap file with the same message as the real record."""
     manifest = Path("sources.toml")
-    manifest.write_text(manifest.read_text() + "max_bytes = 5\n")
+    manifest.write_text(manifest.read_text(encoding="utf-8") + "max_bytes = 5\n", encoding="utf-8")
     assert main(["record", "example", str(project), "--dry-run"]) == 3
     dry = capsys.readouterr().err
     assert not Path("data").exists()
@@ -254,7 +255,8 @@ def test_ctrl_c_under_json_prints_the_report_so_far(
 ) -> None:
     """The second source is interrupted; the first one's record is in the report, and the rerun repeats the options."""
     manifest = Path("sources.toml")
-    manifest.write_text(manifest.read_text() + manifest.read_text().replace('"example"', '"other"'))
+    text = manifest.read_text(encoding="utf-8")
+    manifest.write_text(text + text.replace('"example"', '"other"'), encoding="utf-8")
     fetch_one = ledger._fetch_one  # noqa: SLF001
     done: list[str] = []
 

@@ -12,7 +12,7 @@ keywords = ["provenance", "data pipeline", "reproducibility", "open data", "rese
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
-  "Operating System :: POSIX",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -81,7 +81,9 @@ line-length = 120
 docstring-code-format = true
 
 [tool.ruff.lint]
-select = ["ALL"]
+preview = true
+explicit-preview-rules = true
+select = ["ALL", "PLW1514"]  # unspecified-encoding is preview-only, so ALL skips it
 ignore = [
   "ANN204", # missing-return-type-special-method
   "COM812", # trailing-comma-missing: conflicts with the formatter

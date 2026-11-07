@@ -43,20 +43,23 @@ import urllib.response
 import zipfile
 import zlib
 from collections import Counter
-from collections.abc import Callable, Collection, Generator, Iterable, Iterator
+from collections.abc import Callable, Collection, Generator, Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
 from importlib.metadata import version
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import IO, TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlsplit
 
 if TYPE_CHECKING:
     import ssl
+    from _csv import Reader as _CSVReader
     from email.message import Message
 
-if sys.platform != "win32":  # noqa: PLR2004
+if sys.platform == "win32":  # noqa: PLR2004
+    import msvcrt
+else:
     import fcntl
 
 MANIFEST = Path("sources.toml")
@@ -258,7 +261,7 @@ def init(path: Path = MANIFEST) -> None:
         with path.open("x", encoding="utf-8") as fh:
             fh.write(_STARTER)
     except FileExistsError as error:
-        msg = f"{path} already exists; not overwriting it"
+        msg = f"{path.as_posix()} already exists; not overwriting it"
         raise FileExistsError(msg) from error
 
 
@@ -717,10 +720,10 @@ def _last_records(log: Path) -> dict[str, dict[str, Any]]:
                 if interrupted and index == len(lines) - 1:
                     _logger.warning("%s: skipping a last line cut off by an interrupted fetch", log)
                     continue
-                msg = f"{log}:{number} is not a fetch record ({error})"
+                msg = f"{log.as_posix()}:{number} is not a fetch record ({error})"
                 raise ValueError(msg) from error
             if not (isinstance(record, dict) and isinstance(record.get("source_id"), str)):
-                msg = f"{log}:{number} is not a fetch record"
+                msg = f"{log.as_posix()}:{number} is not a fetch record"
                 raise ValueError(msg)  # noqa: TRY004  # a damaged log: the CLI reports ValueError as one line
             records[record["source_id"]] = record
             numbers[record["source_id"]] = number
@@ -728,7 +731,7 @@ def _last_records(log: Path) -> dict[str, dict[str, Any]]:
     # more than reading the line, and a log has many lines per source.
     for sid, record in records.items():
         if not _is_record(record):
-            msg = f"{log}:{numbers[sid]} is not a fetch record"
+            msg = f"{log.as_posix()}:{numbers[sid]} is not a fetch record"
             raise ValueError(msg)
     return records
 
@@ -744,7 +747,7 @@ def _append(log: Path, record: FetchRecord) -> None:
     another file.
     """
     if log.is_symlink():
-        msg = f"{log} is a symlink; the fetch log must be a file of its own"
+        msg = f"{log.as_posix()} is a symlink; the fetch log must be a file of its own"
         raise ValueError(msg)
     with log.open("a+b") as fh:
         end = fh.seek(0, os.SEEK_END)
@@ -784,20 +787,26 @@ def logged_versions(log: Path = FETCH_LOG) -> dict[str, str]:
 def _lock(raw: Path) -> Generator[None]:
     """Hold an exclusive lock on `raw/.lock`, so two fetches at once can't interleave their writes.
 
-    Fails at once rather than waiting. POSIX only: on Windows no lock is taken.
+    Fails at once rather than waiting.
     """
-    if sys.platform == "win32":  # noqa: PLR2004
-        yield
-        return
     # Never truncated, and never through a symlink: a cloned checkout could plant one to another file.
-    fd = os.open(raw / ".lock", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+    # Windows has no O_NOFOLLOW; there a symlink needs a privilege a checkout does not grant.
+    flags = os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(raw / ".lock", flags, 0o644)
     with os.fdopen(fd, "wb") as fh:
         try:
-            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            msg = f"another fetch is already running in {raw}"
+            if sys.platform == "win32":  # noqa: PLR2004
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)  # locks byte 0, even past the end
+            else:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (BlockingIOError, PermissionError) as error:  # held elsewhere; other OSErrors propagate
+            msg = f"another fetch is already running in {raw.as_posix()}"
             raise OSError(msg) from error
-        yield
+        try:
+            yield
+        finally:
+            if sys.platform == "win32":  # noqa: PLR2004
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)  # before the file closes
 
 
 def revisions(before: Path, *, log: Path = FETCH_LOG) -> list[str]:
@@ -825,7 +834,7 @@ def _revision_records(before: Path, *, log: Path = FETCH_LOG) -> list[dict[str, 
     """Changed sources with their earlier hash and current fetch record, in log order."""
     for path in (before, log):
         if not path.exists():
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(path))
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), path.as_posix())
     old, new = _last_records(before), _last_records(log)
     return [
         {"source_id": sid, "before_sha256": old[sid]["sha256"], "after": record}
@@ -1052,7 +1061,7 @@ def _record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before
     downloaded = "" if retrieved_at is None else _timestamp(_aware(sid, retrieved_at, now))
     # Checked before opening: opening a named pipe waits for a writer, here with the lock held.
     if not stat.S_ISREG(path.stat().st_mode):
-        msg = f"{sid}: {path} is not a regular file"
+        msg = f"{sid}: {path.as_posix()} is not a regular file"
         raise ValueError(msg)
     if not dry_run:
         raw.mkdir(parents=True, exist_ok=True)
@@ -1065,7 +1074,7 @@ def _record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before
         try:
             digest, size, temp = _take_in(source, path, None if dry_run else raw)
             if source.get("sha256", digest) != digest:
-                msg = f"{sid}: {path} hashes to {digest}, not the sha256 in sources.toml"
+                msg = f"{sid}: {path.as_posix()} hashes to {digest}, not the sha256 in sources.toml"
                 raise ValueError(msg)
             result = FetchRecord(
                 source_id=sid,
@@ -1298,26 +1307,24 @@ def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str,
     # utf-8-sig drops the byte-order mark that spreadsheet exports start with. Plain UTF-8 reads the same.
     text = payload.decode("utf-8-sig")
     columns, rows = _csv_rows(source, io.StringIO(text, newline=""))
-    return columns, list(rows)
+    return columns, [dict(zip(columns, row, strict=True)) for row in rows]
 
 
-def _csv_rows(source: Source, text: IO[str]) -> tuple[list[str], Iterator[dict[str, str]]]:
-    """A CSV text's columns and its rows, each checked as it is read: parse_csv's checks and messages."""
-    reader = csv.DictReader(text)
-    columns = list(reader.fieldnames or [])
+def _csv_rows(source: Source, text: IO[str]) -> tuple[list[str], Iterator[list[str]]]:
+    """A CSV text's columns and its rows as lists, each checked as it is read: parse_csv's checks and messages."""
+    reader = csv.reader(text)
+    columns = next(reader, [])
     _check_columns(source, columns)
-    return columns, _checked_rows(source, reader)
+    return columns, _checked_rows(source, reader, len(columns))
 
 
-def _checked_rows(source: Source, reader: csv.DictReader[str]) -> Iterator[dict[str, str]]:
+def _checked_rows(source: Source, reader: _CSVReader, width: int) -> Iterator[list[str]]:
     for row in reader:
-        # DictReader files the surplus fields of a long row under the key None.
-        if None in row:
-            msg = f"{source['id']}: line {reader.line_num} has more fields than the header"
-            raise ValueError(msg)
-        # It fills the missing fields of a short row with None, which would publish as "".
-        if None in row.values():
-            msg = f"{source['id']}: line {reader.line_num} has fewer fields than the header"
+        if not row:  # a blank line, which csv.DictReader also skips
+            continue
+        if len(row) != width:
+            more = "more" if len(row) > width else "fewer"
+            msg = f"{source['id']}: line {reader.line_num} has {more} fields than the header"
             raise ValueError(msg)
         yield row
 
@@ -1599,7 +1606,7 @@ def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[Fet
             text = io.TextIOWrapper(stream, encoding="utf-8-sig", newline="")
             try:
                 columns, rows = _csv_rows(source, text)
-                count = _write_rows(source, out, stamp, columns, rows)
+                count = _write_cells(source, out, stamp, columns, rows)
             except (ValueError, csv.Error):
                 # parse_csv decodes the whole file before it reads a row, so it can fail on another
                 # line, or name another byte offset. Reading the file whole gives exactly its error.
@@ -1620,41 +1627,54 @@ def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[Fet
 
 
 def _write_rows(
-    source: Source, out: Path, stamp: dict[str, str], columns: list[str], rows: Iterable[dict[str, str]]
+    source: Source, out: Path, stamp: dict[str, str], columns: list[str], rows: Iterable[Mapping[str, object]]
 ) -> int:
-    """Write CSV or Parquet with provenance columns first, and return the number of rows written."""
+    """Write a parser's rows, as `_write_cells` does: a missing cell is "", a provenance key is ignored."""
+    known = {*stamp, *columns}
+
+    def cells() -> Iterator[list[object]]:
+        for row in rows:
+            if extra := row.keys() - known:
+                msg = f"{source['id']}: row has fields not in the header: {sorted(extra)}"
+                raise ValueError(msg)
+            yield [row.get(column) for column in columns]
+
+    return _write_cells(source, out, stamp, columns, cells())
+
+
+def _write_cells(
+    source: Source, out: Path, stamp: dict[str, str], columns: list[str], rows: Iterable[Sequence[object]]
+) -> int:
+    """Write CSV or Parquet with provenance columns first, and return the number of rows written.
+
+    Each row holds its cells in `columns` order. None is written as "", anything else through
+    str(), as csv.writer does.
+    """
     if clash := stamp.keys() & set(columns):
         msg = f"{source['id']}: source columns {sorted(clash)} collide with the provenance columns"
         raise ValueError(msg)
+    fields, head = [*stamp, *columns], list(stamp.values())
+    stamped = ([*head, *row] for row in rows)
     if out.suffix == _PARQUET_SUFFIX:
         pa, pq = _arrow()
-        fields = [*stamp, *columns]
         schema = pa.schema([(field, pa.string()) for field in fields])
-
-        def table_rows() -> Iterator[dict[str, str]]:
-            for row in rows:
-                if extra := row.keys() - set(fields):
-                    msg = f"{source['id']}: row has fields not in the header: {sorted(extra)}"
-                    raise ValueError(msg)
-                # Same cells as csv.DictWriter writes: None as "", anything else through str().
-                cells = {k: "" if v is None else str(v) for k, v in row.items()}
-                yield {**dict.fromkeys(columns, ""), **cells, **stamp}
-
         count = 0
-        pending = table_rows()
         with _replacing(out) as fh, pq.ParquetWriter(fh, schema, compression="zstd") as writer:
-            while batch := list(itertools.islice(pending, _PARQUET_BATCH_ROWS)):
-                writer.write_table(pa.Table.from_pylist(batch, schema=schema))
+            while batch := list(itertools.islice(stamped, _PARQUET_BATCH_ROWS)):
+                arrays = [
+                    pa.array(["" if cell is None else str(cell) for cell in column], pa.string())
+                    for column in zip(*batch, strict=True)
+                ]
+                writer.write_table(pa.Table.from_arrays(arrays, schema=schema))
                 count += len(batch)
         return count
     with _replacing(out) as fh:
         text = io.TextIOWrapper(fh, encoding="utf-8", newline="")
-        writer = csv.DictWriter(text, fieldnames=[*stamp, *columns])
-        writer.writeheader()
-        # The stamp last: a parser's row cannot overwrite a provenance column.
+        writer = csv.writer(text)
+        writer.writerow(fields)
         count = 0
-        for row in rows:
-            writer.writerow({**row, **stamp})
+        for row in stamped:
+            writer.writerow(row)
             count += 1
         text.detach()  # flushes; _replacing closes fh
     return count
@@ -1756,7 +1776,7 @@ def _parquet_batches(path: Path) -> Iterator[Any]:
                 batch.validate(full=True)
                 yield batch
     except (pa.ArrowException, OSError) as error:
-        msg = f"{path}: not a readable Parquet table ({error})"
+        msg = f"{path.as_posix()}: not a readable Parquet table ({error})"
         raise ValueError(msg) from error
 
 
@@ -1806,7 +1826,7 @@ def validate(
     # Output of a source since removed or renamed would otherwise pass as published data.
     if only is None:
         problems += [
-            f"{out}: no source {out.stem!r} in sources.toml; delete it"
+            f"{out.as_posix()}: no source {out.stem!r} in sources.toml; delete it"
             for out in sorted(processed.glob("*"))
             if out.is_file() and out.name != DATAPACKAGE and out.name not in outputs
         ]
@@ -1815,7 +1835,7 @@ def validate(
         out = processed / _output_name(source, output_format)
         if status == UNIMPLEMENTED:
             if out.name.lower() != DATAPACKAGE and out.exists():
-                problems.append(f"{sid}: status is unimplemented, but {out} exists")
+                problems.append(f"{sid}: status is unimplemented, but {out.as_posix()} exists")
             continue
         if status != IMPLEMENTED:
             problems.append(f"{sid}: status must be {IMPLEMENTED!r} or {UNIMPLEMENTED!r}, not {status!r}")
@@ -1833,21 +1853,24 @@ def _output_problems(source: Source, raw: Path, out: Path, resource: dict[str, A
             expected = _resource(source, record, [], out)
             problems = []
             if expected["hash"] != f"sha256:{record.sha256}":
-                problems.append(f"{out}: differs from the fetched file; re-run build")
+                problems.append(f"{out.as_posix()}: differs from the fetched file; re-run build")
             if resource is not None and resource != expected:
-                problems.append(f"{out.parent / DATAPACKAGE} describes an earlier build of {out}; re-run build")
+                package = (out.parent / DATAPACKAGE).as_posix()
+                problems.append(f"{package} describes an earlier build of {out.as_posix()}; re-run build")
             return problems
         rows, stale = _scan(out, _stamp(record))
     except (OSError, ValueError, csv.Error) as error:
         return [one_line(error)]
     problems = []
     if not rows:
-        problems.append(f"{out}: no rows")
+        problems.append(f"{out.as_posix()}: no rows")
     if stale:
-        problems.append(f"{out}: rows come from an earlier fetch than {raw_name(source)}; re-run build")
+        problems.append(f"{out.as_posix()}: rows come from an earlier fetch than {raw_name(source)}; re-run build")
     # The rows' stamp misses a record of the same bytes for another request; the package's block does not.
     elif resource is not None and resource.get("sourceledger") != _provenance(source, record):
-        problems.append(f"{out.parent / DATAPACKAGE} describes an earlier fetch of {raw_name(source)}; re-run build")
+        problems.append(
+            f"{(out.parent / DATAPACKAGE).as_posix()} describes an earlier fetch of {raw_name(source)}; re-run build"
+        )
     return problems
 
 
@@ -1864,10 +1887,17 @@ def _scan(out: Path, stamp: dict[str, str]) -> tuple[bool, bool]:
                     for column, expected in stamp.items()
                 )
         return rows, stale
-    # Read to the end even once stale, so damage anywhere in the table is reported.
-    for row in _output_rows(out):
-        rows = True
-        stale = stale or {column: row.get(column) for column in stamp} != stamp
+    with out.open(newline="", encoding="utf-8") as fh:
+        reader = csv.reader(fh)
+        header = next(reader, [])
+        where = {name: i for i, name in enumerate(header)}  # a repeated name keeps its last column, as in DictReader
+        wanted = [(where.get(column), expected) for column, expected in stamp.items()]
+        # Read to the end even once stale, so damage anywhere in the table is reported.
+        for row in reader:
+            if not row:  # a blank line, which DictReader skips too
+                continue
+            rows = True
+            stale = stale or any(i is None or i >= len(row) or row[i] != expected for i, expected in wanted)
     return rows, stale
 
 
@@ -1884,26 +1914,25 @@ def _package_problems(
     try:
         package = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return [f"{path} is missing; re-run build"] if checked else []
+        return [f"{path.as_posix()} is missing; re-run build"] if checked else []
     except ValueError as error:
-        return [f"{path} is not JSON ({error}); re-run build"]
+        return [f"{path.as_posix()} is not JSON ({error}); re-run build"]
     listed = _by_name(package)
     if only is None and listed.keys() != expected.keys():
-        return [
-            f"{path} lists {sorted(map(str, listed))}, not the implemented sources {sorted(expected)}; re-run build"
-        ]
+        names = sorted(map(str, listed))
+        return [f"{path.as_posix()} lists {names}, not the implemented sources {sorted(expected)}; re-run build"]
     problems = []
     for sid in sorted(checked):
         out = processed / _output_name(expected[sid], output_format)
         if sid not in listed:
-            problems.append(f"{path} does not list {sid}; re-run build")
+            problems.append(f"{path.as_posix()} does not list {sid}; re-run build")
         # File outputs already have their full resource checked by _output_problems.
         elif (
             expected[sid].get("format") != FILE_FORMAT
             and out.exists()
             and listed[sid].get("hash") != f"sha256:{_digest(out)}"
         ):
-            problems.append(f"{path} describes an earlier build of {out}; re-run build")
+            problems.append(f"{path.as_posix()} describes an earlier build of {out.as_posix()}; re-run build")
     return problems
 
 
@@ -1992,40 +2021,47 @@ def verify(folder: Path) -> list[str]:
     package = json.loads(path.read_text(encoding="utf-8"))
     resources = package.get("resources") if isinstance(package, dict) else None
     if not isinstance(resources, list):
-        return [f"{path} has no list of resources"]
+        return [f"{path.as_posix()} has no list of resources"]
     return [problem for r in resources for problem in _file_problems(folder, r if isinstance(r, dict) else {})]
+
+
+def leaves_folder(name: str) -> bool:
+    """Whether a package's resource path is a URL, absolute, or climbs out, on any platform's reading of it."""
+    windows = PureWindowsPath(name)  # also splits on "/"
+    absolute = PurePosixPath(name).is_absolute() or bool(windows.anchor)  # also "C:x" and "\\x"
+    return bool(urlsplit(name).scheme) or absolute or os.pardir in windows.parts
 
 
 def _file_problems(folder: Path, resource: dict[str, Any]) -> list[str]:
     """Whether one resource's file is in `folder`, with the size and SHA-256 the package lists."""
     name = resource.get("path")
     # The package comes from someone else, so a path may not point outside the folder.
-    if not isinstance(name, str) or urlsplit(name).scheme or Path(name).is_absolute() or os.pardir in Path(name).parts:
-        return [f"{folder / DATAPACKAGE}: resource path {name!r} is not a file in {folder}"]
+    if not isinstance(name, str) or leaves_folder(name):
+        return [f"{(folder / DATAPACKAGE).as_posix()}: resource path {name!r} is not a file in {folder.as_posix()}"]
     file = folder / name
     if not file.is_file():
-        return [f"{file} is missing"]
+        return [f"{folder.as_posix()}: resource {name!r} is missing"]
     # A symlink inside the folder can still lead out of it.
     if not file.resolve().is_relative_to(folder.resolve()):
-        return [f"{folder / DATAPACKAGE}: resource path {name!r} is not a file in {folder}"]
+        return [f"{(folder / DATAPACKAGE).as_posix()}: resource path {name!r} is not a file in {folder.as_posix()}"]
     problems = []
     size = file.stat().st_size
     # Not isinstance: bool is an int subclass, so `"bytes": true` would pass for a 1-byte file.
     if (listed := resource.get("bytes")) is not None and (type(listed) is not int or listed != size):
         shown = f"{listed:,}" if type(listed) is int else repr(listed)  # from someone else's file
-        problems.append(f"{file} is {size:,} bytes, not the {shown} the package lists")
+        problems.append(f"{file.as_posix()} is {size:,} bytes, not the {shown} the package lists")
     expected = resource.get("hash")
     if not (isinstance(expected, str) and expected.lower().startswith("sha256:")):
-        problems.append(f"{file}: the package lists no sha256 hash to check it against")
+        problems.append(f"{file.as_posix()}: the package lists no sha256 hash to check it against")
         return problems
     digest = _digest(file)
     if f"sha256:{digest}" != expected.lower():
-        problems.append(f"{file} hashes to sha256:{digest[:12]}, not the hash the package lists")
+        problems.append(f"{file.as_posix()} hashes to sha256:{digest[:12]}, not the hash the package lists")
     return problems
 
 
 def one_line(error: Exception) -> str:
     """One line for an expected failure: a missing file by name, anything else as raised."""
     if isinstance(error, FileNotFoundError) and error.filename:
-        return f"{error.filename} is missing"
+        return f"{Path(error.filename).as_posix()} is missing"
     return str(error)
