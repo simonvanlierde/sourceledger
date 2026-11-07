@@ -86,9 +86,9 @@ def test_report_escapes_metadata_and_omits_credentials(dataset: list[ledger.Sour
         headers={"Authorization": "env:PRIVATE_TOKEN"},
     )
     package = Path("data/processed/datapackage.json")
-    data = json.loads(package.read_text())
+    data = json.loads(package.read_text(encoding="utf-8"))
     data["resources"][0]["sourceledger"]["final_url"] = "https://example.org/data?key=SECRET"
-    package.write_text(json.dumps(data))
+    package.write_text(json.dumps(data), encoding="utf-8")
     page = report(dataset)
     dom = Elements()
     dom.feed(page)
@@ -101,7 +101,7 @@ def test_report_escapes_metadata_and_omits_credentials(dataset: list[ledger.Sour
 
 
 def test_report_marks_an_output_from_an_earlier_fetch(dataset: list[ledger.Source]) -> None:
-    Path("upstream/table.csv").write_text("year,value\n2023,2.5\n")
+    Path("upstream/table.csv").write_text("year,value\n2023,2.5\n", encoding="utf-8")
     ledger.fetch(dataset)
     assert "built from an earlier fetch" in report(dataset)
 
@@ -110,14 +110,14 @@ def test_report_cli_errors_do_not_write_partial_html(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    Path("sources.toml").write_text("")
+    Path("sources.toml").write_text("", encoding="utf-8")
     assert main(["report"]) == 1
     assert capsys.readouterr().out == ""
 
 
 @pytest.mark.parametrize("package", [[], {}, {"resources": [None]}])
 def test_report_rejects_malformed_package(dataset: list[ledger.Source], package: object) -> None:
-    Path("data/processed/datapackage.json").write_text(json.dumps(package))
+    Path("data/processed/datapackage.json").write_text(json.dumps(package), encoding="utf-8")
     with pytest.raises(ValueError, match="list of resource objects"):
         report(dataset)
 
@@ -156,7 +156,7 @@ def test_report_keeps_only_the_public_part_of_a_url(dataset: list[ledger.Source]
 
 
 def test_report_displays_the_built_metadata_and_security_policy(dataset: list[ledger.Source]) -> None:
-    package = json.loads(Path("data/processed/datapackage.json").read_text())
+    package = json.loads(Path("data/processed/datapackage.json").read_text(encoding="utf-8"))
     resource = package["resources"][0]
     page = report(dataset)
     expected = {
@@ -185,11 +185,11 @@ def test_report_flags_manifest_changes(dataset: list[ledger.Source], key: str) -
 
 def test_report_says_not_stated_for_what_a_damaged_package_leaves_out(dataset: list[ledger.Source]) -> None:
     path = Path("data/processed/datapackage.json")
-    package = json.loads(path.read_text())
+    package = json.loads(path.read_text(encoding="utf-8"))
     for key in ("bytes", "hash"):
         del package["resources"][0][key]
     del package["resources"][0]["sourceledger"]["raw_sha256"]
-    path.write_text(json.dumps(package))
+    path.write_text(json.dumps(package), encoding="utf-8")
     page = report(dataset)
     for label in ("Size in bytes", "SHA-256 of the output", "SHA-256 of the downloaded file"):
         assert f"<dt>{label}</dt><dd>not stated</dd>" in page
@@ -200,9 +200,9 @@ def test_report_says_not_stated_for_a_redistribute_that_is_not_true_or_false(
     dataset: list[ledger.Source], value: object
 ) -> None:
     path = Path("data/processed/datapackage.json")
-    package = json.loads(path.read_text())
+    package = json.loads(path.read_text(encoding="utf-8"))
     package["resources"][0]["sourceledger"]["redistribute"] = value
-    path.write_text(json.dumps(package))
+    path.write_text(json.dumps(package), encoding="utf-8")
     assert "<dt>Raw redistribution allowed</dt><dd>not stated in sources.toml</dd>" in report(dataset)
 
 
@@ -218,9 +218,9 @@ def test_report_says_not_stated_for_a_redistribute_that_is_not_true_or_false(
 )
 def test_report_handles_damaged_provenance(dataset: list[ledger.Source], key: str, value: object) -> None:
     path = Path("data/processed/datapackage.json")
-    package = json.loads(path.read_text())
+    package = json.loads(path.read_text(encoding="utf-8"))
     package["resources"][0][key] = value
-    path.write_text(json.dumps(package))
+    path.write_text(json.dumps(package), encoding="utf-8")
     page = report(dataset)
     assert "Integrity problems" in page
 
@@ -232,7 +232,7 @@ def test_report_cli_writes_one_complete_document(
         "[[source]]\n" + "".join(f"{key} = {json.dumps(value)}\n" for key, value in source.items())
         for source in dataset
     )
-    Path("sources.toml").write_text(manifest)
+    Path("sources.toml").write_text(manifest, encoding="utf-8")
     capsys.readouterr()
     assert main(["report"]) == 0
     assert capsys.readouterr().out == report(dataset)
@@ -241,9 +241,9 @@ def test_report_cli_writes_one_complete_document(
 def test_report_keeps_source_urls_and_names(dataset: list[ledger.Source]) -> None:
     dataset[0].update(url="https://example.org/data", name="Example observations")
     path = Path("data/processed/datapackage.json")
-    package = json.loads(path.read_text())
+    package = json.loads(path.read_text(encoding="utf-8"))
     package["resources"][0]["sourceledger"]["final_url"] = "https://example.org/final?token=secret"
-    path.write_text(json.dumps(package))
+    path.write_text(json.dumps(package), encoding="utf-8")
     page = report(dataset)
     assert '<h4 id="source-0">Example observations</h4>' in page
     assert '<h4 id="source-1">document</h4>' in page
@@ -292,9 +292,9 @@ def test_report_keeps_arbitrary_metadata_out_of_html_elements(dataset: list[ledg
 
 def test_report_does_not_echo_credentials_from_an_invalid_file_url(dataset: list[ledger.Source]) -> None:
     path = Path("data/processed/datapackage.json")
-    package = json.loads(path.read_text())
+    package = json.loads(path.read_text(encoding="utf-8"))
     package["resources"][0]["path"] = "https://user:secret@example.org/data?token=PRIVATE"
-    path.write_text(json.dumps(package))
+    path.write_text(json.dumps(package), encoding="utf-8")
     try:
         text = report(dataset)
     except ValueError as error:
@@ -303,12 +303,24 @@ def test_report_does_not_echo_credentials_from_an_invalid_file_url(dataset: list
     assert "PRIVATE" not in text
 
 
-@pytest.mark.parametrize("path_value", [None, "../outside.csv", "/outside.csv"])
+@pytest.mark.parametrize(
+    "path_value",
+    [
+        None,
+        "../outside.csv",
+        "/outside.csv",
+        "..\\outside.csv",
+        "C:\\x.csv",
+        "\\\\srv\\share\\x.csv",
+        "\\x.csv",
+        "C:x.csv",
+    ],
+)
 def test_report_refuses_invalid_resource_paths(dataset: list[ledger.Source], path_value: object) -> None:
     path = Path("data/processed/datapackage.json")
-    package = json.loads(path.read_text())
+    package = json.loads(path.read_text(encoding="utf-8"))
     package["resources"][0]["path"] = path_value
-    path.write_text(json.dumps(package))
+    path.write_text(json.dumps(package), encoding="utf-8")
     with pytest.raises(ValueError, match="relative files"):
         report(dataset)
 
@@ -316,7 +328,7 @@ def test_report_refuses_invalid_resource_paths(dataset: list[ledger.Source], pat
 @pytest.mark.parametrize("change", ["omit one", "omit all", "unimplement", "duplicate"])
 def test_report_flags_incomplete_or_obsolete_packages(dataset: list[ledger.Source], change: str) -> None:
     path = Path("data/processed/datapackage.json")
-    package = json.loads(path.read_text())
+    package = json.loads(path.read_text(encoding="utf-8"))
     if change == "omit one":
         package["resources"].pop()
     elif change == "omit all":
@@ -325,7 +337,7 @@ def test_report_flags_incomplete_or_obsolete_packages(dataset: list[ledger.Sourc
         dataset[0]["status"] = "unimplemented"
     else:
         package["resources"].append(package["resources"][0])
-    path.write_text(json.dumps(package))
+    path.write_text(json.dumps(package), encoding="utf-8")
     page = report(dataset)
     assert "Integrity checks passed" not in page
     assert "not the implemented sources" in page
@@ -340,10 +352,10 @@ def test_report_accepts_a_genuinely_empty_dataset(tmp_path: Path) -> None:
 def test_report_says_what_it_does_not_know_about_times(dataset: list[ledger.Source]) -> None:
     """A stamp without a fetch time, or a recorded file without a download time, says "not stated"."""
     path = Path("data/processed/datapackage.json")
-    package = json.loads(path.read_text())
+    package = json.loads(path.read_text(encoding="utf-8"))
     del package["resources"][0]["sourceledger"]["retrieved_at"]
     package["resources"][1]["sourceledger"].update(retrieved_at="", recorded_at="2026-11-05T09:30:00Z")
-    path.write_text(json.dumps(package))
+    path.write_text(json.dumps(package), encoding="utf-8")
     page = report(dataset)
     assert "<dt>Fetched at</dt><dd>not stated</dd>" in page
     assert "<dt>Downloaded by another tool at</dt><dd>not stated by that tool</dd>" in page
@@ -353,9 +365,9 @@ def test_report_says_what_it_does_not_know_about_times(dataset: list[ledger.Sour
 def test_report_names_a_resource_without_a_name(dataset: list[ledger.Source]) -> None:
     """A damaged package still gets a report, with the nameless output called "unnamed"."""
     path = Path("data/processed/datapackage.json")
-    package = json.loads(path.read_text())
+    package = json.loads(path.read_text(encoding="utf-8"))
     del package["resources"][0]["name"]
-    path.write_text(json.dumps(package))
+    path.write_text(json.dumps(package), encoding="utf-8")
     page = report(dataset)
     assert ">unnamed</h" in page
     assert "unnamed: no fetch record in the log" in page

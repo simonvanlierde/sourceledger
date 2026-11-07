@@ -210,7 +210,7 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
     match stage, path:
         case "init", _:
             init(manifest)
-            print(f"wrote {manifest}")
+            print(f"wrote {manifest.as_posix()}")
         case "revisions", Path():
             # Not a failure: a revised source is news, and the tripwire test decides whether it breaks anything.
             for line in revisions(path):
@@ -228,10 +228,10 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
             sources = load_manifest(manifest)
             for out, count in _build(sources, parse=parse, only=only, output_format=_load_output_format(manifest)):
                 if count is None:
-                    print(f"{out.stat().st_size} bytes -> {out}")
+                    print(f"{out.stat().st_size} bytes -> {out.as_posix()}")
                 else:
-                    print(f"{count} rows -> {out}")
-            print(f"package -> {PROCESSED / DATAPACKAGE}")
+                    print(f"{count} rows -> {out.as_posix()}")
+            print(f"package -> {(PROCESSED / DATAPACKAGE).as_posix()}")
         case "status", _:
             for line in status(load_manifest(manifest)):
                 print(line)
