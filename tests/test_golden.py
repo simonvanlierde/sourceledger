@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import shutil
+import urllib.request
 from collections.abc import Callable
 from email.message import Message
 from pathlib import Path
@@ -186,10 +187,13 @@ class _Response(io.BytesIO):
 
 @pytest.fixture
 def v040(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A project as sourceledger 0.4.0 left it after `fetch` and `build`, from a local HTTP server.
+    """A project as sourceledger 0.4.0 left it after two versions of a source and a `build`.
 
-    Made with `uvx --from sourceledger==0.4.0 sourceledger fetch` and `build`, in a folder
-    named `proj` against `python -m http.server 8731`. The server is not running now.
+    Made with `uvx --from sourceledger==0.4.0 sourceledger`, in a folder named `proj`,
+    against a local server on port 8731 that sent an ETag and Last-Modified and answered
+    If-None-Match with 304: `fetch` twice (new, then unchanged), a third row added to the
+    served file, `fetch` (new) and `build`. So the log has two lines and the record an ETag.
+    The server is not running now.
     """
     project = tmp_path / "proj"
     shutil.copytree(FIXTURES / "v0.4.0", project)
@@ -217,8 +221,10 @@ def test_a_fetch_over_a_0_4_0_project_writes_the_0_4_0_format(monkeypatch: pytes
     log = Path("data/fetches.jsonl").read_bytes()
     body = Path("data/raw/example.csv").read_bytes()
 
-    def open_(request: object, timeout: float) -> _Response:  # noqa: ARG001  # the stand-in ignores the timeout
-        return _Response(body, old["url"], **{"Last-Modified": old["last_modified"]})
+    def open_(request: urllib.request.Request, timeout: float) -> _Response:  # noqa: ARG001  # the stand-in ignores the timeout
+        # The 0.4.0 record's validators are sent; the stand-in answers in full anyway.
+        assert request.get_header("If-none-match") == old["etag"]
+        return _Response(body, old["url"], **{"ETag": old["etag"], "Last-Modified": old["last_modified"]})
 
     monkeypatch.setattr(ledger, "_open", open_)
     (record,) = ledger.fetch(ledger.load_manifest())
