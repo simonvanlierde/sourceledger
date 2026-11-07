@@ -1,0 +1,7 @@
+usage: sourceledger report [-h] [--manifest PATH]
+
+Write a standalone HTML provenance report to stdout.
+
+options:
+  -h, --help       show this help message and exit
+  --manifest PATH  the manifest to read (default: sources.toml)

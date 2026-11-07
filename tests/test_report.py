@@ -111,7 +111,7 @@ def test_report_cli_errors_do_not_write_partial_html(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     Path("sources.toml").write_text("")
-    assert main(["report"]) == 1
+    assert main(["report"]) == 3
     assert capsys.readouterr().out == ""
 
 

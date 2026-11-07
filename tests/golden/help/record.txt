@@ -1,0 +1,26 @@
+usage: sourceledger record [-h] [--manifest PATH] [--dry-run] [--json]
+                           [--url URL] [--retrieved-at TIME] [--etag ETAG]
+                           [--last-modified HTTP_DATE]
+                           [--parameter NAME=VALUE]
+                           ID PATH
+
+Take in a file another tool downloaded, and log it as fetch would.
+
+positional arguments:
+  ID                    the source in sources.toml
+  PATH                  the file another tool downloaded
+
+options:
+  -h, --help            show this help message and exit
+  --manifest PATH       the manifest to read (default: sources.toml)
+  --dry-run             say what would happen, and write nothing
+  --json                print one JSON object instead of text
+  --url URL             where the file came from (default: the source's url)
+  --retrieved-at TIME   when it was downloaded, ISO 8601 with a zone, such as
+                        2026-11-05T09:30:00Z; without it the record states no
+                        download time
+  --etag ETAG           the ETag the server sent
+  --last-modified HTTP_DATE
+                        the Last-Modified the server sent
+  --parameter NAME=VALUE
+                        request metadata (repeatable)

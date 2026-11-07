@@ -1,0 +1,9 @@
+usage: sourceledger validate [-h] [--manifest PATH] [--only ID] [--json]
+
+Check the outputs against the log and the manifest.
+
+options:
+  -h, --help       show this help message and exit
+  --manifest PATH  the manifest to read (default: sources.toml)
+  --only ID        only this source (repeatable)
+  --json           print one JSON object instead of text
