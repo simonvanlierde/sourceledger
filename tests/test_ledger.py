@@ -2221,9 +2221,9 @@ def test_verify_shows_a_large_listed_size_with_separators(tmp_path: Path) -> Non
     (tmp_path / "a.csv").write_text("x\n", encoding="utf-8", newline="")
     package = {"resources": [{"path": "a.csv", "bytes": 1234, "hash": _X_HASH}]}
     (tmp_path / "datapackage.json").write_text(json.dumps(package), encoding="utf-8", newline="")
-    assert ledger.verify(tmp_path) == [f"{tmp_path}/a.csv is 2 bytes, not the 1,234 the package lists"]
+    assert ledger.verify(tmp_path) == [f"{tmp_path.as_posix()}/a.csv is 2 bytes, not the 1,234 the package lists"]
     (tmp_path / "datapackage.json").write_text("[]", encoding="utf-8", newline="")
-    assert ledger.verify(tmp_path) == [f"{tmp_path}/datapackage.json has no list of resources"]
+    assert ledger.verify(tmp_path) == [f"{tmp_path.as_posix()}/datapackage.json has no list of resources"]
 
 
 def test_verify_names_the_hash_it_found(tmp_path: Path) -> None:
@@ -2232,7 +2232,7 @@ def test_verify_names_the_hash_it_found(tmp_path: Path) -> None:
     (tmp_path / "datapackage.json").write_text(json.dumps(package), encoding="utf-8", newline="")
     digest = hashlib.sha256(b"y\n").hexdigest()
     assert ledger.verify(tmp_path) == [
-        f"{tmp_path}/a.csv hashes to sha256:{digest[:12]}, not the hash the package lists"
+        f"{tmp_path.as_posix()}/a.csv hashes to sha256:{digest[:12]}, not the hash the package lists"
     ]
 
 
@@ -2678,7 +2678,7 @@ def test_file_sources_build_without_a_parser(
     assert out.read_bytes() == payload
     if suffix != ".csv":
         assert not OUT.exists()
-    assert f"{len(payload)} bytes -> {out}" in capsys.readouterr().out
+    assert f"{len(payload)} bytes -> {out.as_posix()}" in capsys.readouterr().out
     package = json.loads((out.parent / ledger.DATAPACKAGE).read_text())
     (resource,) = package["resources"]
     assert "type" not in resource
@@ -3024,7 +3024,7 @@ def test_cli_build_does_not_reopen_outputs_to_count_rows(
 
     monkeypatch.setattr(Path, "open", tracking_open)
     assert main(["build"]) == 0
-    assert f"{count} rows -> {OUT}" in capsys.readouterr().out
+    assert f"{count} rows -> {OUT.as_posix()}" in capsys.readouterr().out
     assert opened == ["rb"]  # the descriptor hashes the completed output once
 
 

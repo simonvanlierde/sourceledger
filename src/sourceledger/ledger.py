@@ -1941,7 +1941,7 @@ def _file_problems(folder: Path, resource: dict[str, Any]) -> list[str]:
     name = resource.get("path")
     # The package comes from someone else, so a path may not point outside the folder.
     if not isinstance(name, str) or leaves_folder(name):
-        return [f"{folder / DATAPACKAGE}: resource path {name!r} is not a file in {folder.as_posix()}"]
+        return [f"{(folder / DATAPACKAGE).as_posix()}: resource path {name!r} is not a file in {folder.as_posix()}"]
     file = folder / name
     if not file.is_file():
         return [f"{file.as_posix()} is missing"]
@@ -1967,5 +1967,5 @@ def _file_problems(folder: Path, resource: dict[str, Any]) -> list[str]:
 def one_line(error: Exception) -> str:
     """One line for an expected failure: a missing file by name, anything else as raised."""
     if isinstance(error, FileNotFoundError) and error.filename:
-        return f"{error.filename} is missing"
+        return f"{Path(error.filename).as_posix()} is missing"
     return str(error)

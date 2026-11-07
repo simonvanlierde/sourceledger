@@ -231,7 +231,7 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
                     print(f"{out.stat().st_size} bytes -> {out.as_posix()}")
                 else:
                     print(f"{count} rows -> {out.as_posix()}")
-            print(f"package -> {PROCESSED / DATAPACKAGE}")
+            print(f"package -> {(PROCESSED / DATAPACKAGE).as_posix()}")
         case "status", _:
             for line in status(load_manifest(manifest)):
                 print(line)
