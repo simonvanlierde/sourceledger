@@ -12,8 +12,10 @@ from pathlib import Path
 
 from sourceledger.ledger import (
     DATAPACKAGE,
+    FETCH_LOG,
     MANIFEST,
     PROCESSED,
+    RAW,
     USER_AGENT,
     FetchError,
     FetchRecord,
@@ -21,16 +23,15 @@ from sourceledger.ledger import (
     _build,
     _fetch,
     _load_output_format,
+    _record_file,
     _revision_records,
     _select,
     _status_records,
     attribution,
     init,
     load_manifest,
-    logged_versions,
     one_line,
     parse_source,
-    record,
     revisions,
     status,
     validate,
@@ -196,8 +197,7 @@ def _check(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
 def _record(args: argparse.Namespace, before: dict[str, str]) -> list[str]:
     """Record one file and print its line, as fetch prints one. Never has problems to return."""
     (source,) = _select(load_manifest(args.manifest), [args.operands[0]])
-    before.update(logged_versions())
-    result = record(
+    result = _record_file(
         source,
         args.path,
         retrieved_at=args.retrieved_at,
@@ -205,6 +205,9 @@ def _record(args: argparse.Namespace, before: dict[str, str]) -> list[str]:
         etag=args.etag,
         last_modified=args.last_modified,
         parameters=dict(p.split("=", 1) for p in args.parameter),
+        raw=RAW,
+        log=FETCH_LOG,
+        before=before,
     )
     print(_fetch_line(result, before))
     return []

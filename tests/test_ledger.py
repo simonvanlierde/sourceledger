@@ -25,7 +25,7 @@ import tomllib
 import tracemalloc
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from datetime import UTC, date, datetime, timedelta, tzinfo
 from datetime import time as dt_time
 from email.message import Message
@@ -3348,6 +3348,27 @@ def test_the_record_stage_records_one_file(upstream: Path, capsys: pytest.Captur
     line = json.loads(LOG.read_text(encoding="utf-8"))
     assert (line["parameters"], line["last_modified"]) == ({"country": "NL", "query": "a=b"}, "x")
     assert line["retrieved_at"] == "2026-11-05T09:30:00Z"
+    assert main(["record", "example", str(upstream)]) == 0
+    assert capsys.readouterr().out.startswith("example  unchanged")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no raw lock on Windows")
+def test_the_record_stage_reads_the_log_under_the_lock(
+    upstream: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A fetch that logs these bytes while record waits for the lock makes them unchanged, not new."""
+    real = ledger._lock  # noqa: SLF001
+    raced: list[bool] = []
+
+    @contextlib.contextmanager
+    def racing(raw: Path) -> Generator[None]:
+        if not raced:
+            raced.append(True)
+            ledger.record(_source(), upstream)  # the other process, first to the lock
+        with real(raw):
+            yield
+
+    monkeypatch.setattr(ledger, "_lock", racing)
     assert main(["record", "example", str(upstream)]) == 0
     assert capsys.readouterr().out.startswith("example  unchanged")
 

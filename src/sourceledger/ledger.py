@@ -998,6 +998,33 @@ def record(
     is not a regular file, a file over the source's `max_bytes`, or bytes that miss the
     manifest's `sha256` pin. Raises OSError when another fetch holds the lock on `raw`.
     """
+    return _record_file(
+        source,
+        path,
+        retrieved_at=retrieved_at,
+        url=url,
+        etag=etag,
+        last_modified=last_modified,
+        parameters=parameters,
+        raw=raw,
+        log=log,
+    )
+
+
+def _record_file(
+    source: Source,
+    path: Path,
+    *,
+    retrieved_at: datetime | str | None,
+    url: str | None,
+    etag: str,
+    last_modified: str,
+    parameters: dict[str, str | int] | None,
+    raw: Path,
+    log: Path,
+    before: dict[str, str] | None = None,
+) -> FetchRecord:
+    """`record()`, filling `before` with the hashes logged before it, read under the lock as `_fetch` does."""
     sid = source["id"]
     if source.get("status") != IMPLEMENTED:
         msg = f"{sid}: only an implemented source can be recorded"
@@ -1027,6 +1054,8 @@ def record(
     log.parent.mkdir(parents=True, exist_ok=True)
     with _lock(raw):
         logged = _last_records(log)
+        if before is not None:
+            before.update((key, fields["sha256"]) for key, fields in logged.items())
         fd, name = tempfile.mkstemp(dir=raw, prefix=f".{sid}.", suffix=".part")
         temp = Path(name)
         try:
