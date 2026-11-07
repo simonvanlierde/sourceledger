@@ -146,7 +146,7 @@ every system, also when redirected to a file on Windows.
 | 1 | Problems found: `validate` or `verify` found at least one. |
 | 2 | Usage error: an unknown stage or option, a missing argument, or an `--only` or `record` id that is not in `sources.toml`, or a `--retrieved-at` that is not an ISO 8601 time. Nothing is written. |
 | 3 | Could not run: a missing or invalid file, a failed download, another fetch holding the lock, or an unexpected error such as a project's parser failing, printed as one `error:` line with its type. When some sources fail to fetch, the others are still written and logged. |
-| 130 | Interrupted with Ctrl-C. What finished before is kept, and the `help:` line repeats the command to finish. With `--json` the report still prints, and `fetch` lists the sources fetched before. The command then ends by SIGINT, as Ctrl-C does, so a shell loop around it stops too; `main()` returns 130. |
+| 130 | Interrupted with Ctrl-C. What finished before is kept, and the `help:` line repeats the command to finish. With `--json` the report still prints, and `fetch` lists the sources fetched before. The command then ends by SIGINT, as Ctrl-C does, so a shell loop around it stops too; on Windows it exits 130. `main()` returns 130: a project's own entry point that calls it should do what `sourceledger.cli.entry()` does, or the shell sees 130 without the signal. |
 
 ## JSON reports
 
