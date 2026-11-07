@@ -2440,6 +2440,28 @@ def test_archive_asks_for_a_snapshot_of_new_bytes_only(tmp_path: Path, monkeypat
     ]
 
 
+@pytest.mark.usefixtures("upstream")
+def test_record_keeps_the_snapshot_of_the_same_bytes_and_asks_for_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """As fetch does for bytes it downloads again; record makes no request, so new bytes get no snapshot."""
+    _manifest(tmp_path, _DATA, terms=f"{TERMS}\narchive = true")
+    calls = _serve(monkeypatch, _Response(FIXTURE.encode()), _Response(b"", url=_SNAPSHOT))
+    assert _run("fetch") == [0]
+    download = tmp_path / "download.csv"
+    download.write_text(FIXTURE, encoding="utf-8")
+    source = ledger.load_manifest()[0]
+    assert ledger.record(source, download).archive_url == _SNAPSHOT
+    download.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8")
+    assert ledger.record(source, download).archive_url == ""
+    assert len(calls) == 2
+    assert [json.loads(line)["archive_url"] for line in LOG.read_text(encoding="utf-8").splitlines()] == [
+        _SNAPSHOT,
+        _SNAPSHOT,
+        "",
+    ]
+
+
 @pytest.mark.parametrize(
     ("answer", "snapshot"),
     [

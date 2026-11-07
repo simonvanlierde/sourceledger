@@ -60,7 +60,7 @@ Each `[[source]]` table takes these keys:
 | `format` | no | `"file"` copies bytes unchanged. Table formats are `"csv"`, `"json"` and `"xlsx"`; see the details below. |
 | `sheet` | no | The Excel sheet to read. The first unless set. A cell right of the last header cell is refused, and a missing cell in a row reads as `""`. |
 | `headers` | no | Extra request headers, such as an API key, each value naming an environment variable: `{ Authorization = "env:EIA_TOKEN" }`. A literal value is refused, and so is a `url` that is not https. The record keeps the header names, not the values. A redirect to another scheme, host or port drops them. |
-| `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for http and https URLs, and not for a source that needs `headers`: the archive's request sends none. |
+| `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for http and https URLs, and not for a source that needs `headers`: the archive's request sends none. `record` asks for no snapshot: it keeps the one logged for the same bytes, and otherwise leaves `archive_url` empty. |
 | `reason` | no | A note for people, such as why a source is unimplemented. sourceledger doesn't read it. |
 
 Without `format`, the URL extension selects JSON (`.json`) or Excel (`.xlsx`); other extensions select CSV.

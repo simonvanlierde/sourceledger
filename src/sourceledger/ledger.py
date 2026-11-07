@@ -1004,7 +1004,9 @@ def record(
 
     The same bytes recorded again for the same request, URL, download time and validators add no log
     line; anything else adds one, so the log's last line names how the sidecar's bytes came
-    in. A record replaces the previous record's ETag and Last-Modified with its own.
+    in. A record replaces the previous record's ETag and Last-Modified with its own. For a
+    source with `archive = true` it asks for no snapshot: it keeps the one the log holds for
+    the same bytes, and otherwise leaves `archive_url` empty.
 
     Raises ValueError for a source that is not implemented, a URL with a user name or
     password, a time without a time zone or in the future, other `parameters`, a path that
@@ -1048,6 +1050,9 @@ def record(
             if source.get("sha256", digest) != digest:
                 msg = f"{sid}: {path.as_posix()} hashes to {digest}, not the sha256 in sources.toml"
                 raise ValueError(msg)
+            # No request: only the snapshot a fetch already logged for these bytes is kept, as fetch keeps it.
+            last = logged.get(sid, {})
+            archived = last.get("archive_url", "") if source.get("archive") and last.get("sha256") == digest else ""
             result = FetchRecord(
                 source_id=sid,
                 url=source["url"],
@@ -1060,6 +1065,7 @@ def record(
                 final_url=served,
                 recorded_at=_timestamp(now),
                 parameters=request,
+                archive_url=archived,
             )
             _commit(source, temp, result, raw, log, logged)
         finally:
