@@ -174,6 +174,14 @@ def test_record_dry_run_checks_everything_and_writes_nothing(
     assert _files(tmp_path) == before
 
 
+def test_record_dry_run_keeps_the_size_cap(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    manifest = Path("sources.toml")
+    manifest.write_text(manifest.read_text() + "max_bytes = 5\n")
+    assert main(["record", "example", str(project), "--dry-run"]) == 3
+    assert capsys.readouterr().err == f"error: example: {project} is 20 bytes, over max_bytes 5 in sources.toml\n"
+    assert not Path("data").exists()
+
+
 @pytest.mark.usefixtures("project")
 def test_build_dry_run_names_the_outputs_and_writes_nothing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["build", "--dry-run"]) == 3
