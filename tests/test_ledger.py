@@ -1276,6 +1276,28 @@ def test_temp_files_a_killed_run_left_are_swept_under_the_lock(tmp_path: Path) -
     assert not list(RAW.parent.glob(".*.part"))
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
+@pytest.mark.usefixtures("upstream")
+def test_a_refused_fetch_leaves_temp_files_alone(capsys: pytest.CaptureFixture[str]) -> None:
+    """Another run holds the lock, so its temp file may still be in use: only the lock holder sweeps."""
+    RAW.parent.mkdir(parents=True)
+    other = RAW.parent / ".x.part"
+    with ledger._lock(RAW.parent):  # noqa: SLF001
+        other.write_bytes(b"being written")
+        assert _run("fetch") == [1]
+    assert "another fetch is already running" in capsys.readouterr().err
+    assert other.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
+@pytest.mark.usefixtures("upstream")
+def test_an_unremovable_temp_file_does_not_stop_a_fetch() -> None:
+    """A virus scanner holding a temp file, or a directory named like one, must not abort the run."""
+    RAW.parent.mkdir(parents=True)
+    (RAW.parent / ".x.part").mkdir()
+    assert _run("fetch") == [0]
+
+
 @pytest.mark.usefixtures("upstream")
 def test_a_download_streams_to_disk_in_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
     """A body larger than one chunk arrives whole, and a refused one leaves no temp file behind."""

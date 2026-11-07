@@ -802,7 +802,8 @@ def _lock(raw: Path) -> Generator[None]:
             raise OSError(msg) from error
         try:
             for stale in raw.glob(".*.part"):
-                stale.unlink(missing_ok=True)
+                with contextlib.suppress(OSError):  # a scanner holding it, or a directory of that name
+                    stale.unlink(missing_ok=True)
             yield
         finally:
             if sys.platform == "win32":  # noqa: PLR2004
