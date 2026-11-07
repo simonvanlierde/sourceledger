@@ -46,6 +46,8 @@ def _files(root: Path) -> dict[str, str]:
     }
 
 
+# argparse before 3.13 aligns the help columns differently; the goldens hold the 3.13+ layout.
+@pytest.mark.skipif(sys.version_info < (3, 13), reason="help layout differs before 3.13")
 @pytest.mark.parametrize("stage", ["", *cli._STAGES])  # noqa: SLF001
 def test_each_stage_has_its_own_help(
     stage: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], golden: Callable[[str, str], None]
