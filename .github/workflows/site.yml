@@ -63,7 +63,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      # The first push to main can come before `just repo-settings` turns Pages on.
+      # Fails until `just repo-settings` (or Settings > Pages > Source) selects GitHub Actions.
       - id: gate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -71,18 +71,17 @@ jobs:
         run: |
           if build=$(gh api "repos/$REPO/pages" --jq .build_type 2>gh.err); then
             if [ "$build" = workflow ]; then
-              echo "run=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
           elif ! grep -q 'HTTP 404' gh.err; then
             cat gh.err >&2
             exit 1
           fi
-          echo "::notice::GitHub Pages is off or does not deploy from Actions: run just repo-settings."
-          echo "run=false" >> "$GITHUB_OUTPUT"
+          # Jekyll would rebuild the live site from the stripped docs/ otherwise.
+          echo "::error::GitHub Pages is off or does not deploy from Actions: set Settings > Pages > Source to GitHub Actions (or run just repo-settings)."
+          exit 1
 
-      - if: steps.gate.outputs.run == 'true'
-        id: deploy
+      - id: deploy
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
   # The same lifecycle as a web app's previews: docs/usage.md#static-site in the template.
