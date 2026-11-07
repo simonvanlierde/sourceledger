@@ -228,9 +228,9 @@ def _run(  # noqa: C901, PLR0912  # one case per stage
             sources = load_manifest(manifest)
             for out, count in _build(sources, parse=parse, only=only, output_format=_load_output_format(manifest)):
                 if count is None:
-                    print(f"{out.stat().st_size} bytes -> {out}")
+                    print(f"{out.stat().st_size} bytes -> {out.as_posix()}")
                 else:
-                    print(f"{count} rows -> {out}")
+                    print(f"{count} rows -> {out.as_posix()}")
             print(f"package -> {PROCESSED / DATAPACKAGE}")
         case "status", _:
             for line in status(load_manifest(manifest)):

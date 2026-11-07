@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 import json
-import os
 from html import escape
-from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit, urlunsplit
 
-from sourceledger.ledger import DATAPACKAGE, FETCH_LOG, PROCESSED, Source, _last_records, implemented, verify
+from sourceledger.ledger import (
+    DATAPACKAGE,
+    FETCH_LOG,
+    PROCESSED,
+    Source,
+    _last_records,
+    implemented,
+    leaves_folder,
+    verify,
+)
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _url(value: object, empty: str) -> str:
@@ -86,12 +97,7 @@ def report(sources: list[Source], *, processed: Path = PROCESSED, log: Path = FE
         raise ValueError(msg)
     for resource in resources:
         name = resource.get("path")
-        if (
-            not isinstance(name, str)
-            or urlsplit(name).scheme
-            or Path(name).is_absolute()
-            or os.pardir in Path(name).parts
-        ):
+        if not isinstance(name, str) or leaves_folder(name):
             msg = "datapackage.json resource paths must be relative files inside the dataset"
             raise ValueError(msg)
     records = _last_records(log)
