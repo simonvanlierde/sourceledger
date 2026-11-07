@@ -96,7 +96,8 @@ runs `fetch` before `build` and `validate`.
 Until 1.0, the public API is `sourceledger`'s `__all__`, the keys of `sources.toml`, and
 the format of fetch records and the log. A breaking change to any of them comes only in a
 minor version, listed in [CHANGELOG.md](CHANGELOG.md), with a warning first where that's
-cheap. Older fetch logs stay readable.
+cheap. Older fetch logs stay readable. A record written by `record()`, or with
+`parameters`, is not readable by 0.4.0: after a downgrade, run `fetch` again.
 
 ### Roadmap
 

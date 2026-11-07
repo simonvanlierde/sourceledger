@@ -1,0 +1,3 @@
+# Byte-exact files: their hashes and goldens break if git rewrites line endings.
+tests/fixtures/** -text
+tests/golden/** -text

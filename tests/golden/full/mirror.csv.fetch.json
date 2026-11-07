@@ -1,0 +1,18 @@
+{
+  "source_id": "mirror",
+  "url": "http://127.0.0.1:8000/mirror.csv",
+  "retrieved_at": "2026-11-04T07:00:00Z",
+  "sha256": "0e1c97a42125ea17421c963658a00d44a05ed92040246215a480c1f4de466c03",
+  "bytes": 19,
+  "vintage": "2024-06-01",
+  "last_modified": "",
+  "etag": "",
+  "final_url": "https://mirror.example.org/mirror.csv",
+  "env_headers": [],
+  "archive_url": "",
+  "recorded_at": "2026-11-05T09:30:00Z",
+  "parameters": {
+    "country": "NL",
+    "year": "2024"
+  }
+}

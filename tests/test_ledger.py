@@ -2,6 +2,7 @@
 
 import contextlib
 import csv
+import dataclasses
 import errno
 import gzip
 import hashlib
@@ -24,8 +25,8 @@ import tomllib
 import tracemalloc
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterator
-from datetime import UTC, date, datetime, timedelta
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from datetime import time as dt_time
 from email.message import Message
 from email.utils import format_datetime
@@ -40,6 +41,7 @@ if sys.platform != "win32":
 
 from sourceledger import ledger
 from sourceledger.cli import main
+from sourceledger.report import report
 
 FIXTURE = "year,value\n2020,1.5\n2021,2.5\n"
 RAW = Path("data/raw/example.csv")
@@ -593,7 +595,7 @@ def test_a_source_id_is_a_plain_file_name(tmp_path: Path, capsys: pytest.Capture
 @pytest.mark.usefixtures("upstream")
 def test_a_project_passes_its_own_parser_and_name(monkeypatch: pytest.MonkeyPatch) -> None:
     """`main` builds with the project's parser and fetches under the project's name."""
-    calls = _serve(monkeypatch, _Response(FIXTURE.encode()))
+    calls = _serve(monkeypatch, _Response(FIXTURE.encode()), _Response(FIXTURE.encode()))
 
     def marked(source: ledger.Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
         columns, rows = ledger.parse_csv(source, payload)
@@ -601,6 +603,9 @@ def test_a_project_passes_its_own_parser_and_name(monkeypatch: pytest.MonkeyPatc
 
     assert main(["fetch"], user_agent="my-dataset") == 0
     assert calls[0].get_header("User-agent") == "my-dataset"
+    RAW.unlink()  # forces a full fetch through the library function
+    ledger.fetch(ledger.load_manifest(), user_agent="my-library-dataset")
+    assert calls[1].get_header("User-agent") == "my-library-dataset"
     assert main(["build"], parse=marked) == 0
     assert [r["year"] for r in ledger.read_output(OUT)] == ["y2020", "y2021"]
 
@@ -1039,6 +1044,30 @@ def test_a_redirect_to_a_name_that_rebinds_inward_is_refused(
     assert not RAW.exists()
 
 
+def test_a_refused_redirect_names_no_query_or_fragment() -> None:
+    """A presigned URL's signature must not reach a log or the CLI's output."""
+    handler = ledger._NoRedirectInward()  # noqa: SLF001
+    public = urllib.request.Request("http://93.184.215.14/data.csv")
+    with pytest.raises(ledger._InwardRedirectError) as refused:  # noqa: SLF001
+        handler.redirect_request(
+            public, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "ftp://10.0.0.1/a?sig=s3cr3t#frag"
+        )
+    assert "ftp://10.0.0.1/a," in str(refused.value)
+    assert "s3cr3t" not in str(refused.value)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Rebinder)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        request = urllib.request.Request(f"http://127.0.0.1:{server.server_address[1]}/a.csv?sig=s3cr3t")
+        request.public_only = True  # ty: ignore[unresolved-attribute]
+        connection = ledger._PeerCheck("127.0.0.1", port=server.server_address[1], req=request)  # noqa: SLF001
+        with pytest.raises(ValueError, match=r"/a\.csv, which is at") as inward:
+            connection.connect()
+        assert "s3cr3t" not in str(inward.value)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_the_peer_check_is_skipped_through_a_proxy() -> None:
     """Through a proxy the socket reaches the proxy, not the host the URL names."""
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Rebinder)
@@ -1147,51 +1176,6 @@ def test_a_symlink_where_the_temp_file_would_go_is_not_followed(tmp_path: Path) 
     assert RAW.read_text(encoding="utf-8") == FIXTURE
 
 
-class _Publisher(http.server.BaseHTTPRequestHandler):
-    """A real HTTP server: /data.csv with an ETag and 304s, and /old.csv redirecting to it."""
-
-    def do_GET(self) -> None:
-        if self.path == "/unreadable-redirect.csv":
-            self.send_response(302)
-            self.send_header("Location", "/data.csv")
-            self.send_header("Content-Length", "1024")
-            self.end_headers()
-            return
-        if self.path == "/old.csv":
-            self.send_response(302)
-            self.send_header("Location", "/data.csv")
-            self.end_headers()
-            return
-        if self.headers.get("If-None-Match") == '"v1"':
-            self.send_response(304)
-            self.end_headers()
-            return
-        body = b"\x00\xfffirst\x80second" if self.path == "/data.bin" else FIXTURE.encode()
-        self.send_response(200)
-        self.send_header("ETag", '"v1"')
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body[:7])
-        self.wfile.flush()
-        threading.Event().wait(0.05)
-        self.wfile.write(body[7:])
-
-    def log_message(self, format: str, *args: object) -> None:  # noqa: A002  # the base class names it
-        """Keep test output quiet."""
-
-
-@pytest.fixture
-def publisher(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
-    """The base URL of a `_Publisher` on a free local port; the test runs in a project directory."""
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Publisher)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    monkeypatch.chdir(tmp_path)
-    yield f"http://127.0.0.1:{server.server_address[1]}"
-    server.shutdown()
-    server.server_close()
-
-
 def test_real_http_fetches_redirects_and_304s(publisher: str, tmp_path: Path) -> None:
     """Against a real server: the final URL is recorded, and the second fetch is a 304 that keeps the record."""
     _manifest(tmp_path, f"{publisher}/old.csv")
@@ -1201,6 +1185,15 @@ def test_real_http_fetches_redirects_and_304s(publisher: str, tmp_path: Path) ->
     assert (record["etag"], record["final_url"]) == ('"v1"', f"{publisher}/data.csv")
     assert _run("fetch", "build", "validate") == [0, 0, 0]
     assert json.loads(record_path.read_text(encoding="utf-8")) == record
+
+
+def test_a_redirect_to_a_signed_url_keeps_no_signature(publisher: str, tmp_path: Path) -> None:
+    """A redirect's query can be a signature; the published records keep where, not the key."""
+    _manifest(tmp_path, f"{publisher}/signed.csv")
+    assert _run("fetch") == [0]
+    record = json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
+    assert record["final_url"] == f"{publisher}/data.csv"
+    assert "s3cr3t" not in Path("data/fetches.jsonl").read_text(encoding="utf-8")
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
@@ -2186,7 +2179,7 @@ def test_verified_gives_the_record_and_bytes_and_refuses_an_edited_raw_file() ->
     assert ledger.verified(source) == (record, FIXTURE.encode())
     assert ledger.verified(source, raw=RAW.parent) == (record, FIXTURE.encode())
     RAW.write_text("edited\n", encoding="utf-8")
-    with pytest.raises(ValueError, match=r"^example\.csv changed since it was fetched; re-run fetch$"):
+    with pytest.raises(ValueError, match=r"^example\.csv changed since it was fetched; re-run fetch, or record"):
         ledger.verified(source)
 
 
@@ -2821,6 +2814,7 @@ def test_json_status_keeps_types_and_full_hashes(capsys: pytest.CaptureFixture[s
                 "status": "implemented",
                 "vintage": "not stated",
                 "retrieved_at": None,
+                "recorded_at": None,
                 "sha256": None,
                 "license": "CC0-1.0",
                 "redistribute": True,
@@ -2830,6 +2824,7 @@ def test_json_status_keeps_types_and_full_hashes(capsys: pytest.CaptureFixture[s
                 "status": "unimplemented",
                 "vintage": "not stated",
                 "retrieved_at": None,
+                "recorded_at": None,
                 "sha256": None,
                 "license": None,
                 "redistribute": None,
@@ -3099,3 +3094,502 @@ def test_history_replaces_invalid_utf8_in_a_record(tmp_path: Path) -> None:
     record = json.loads(_record("a", "1"))
     record["url"] = "\ufffd"
     assert ledger._last_records(log) == {"a": record}  # noqa: SLF001
+
+
+# record(): files another tool downloaded.
+
+WHEN = "2026-11-05T10:30:00+01:00"
+
+
+def _source() -> ledger.Source:
+    return ledger.load_manifest()[0]
+
+
+def test_a_recorded_file_builds_like_a_fetched_one(upstream: Path) -> None:
+    """The same bytes, fetched or recorded, give the same rows; only the record says which happened."""
+    (fetched,) = ledger.fetch(ledger.load_manifest())
+    ledger.build(ledger.load_manifest())
+    fetched_rows = ledger.read_output(OUT)
+    shutil.rmtree("data")
+
+    recorded = ledger.record(_source(), upstream, retrieved_at=WHEN, last_modified="Tue, 03 Nov 2026 08:00:00 GMT")
+    ledger.build(ledger.load_manifest())
+
+    assert recorded == dataclasses.replace(
+        fetched,
+        retrieved_at="2026-11-05T09:30:00Z",
+        last_modified="Tue, 03 Nov 2026 08:00:00 GMT",
+        recorded_at=recorded.recorded_at,
+    )
+    assert recorded.recorded_at.endswith("Z")
+    assert [{**row, "retrieved_at": ""} for row in ledger.read_output(OUT)] == [
+        {**row, "retrieved_at": ""} for row in fetched_rows
+    ]
+    assert upstream.read_text(encoding="utf-8") == FIXTURE  # copied, not moved
+    assert ledger.validate(ledger.load_manifest()) == []
+    assert ledger.verify(Path("data/processed")) == []
+
+
+def test_record_states_no_download_time_it_was_not_given(upstream: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Without retrieved_at the rows say nothing about when; status and revisions say when it was recorded."""
+    LOG.parent.mkdir()
+    LOG.write_text(_record("example", "0") + "\n", encoding="utf-8")
+    shutil.copy(LOG, "before.jsonl")
+    result = ledger.record(_source(), upstream)
+    assert (result.retrieved_at, bool(result.recorded_at)) == ("", True)
+    ledger.build(ledger.load_manifest())
+    assert {row["retrieved_at"] for row in ledger.read_output(OUT)} == {""}
+    assert f"recorded {result.recorded_at}" in ledger.status(ledger.load_manifest())[0]
+    assert f"recorded {result.recorded_at} from" in ledger.revisions(Path("before.jsonl"))[0]
+    assert main(["status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["sources"][0]["recorded_at"] == result.recorded_at
+
+
+def test_record_takes_a_download_time_up_to_the_clock_skew_ahead(upstream: Path, frozen_clock: datetime) -> None:
+    """A tool's clock may run a little ahead of this host's: five minutes is accepted, a second more is not."""
+    ahead = frozen_clock + timedelta(minutes=5)
+    assert ledger.record(_source(), upstream, retrieved_at=ahead).retrieved_at == f"{ahead:%Y-%m-%dT%H:%M:%SZ}"
+    with pytest.raises(ValueError, match="in the future"):
+        ledger.record(_source(), upstream, retrieved_at=ahead + timedelta(seconds=1))
+
+
+def test_record_takes_a_timezone_aware_datetime(upstream: Path) -> None:
+    when = datetime(2026, 11, 5, 10, 30, tzinfo=UTC) + timedelta(microseconds=5)
+    assert ledger.record(_source(), upstream, retrieved_at=when).retrieved_at == "2026-11-05T10:30:00Z"
+
+
+def test_a_recorded_file_is_marked_in_the_log_package_and_report(upstream: Path) -> None:
+    """Whoever reads the dataset can tell sourceledger did not download these bytes itself."""
+    result = ledger.record(_source(), upstream, retrieved_at=WHEN, parameters={"country": "NL", "year": 2024})
+    assert result.retrieved_at == "2026-11-05T09:30:00Z"
+    line = json.loads(LOG.read_text(encoding="utf-8"))
+    assert (line["recorded_at"], line["parameters"]) == (result.recorded_at, {"country": "NL", "year": "2024"})
+    assert json.loads(Path(f"{RAW}.fetch.json").read_text(encoding="utf-8")) == line
+    ledger.build(ledger.load_manifest())
+    package = json.loads(Path("data/processed/datapackage.json").read_text(encoding="utf-8"))
+    assert package["resources"][0]["sourceledger"]["recorded_at"] == result.recorded_at
+    html = report(ledger.load_manifest())
+    assert "<dt>Recorded at</dt>" in html
+    assert "<dt>Request parameters</dt><dd><code>country=NL</code> <code>year=2024</code></dd>" in html
+    assert "Fetched at" not in html
+
+
+def _lines() -> list[dict[str, object]]:
+    return [json.loads(line) for line in LOG.read_text(encoding="utf-8").splitlines()]
+
+
+def test_the_last_log_line_and_the_sidecar_agree_on_how_the_bytes_came_in(upstream: Path) -> None:
+    """The same bytes fetched after a record, or recorded after a fetch, add a line; repeating either adds none."""
+    sidecar = Path(f"{RAW}.fetch.json")
+    ledger.record(_source(), upstream, retrieved_at=WHEN)
+    ledger.record(_source(), upstream, retrieved_at=WHEN)
+    assert len(_lines()) == 1
+    (fetched,) = ledger.fetch(ledger.load_manifest())
+    assert "recorded_at" not in _lines()[-1]
+    assert json.loads(sidecar.read_text(encoding="utf-8")) == ledger._fields(fetched)
+    ledger.fetch(ledger.load_manifest())
+    assert len(_lines()) == 2
+    ledger.record(_source(), upstream, parameters={"country": "NL"})
+    ledger.record(_source(), upstream, parameters={"country": "BE"})
+    assert [line.get("parameters") for line in _lines()] == [None, None, {"country": "NL"}, {"country": "BE"}]
+    assert json.loads(sidecar.read_text(encoding="utf-8"))["parameters"] == {"country": "BE"}
+    assert "recorded" in ledger.status(ledger.load_manifest())[0]
+
+
+def test_a_crash_between_moving_the_file_and_logging_it_loses_nothing(
+    upstream: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Until the record matches the raw file, build refuses it and the next record or fetch starts over."""
+    ledger.fetch(ledger.load_manifest())
+    upstream.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8")
+
+    def crash(*_: object) -> None:
+        raise KeyboardInterrupt
+
+    with monkeypatch.context() as patch:
+        patch.setattr(ledger, "_append", crash)
+        with pytest.raises(KeyboardInterrupt):
+            ledger.record(_source(), upstream, retrieved_at=WHEN)
+    assert RAW.read_text(encoding="utf-8") == FIXTURE + "2022,3.5\n"
+    with pytest.raises(ValueError, match="changed since it was fetched"):
+        ledger.build(ledger.load_manifest())
+    assert not list(RAW.parent.glob("*.part"))
+    ledger.record(_source(), upstream, retrieved_at=WHEN)
+    assert len(_lines()) == 2
+    assert ledger.build(ledger.load_manifest())
+
+
+def test_record_keeps_another_url_as_the_final_url_without_its_validators(
+    upstream: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An ETag from a mirror must never be sent to the source's own URL on a later fetch."""
+    result = ledger.record(_source(), upstream, retrieved_at=WHEN, url="https://mirror.example/x.csv", etag='"m"')
+    assert (result.url, result.final_url, result.etag) == (upstream.as_uri(), "https://mirror.example/x.csv", "")
+    assert "not the source URL's; not kept" in caplog.text
+
+
+def test_a_later_fetch_sends_the_validators_record_kept(
+    upstream: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A 304 for the recorded ETag keeps the recorded file and its record."""
+    _manifest(tmp_path, "https://example.org/example.csv")
+    recorded = ledger.record(_source(), upstream, retrieved_at=WHEN, etag='"abc"')
+    calls = _serve(monkeypatch, _http_error(304))
+    assert ledger.fetch(ledger.load_manifest()) == [recorded]
+    assert calls[0].get_header("If-none-match") == '"abc"'
+
+
+class _NoOffset(tzinfo):
+    """A tzinfo that does not know its offset: Python then treats the time as naive."""
+
+    def utcoffset(self, _: datetime | None) -> None:
+        return None
+
+    def dst(self, _: datetime | None) -> None:
+        return None
+
+    def tzname(self, _: datetime | None) -> None:
+        return None
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"retrieved_at": "2026-11-05T10:30:00"}, "needs a time zone"),
+        ({"retrieved_at": datetime(2026, 11, 5)}, "needs a time zone"),  # noqa: DTZ001  # the naive time refused
+        ({"retrieved_at": datetime(2026, 1, 1, tzinfo=_NoOffset())}, "needs a time zone"),
+        ({"retrieved_at": "yesterday"}, "is not an ISO 8601 time"),
+        ({"retrieved_at": 1762335000}, "is not an ISO 8601 time"),
+        ({"url": "https://user:secret@example.org/x.csv"}, "user name or password"),
+        ({"url": "https://token@example.org/x.csv"}, "user name or password"),
+        ({"parameters": {"flag": True}}, "str or int values"),
+        ({"parameters": {"ratio": 1.5}}, "str or int values"),
+        ({"parameters": {"nested": {"a": 1}}}, "str or int values"),
+        ({"parameters": {1: "a"}}, "str or int values"),
+        ({"parameters": {"": "a"}}, "str or int values"),
+        ({"parameters": {"api_key": "a"}}, r"\['api_key'\] look like credentials"),
+        ({"parameters": {"Authorization": "a"}}, "look like credentials"),
+        ({"retrieved_at": "2999-01-01T00:00:00Z"}, "is in the future"),
+    ],
+)
+def test_record_refuses_what_it_cannot_record_honestly(upstream: Path, change: dict[str, object], message: str) -> None:
+    """Each refusal names the source and comes before anything is written."""
+    with pytest.raises(ValueError, match=f"^example: .*{message}"):
+        ledger.record(_source(), upstream, **change)  # ty: ignore[invalid-argument-type]
+    assert not Path("data").exists()
+
+
+def test_record_refuses_bytes_that_miss_the_pin(upstream: Path, tmp_path: Path) -> None:
+    """A pinned source takes only its pinned bytes, and leaves no temp file behind."""
+    _manifest(tmp_path, upstream.as_uri(), terms=f'sha256 = "{"0" * 64}"')
+    with pytest.raises(ValueError, match=r"not the sha256 in sources\.toml"):
+        ledger.record(_source(), upstream, retrieved_at=WHEN)
+    assert [p.name for p in Path("data/raw").iterdir()] == [".lock"]
+    assert not LOG.exists()
+
+
+def test_record_keeps_another_url_without_its_query(upstream: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """A signed download URL carries its secret in the query, which would go into the published records."""
+    signed = "https://bucket.example.org/x.csv?X-Amz-Signature=abc#part"
+    assert ledger.record(_source(), upstream, url=signed).final_url == "https://bucket.example.org/x.csv"
+    assert "abc" not in LOG.read_text(encoding="utf-8")
+    assert "without its query and fragment" in caplog.text
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no FIFOs on Windows")
+@pytest.mark.usefixtures("upstream")
+def test_record_refuses_what_is_not_a_regular_file(tmp_path: Path) -> None:
+    """A named pipe is refused before it is opened, which would wait for a writer with the lock held."""
+    fifo = tmp_path / "pipe"
+    os.mkfifo(fifo)
+    for path in (fifo, tmp_path):
+        with pytest.raises(ValueError, match="is not a regular file"):
+            ledger.record(_source(), path)
+    assert not RAW.parent.exists()
+
+
+def test_record_refuses_an_unimplemented_source(upstream: Path) -> None:
+    with pytest.raises(ValueError, match="only an implemented source"):
+        ledger.record(ledger.load_manifest()[1], upstream, retrieved_at=WHEN)
+
+
+def test_a_missing_file_leaves_nothing_behind(upstream: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        ledger.record(_source(), upstream.with_name("missing.csv"))
+    assert not RAW.parent.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the lock is POSIX only")
+def test_record_waits_for_no_fetch(upstream: Path) -> None:
+    """Record and fetch share the raw lock, so they never interleave their writes."""
+    RAW.parent.mkdir(parents=True)
+    with (RAW.parent / ".lock").open("w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        with pytest.raises(OSError, match="another fetch is already running"):
+            ledger.record(_source(), upstream, retrieved_at=WHEN)
+
+
+def test_the_record_stage_records_one_file(upstream: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """`record ID PATH` prints a fetch-style line and passes every option on."""
+    argv = [
+        "record", "example", str(upstream), "--retrieved-at", WHEN,
+        "--parameter", "country=NL", "--parameter", "query=a=b", "--last-modified", "x",
+    ]  # fmt: skip
+    assert main(argv) == 0
+    assert capsys.readouterr().out.startswith("example  new")
+    line = json.loads(LOG.read_text(encoding="utf-8"))
+    assert (line["parameters"], line["last_modified"]) == ({"country": "NL", "query": "a=b"}, "x")
+    assert line["retrieved_at"] == "2026-11-05T09:30:00Z"
+    assert main(["record", "example", str(upstream)]) == 0
+    assert capsys.readouterr().out.startswith("example  unchanged")
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["record", "example"], "record needs a source id and the file another tool downloaded"),
+        (["fetch", "extra"], "fetch takes no arguments"),
+        (["fetch", "--url", "x"], "work with record, not fetch"),
+        (["status", "--parameter", "a=b"], "work with record, not status"),
+        (["record", "example", "f", "--parameter", "novalue"], "--parameter takes NAME=VALUE, not 'novalue'"),
+        (["record", "example", "f", "--parameter", "=v"], "--parameter takes NAME=VALUE, not '=v'"),
+        (["record", "example", "f", "--parameter", "=a=b"], "--parameter takes NAME=VALUE, not '=a=b'"),
+        (["record", "example", "f", "--parameter", "q=a=b", "--parameter", "q=c"], "--parameter names ['q']"),
+        (
+            ["record", "example", "f", "--parameter", "a=1", "--parameter", "a=2"],
+            "--parameter names ['a'] more than once",
+        ),
+    ],
+)
+@pytest.mark.usefixtures("upstream")
+def test_the_record_options_are_checked(argv: list[str], message: str, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exit_:
+        main(argv)
+    assert exit_.value.code == 2
+    assert message in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["record", "missing", "f"], "record: ids ['missing'] are not in sources.toml"),
+        (["record", "later", "f"], "record: later: only an implemented source can be recorded"),
+    ],
+)
+@pytest.mark.usefixtures("upstream")
+def test_the_record_stage_reports_a_failure_in_one_line(
+    argv: list[str], message: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(argv) == 1
+    assert capsys.readouterr().err == message + "\n"
+
+
+def test_record_writes_empty_validators_and_creates_the_log_folder(upstream: Path, tmp_path: Path) -> None:
+    """Defaults stay empty strings, as a fetch writes them, and a log in a new folder is made."""
+    log = tmp_path / "logs" / "nested" / "fetches.jsonl"
+    result = ledger.record(_source(), upstream, log=log)
+    assert (result.etag, result.last_modified, result.final_url) == ("", "", "")
+    assert json.loads(log.read_text(encoding="utf-8"))["last_modified"] == ""
+
+
+def test_record_keeps_the_query_of_the_source_url_itself(
+    tmp_path: Path, upstream: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Only another URL loses its query: the manifest's own URL is reviewed and kept as it is."""
+    _manifest(tmp_path, "https://example.org/data.csv?format=csv")
+    result = ledger.record(_source(), upstream)
+    assert (result.url, result.final_url) == ("https://example.org/data.csv?format=csv", "")
+    assert "without its query" not in caplog.text
+
+
+def test_record_copies_through_a_temp_file_beside_the_raw_file(upstream: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The temp file sits in data/raw/, so moving it into place is one rename on one file system."""
+    made: list[Path] = []
+    mkstemp = tempfile.mkstemp
+
+    def spy(**kwargs: str | Path) -> tuple[int, str]:
+        fd, name = mkstemp(**kwargs)  # ty: ignore[no-matching-overload]
+        made.append(Path(name))
+        return fd, name
+
+    monkeypatch.setattr(tempfile, "mkstemp", spy)
+    ledger.record(_source(), upstream)
+    temp = made[0]  # the copy; the sidecar's own temp file comes after it
+    assert temp.parent.resolve() == RAW.parent.resolve()
+    assert temp.name.startswith(".example.")
+    assert temp.name.endswith(".part")
+    assert not temp.exists()
+
+
+@pytest.mark.parametrize(("cap", "chunk", "ok"), [(len(FIXTURE), 4, True), (len(FIXTURE) - 1, 4, False)])
+def test_record_counts_every_chunk_against_the_cap(
+    upstream: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: int, chunk: int, *, ok: bool
+) -> None:
+    """A file of exactly max_bytes is taken; one byte more is refused, however it is chunked."""
+    monkeypatch.setattr(ledger, "_CHUNK_BYTES", chunk)
+    _manifest(tmp_path, upstream.as_uri(), terms=f"{TERMS}\nmax_bytes = {cap}")
+    if ok:
+        assert ledger.record(_source(), upstream).bytes == cap
+    else:
+        with pytest.raises(ValueError, match=f"exceeds {cap} bytes"):
+            ledger.record(_source(), upstream)
+        assert not list(Path("data/raw").glob("*.part"))
+
+
+def test_recording_the_same_request_again_adds_no_line(upstream: Path) -> None:
+    for _ in range(2):
+        ledger.record(_source(), upstream, parameters={"country": "NL"})
+    assert len(_lines()) == 1
+
+
+def test_the_record_stage_passes_url_and_validators_on(upstream: Path) -> None:
+    """--etag, --last-modified and --url reach the record; left out, they stay empty strings."""
+    assert main(["record", "example", str(upstream)]) == 0
+    line = json.loads(LOG.read_text(encoding="utf-8"))
+    assert (line["etag"], line["last_modified"]) == ("", "")
+    assert main(["record", "example", str(upstream), "--etag", '"e1"', "--last-modified", "lm"]) == 0
+    assert json.loads(Path(f"{RAW}.fetch.json").read_text(encoding="utf-8"))["etag"] == '"e1"'
+    assert main(["record", "example", str(upstream), "--url", "https://mirror.example.org/x.csv"]) == 0
+    assert json.loads(Path(f"{RAW}.fetch.json").read_text(encoding="utf-8"))["final_url"] == (
+        "https://mirror.example.org/x.csv"
+    )
+
+
+@pytest.mark.parametrize("value", ["a=", "a=b=c"])
+def test_a_parameter_value_may_be_empty_or_hold_an_equals_sign(upstream: Path, value: str) -> None:
+    assert main(["record", "example", str(upstream), "--parameter", value]) == 0
+    name, _, rest = value.partition("=")
+    assert json.loads(LOG.read_text(encoding="utf-8"))["parameters"] == {name: rest}
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Fetch, build and validate the sources in sources.toml.",
+        "--only ID", "fetch, build and validate: only this source (repeatable)",
+        "--manifest PATH", "the manifest to read (default: sources.toml)",
+        "--url URL", "record: where the file came from (default: the source's url)",
+        "--retrieved-at TIME", "record: when it was downloaded, ISO 8601 with a zone",
+        "--etag ETAG", "record: the ETag the server sent",
+        "--last-modified LAST_MODIFIED", "record: the Last-Modified the server sent",
+        "--parameter NAME=VALUE", "record: request metadata (repeatable)",
+        "[ARG ...]", "revisions: an earlier copy of data/fetches.jsonl; verify: the folder of a published dataset;",
+        "record: a source id and the file another tool downloaded",
+    ],
+)  # fmt: skip
+def test_the_help_text_is_the_documented_one(
+    line: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every option, its metavar and its help are part of the command's contract."""
+    monkeypatch.setenv("COLUMNS", "500")  # one line per option, whatever the terminal
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    text = " ".join(capsys.readouterr().out.split())
+    assert re.search(rf"(?<!\S){re.escape(line)}(?!\S)", text), line
+
+
+def test_record_treats_the_source_url_with_a_query_as_another_url(upstream: Path, tmp_path: Path) -> None:
+    """Validators from a variant of the source URL are not the source URL's, even once its query is gone."""
+    _manifest(tmp_path, "https://example.org/data.csv")
+    result = ledger.record(_source(), upstream, url="https://example.org/data.csv?format=csv", etag='"v9"')
+    assert (result.final_url, result.etag) == ("", "")
+
+
+def test_record_logs_no_query_it_drops(upstream: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """The warning about a dropped query names the URL without it, so the key never reaches a CI log."""
+    with caplog.at_level(logging.WARNING, logger="sourceledger"):
+        ledger.record(_source(), upstream, url="https://cdn.example.org/a.csv?X-Amz-Signature=s3cr3t", etag='"v1"')
+    assert "https://cdn.example.org/a.csv without its query" in caplog.text
+    assert "s3cr3t" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("name", "refused"),
+    [
+        ("api_key", True),
+        ("x-api-key", True),
+        ("key", True),
+        ("sig", True),
+        ("X-Amz-Credential", True),
+        ("client_secret", True),
+        ("accessToken", True),
+        ("pwd", True),
+        ("session", True),
+        ("authKey", True),
+        ("authCode", True),
+        ("oauth", True),
+        ("oauth_code", True),
+        ("sessionid", True),
+        ("PHPSESSID", True),
+        ("userKey", True),
+        ("auth_code", True),
+        ("apiKey", True),
+        ("accessKeyId", True),
+        ("session_date", True),
+        ("author", False),
+        ("authors", False),
+        ("year", False),
+        ("format", False),
+        ("keyword", False),
+        ("country", False),
+    ],
+)
+def test_record_refuses_a_parameter_named_like_a_credential(upstream: Path, name: str, *, refused: bool) -> None:
+    if refused:
+        with pytest.raises(ValueError, match="look like credentials"):
+            ledger.record(_source(), upstream, parameters={name: "x"})
+    else:
+        assert ledger.record(_source(), upstream, parameters={name: "x"}).parameters == {name: "x"}
+
+
+def test_record_stores_parameters_as_text_in_name_order(upstream: Path) -> None:
+    """The CLI's text and the library's int give one request, so recording it again adds no line."""
+    first = ledger.record(_source(), upstream, parameters={"year": 2024, "country": "NL"})
+    assert list(first.parameters.items()) == [("country", "NL"), ("year", "2024")]
+    ledger.record(_source(), upstream, parameters={"country": "NL", "year": "2024"})
+    assert len(LOG.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_record_refuses_a_time_before_utc_can_hold_it(upstream: Path) -> None:
+    with pytest.raises(ValueError, match="out of range"):
+        ledger.record(_source(), upstream, retrieved_at="0001-01-01T00:00:00+05:00")
+
+
+@pytest.mark.parametrize(("when", "url"), [("2026-11-05T10:00:00Z", None), (WHEN, "https://mirror.example.org/a.csv")])
+def test_recording_the_same_bytes_from_elsewhere_or_another_time_adds_a_line(
+    upstream: Path, when: str, url: str | None
+) -> None:
+    """The log's last line names where and when the sidecar says the bytes came from."""
+    ledger.record(_source(), upstream, retrieved_at=WHEN)
+    ledger.record(_source(), upstream, retrieved_at=when, url=url)
+    last = json.loads(LOG.read_text(encoding="utf-8").splitlines()[-1])
+    assert last == json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
+    assert len(LOG.read_text(encoding="utf-8").splitlines()) == 2
+
+
+def test_validate_sees_a_package_built_before_the_same_bytes_were_recorded_again(upstream: Path) -> None:
+    """Rows stamp the bytes, not the request; the package's provenance block names both."""
+    ledger.record(_source(), upstream, parameters={"country": "NL"})
+    assert _run("build", "validate") == [0, 0]
+    ledger.record(_source(), upstream, parameters={"country": "BE"})
+    assert any("describes an earlier fetch" in p for p in ledger.validate(ledger.load_manifest()))
+
+
+def test_recording_the_same_bytes_again_leaves_the_sidecar_as_logged(
+    upstream: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A no-op record keeps the logged time, so the package built after the first stays current."""
+    ticks = iter(range(10, 60))
+    monkeypatch.setattr(ledger, "_timestamp", lambda _when: f"2026-11-05T09:30:{next(ticks)}Z")
+    ledger.record(_source(), upstream)
+    assert _run("build") == [0]
+    ledger.record(_source(), upstream)
+    assert ledger.validate(ledger.load_manifest()) == []
+    assert _lines()[-1] == json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
+
+
+def test_a_record_with_parameters_that_are_not_text_is_not_a_record() -> None:
+    fields = json.loads(_record("a", "1"))
+    assert ledger._is_record(fields)  # noqa: SLF001
+    for damaged in ({"parameters": []}, {"parameters": {"n": 3}}, {"recorded_at": None}):
+        assert not ledger._is_record({**fields, **damaged})  # noqa: SLF001

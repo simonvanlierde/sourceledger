@@ -7,6 +7,7 @@ import io
 import json
 import sys
 import tempfile
+from datetime import datetime
 from email.message import Message
 from pathlib import Path
 
@@ -31,11 +32,13 @@ _records = st.builds(
     final_url=_texts,
     env_headers=st.lists(_texts, max_size=3),
     archive_url=_texts,
+    recorded_at=_texts,
+    parameters=st.dictionaries(_texts, _texts, max_size=3),
 )
 
 
 def _last_by_id(written: list[ledger.FetchRecord]) -> dict[str, dict[str, object]]:
-    return {record.source_id: dataclasses.asdict(record) for record in written}
+    return {record.source_id: ledger._fields(record) for record in written}
 
 
 # No deadline where an example writes and fsyncs files: a slow CI disk is not a failure.
@@ -245,6 +248,46 @@ def test_streamed_history_preserves_splitlines_records(
 ) -> None:
     with tempfile.TemporaryDirectory() as folder:
         log = Path(folder) / "history.jsonl"
-        text = separator.join(json.dumps(dataclasses.asdict(record)) for record in written)
+        text = separator.join(json.dumps(ledger._fields(record)) for record in written)
         log.write_bytes((text + (separator if terminated else "")).encode())
         assert ledger._last_records(log) == _last_by_id(written)  # noqa: SLF001
+
+
+@settings(deadline=None, max_examples=50)
+@given(
+    payload=st.binary(max_size=2048),
+    fmt=st.sampled_from(["file", "csv"]),
+    parameters=st.dictionaries(
+        st.text("xyz_09", min_size=1, max_size=8), st.text(max_size=8) | st.integers(), max_size=3
+    ),
+    # Naive bounds, as hypothesis wants; the timezones strategy makes each value aware.
+    retrieved_at=st.none() | st.datetimes(max_value=datetime(2026, 1, 1), timezones=st.timezones()),  # noqa: DTZ001
+)
+def test_a_recorded_file_verifies_and_reads_back(
+    payload: bytes, fmt: str, parameters: dict[str, str | int], retrieved_at: object
+) -> None:
+    """Whatever bytes and metadata record() takes, the sidecar reads back as its record and verify passes."""
+    if fmt == "csv":
+        payload = b"value\n" + payload.replace(b"\r", b"").replace(b"\n", b"").replace(b",", b"").replace(b'"', b"")
+        payload = payload.decode("utf-8", "replace").encode() + b"\n"
+    with tempfile.TemporaryDirectory() as folder:
+        root = Path(folder)
+        file = root / "download.bin"
+        file.write_bytes(payload)
+        source = {
+            "id": "s",
+            "status": "implemented",
+            "url": "https://example.org/s.csv",
+            "format": fmt,
+            "terms": "t",
+            "terms_url": "https://example.org/t",
+            "license": "CC0-1.0",
+            "redistribute": True,
+        }
+        raw, processed, log = root / "raw", root / "processed", root / "fetches.jsonl"
+        result = ledger.record(source, file, retrieved_at=retrieved_at, parameters=parameters, raw=raw, log=log)  # ty: ignore[invalid-argument-type]
+        assert ledger._record(source, raw) == result  # noqa: SLF001
+        assert ledger._last_records(log)["s"] == ledger._fields(result)  # noqa: SLF001
+        assert ledger.verified(source, raw=raw) == (result, payload)
+        ledger.build([source], raw=raw, processed=processed)
+        assert ledger.verify(processed) == []

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://datapackage.org/profiles/2.0/datapackage.json",
+  "name": "proj",
+  "resources": [
+    {
+      "name": "example",
+      "type": "table",
+      "path": "example.csv",
+      "format": "csv",
+      "mediatype": "text/csv",
+      "encoding": "utf-8",
+      "bytes": 367,
+      "hash": "sha256:480270cf338404f16ba45d4e449f04c9490792859296425041222a05edf9fbb2",
+      "schema": {
+        "fields": [
+          {
+            "name": "source_id",
+            "type": "string"
+          },
+          {
+            "name": "source_url",
+            "type": "string"
+          },
+          {
+            "name": "retrieved_at",
+            "type": "string"
+          },
+          {
+            "name": "vintage",
+            "type": "string"
+          },
+          {
+            "name": "raw_sha256",
+            "type": "string"
+          },
+          {
+            "name": "year",
+            "type": "string"
+          },
+          {
+            "name": "value",
+            "type": "string"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "Example series",
+          "path": "http://127.0.0.1:8731/example.csv"
+        }
+      ],
+      "licenses": [
+        {
+          "name": "CC0-1.0",
+          "path": "https://example.org/terms",
+          "title": "CC0-1.0"
+        }
+      ],
+      "sourceledger": {
+        "retrieved_at": "2026-11-06T20:29:57Z",
+        "vintage": "2024 release",
+        "raw_sha256": "1453a301f534e2fe2f3beea7cab6aa4de5361a57f360975e49dbc61826c76dd2",
+        "final_url": "",
+        "redistribute": true
+      }
+    }
+  ]
+}

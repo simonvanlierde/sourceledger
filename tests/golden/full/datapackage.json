@@ -1,0 +1,161 @@
+{
+  "$schema": "https://datapackage.org/profiles/2.0/datapackage.json",
+  "name": "golden-project",
+  "resources": [
+    {
+      "name": "table",
+      "type": "table",
+      "path": "table.csv",
+      "format": "csv",
+      "mediatype": "text/csv",
+      "encoding": "utf-8",
+      "bytes": "<varies with the port>",
+      "hash": "<varies with the port>",
+      "schema": {
+        "fields": [
+          {
+            "name": "source_id",
+            "type": "string"
+          },
+          {
+            "name": "source_url",
+            "type": "string"
+          },
+          {
+            "name": "retrieved_at",
+            "type": "string"
+          },
+          {
+            "name": "vintage",
+            "type": "string"
+          },
+          {
+            "name": "raw_sha256",
+            "type": "string"
+          },
+          {
+            "name": "year",
+            "type": "string"
+          },
+          {
+            "name": "value",
+            "type": "string"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "Example series",
+          "path": "http://127.0.0.1:8000/old.csv"
+        }
+      ],
+      "licenses": [
+        {
+          "name": "CC-BY-4.0",
+          "path": "https://example.org/terms",
+          "title": "Free to reuse with attribution"
+        }
+      ],
+      "sourceledger": {
+        "retrieved_at": "2026-11-05T09:30:00Z",
+        "vintage": "2024 release",
+        "raw_sha256": "1453a301f534e2fe2f3beea7cab6aa4de5361a57f360975e49dbc61826c76dd2",
+        "final_url": "http://127.0.0.1:8000/data.csv",
+        "redistribute": true
+      }
+    },
+    {
+      "name": "document",
+      "path": "document.bin",
+      "bytes": 14,
+      "hash": "sha256:704d50f87c54680c43ebb10e5754180ea7b3e23b38ca39ba8c10f13a8175bd38",
+      "sources": [
+        {
+          "title": "document",
+          "path": "http://127.0.0.1:8000/data.bin"
+        }
+      ],
+      "licenses": [
+        {
+          "name": "CC-BY-4.0",
+          "path": "https://example.org/terms",
+          "title": "Free to reuse with attribution"
+        }
+      ],
+      "sourceledger": {
+        "retrieved_at": "2026-11-05T09:30:00Z",
+        "vintage": "not stated",
+        "raw_sha256": "704d50f87c54680c43ebb10e5754180ea7b3e23b38ca39ba8c10f13a8175bd38",
+        "final_url": "",
+        "redistribute": true
+      }
+    },
+    {
+      "name": "mirror",
+      "type": "table",
+      "path": "mirror.csv",
+      "format": "csv",
+      "mediatype": "text/csv",
+      "encoding": "utf-8",
+      "bytes": "<varies with the port>",
+      "hash": "<varies with the port>",
+      "schema": {
+        "fields": [
+          {
+            "name": "source_id",
+            "type": "string"
+          },
+          {
+            "name": "source_url",
+            "type": "string"
+          },
+          {
+            "name": "retrieved_at",
+            "type": "string"
+          },
+          {
+            "name": "vintage",
+            "type": "string"
+          },
+          {
+            "name": "raw_sha256",
+            "type": "string"
+          },
+          {
+            "name": "country",
+            "type": "string"
+          },
+          {
+            "name": "value",
+            "type": "string"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "Recorded mirror download",
+          "path": "http://127.0.0.1:8000/mirror.csv"
+        }
+      ],
+      "licenses": [
+        {
+          "name": "CC-BY-4.0",
+          "path": "https://example.org/terms",
+          "title": "Free to reuse with attribution"
+        }
+      ],
+      "sourceledger": {
+        "retrieved_at": "2026-11-04T07:00:00Z",
+        "vintage": "2024-06-01",
+        "raw_sha256": "0e1c97a42125ea17421c963658a00d44a05ed92040246215a480c1f4de466c03",
+        "final_url": "https://mirror.example.org/mirror.csv",
+        "redistribute": true,
+        "recorded_at": "2026-11-05T09:30:00Z",
+        "parameters": {
+          "country": "NL",
+          "year": "2024"
+        }
+      }
+    }
+  ]
+}

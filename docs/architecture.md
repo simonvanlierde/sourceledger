@@ -75,6 +75,7 @@ only). `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
    Parquet writes batches of at most 10,000 rows.
 3. It writes `data/processed/<id>.csv` with five provenance columns in front of the source's
    own: `source_id`, `source_url`, `retrieved_at`, `vintage` and `raw_sha256`.
+   `retrieved_at` is empty for a recorded file whose tool stated no download time.
    With `output_format = "parquet"`, it writes `<id>.parquet` with zstd compression and an explicit string schema.
 4. It writes `datapackage.json`, a Frictionless Data Package that lists every output with
    its size, SHA-256, source and licence.
