@@ -23,21 +23,28 @@ export async function getStaticPaths() {
 // A page places a component with an HTML comment, which GitHub shows as nothing.
 const includes = { "home-install": HomeInstall, "revision-example": RevisionExample };
 const { page, path, to } = Astro.props;
-const target = to && new URL(import.meta.env.BASE_URL.replace(/\/$/, "") + to, Astro.site).href;
+// Relative to the site base, so a preview or local build redirects within itself.
+const target = to && import.meta.env.BASE_URL.replace(/\/$/, "") + to;
+const canonical = to && new URL(target, Astro.site).href;
 const parts = page?.rendered.html.split(/<!-- include ([\w-]+) -->/) ?? [];
 ---
 
 {
   to ? (
     <html lang="en">
-      <meta charset="utf-8" />
-      <title>Redirecting…</title>
-      <link rel="canonical" href={target} />
-      <script is:inline set:html={`location=${JSON.stringify(target)}`} />
-      <meta http-equiv="refresh" content={`0; url=${target}`} />
-      <meta name="robots" content="noindex" />
-      <h1>Redirecting…</h1>
-      <a href={target}>Click here if you are not redirected.</a>
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Redirecting…</title>
+        <link rel="canonical" href={canonical} />
+        <script is:inline set:html={`location.replace(${JSON.stringify(target)} + location.hash)`} />
+        <meta http-equiv="refresh" content={`0; url=${target}`} />
+        <meta name="robots" content="noindex" />
+      </head>
+      <body>
+        <h1>Redirecting…</h1>
+        <a href={target}>Click here if you are not redirected.</a>
+      </body>
     </html>
   ) : (
     <Base data={page.data} path={path}>
