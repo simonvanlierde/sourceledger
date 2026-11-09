@@ -48,7 +48,7 @@ def test_parquet_build_and_validate(project: Path, capsys: pytest.CaptureFixture
     assert table.schema == dict.fromkeys(
         ["source_id", "source_url", "retrieved_at", "vintage", "raw_sha256", "code", "value"], pl.String
     )
-    rows = ledger.read_output(out)
+    rows = list(ledger.read_output(out))
     assert [(row["code"], row["value"]) for row in rows] == [("001", "1.10"), ("002", "")]
     assert {row["source_id"] for row in rows} == {"example"}
     package_path = Path("data/processed/datapackage.json")
@@ -81,7 +81,7 @@ def test_parquet_damage_is_a_validation_problem(damage: bytes | None) -> None:
     else:
         out.write_bytes(damage)
         with pytest.raises(ValueError, match=r"data/processed/example.parquet: not a readable Parquet table"):
-            ledger.read_output(out)
+            list(ledger.read_output(out))
     assert main(["validate", "--json"]) == 1
 
 
@@ -168,7 +168,7 @@ def test_parquet_fills_missing_cells_and_protects_the_stamp(tmp_path: Path) -> N
     ledger._write_rows(  # noqa: SLF001
         {"id": "test"}, out, {"source_id": "test"}, ["x"], [{}, {"x": "1", "source_id": "wrong"}]
     )
-    assert ledger.read_output(out) == [{"source_id": "test", "x": ""}, {"source_id": "test", "x": "1"}]
+    assert list(ledger.read_output(out)) == [{"source_id": "test", "x": ""}, {"source_id": "test", "x": "1"}]
 
 
 def test_parquet_does_not_keep_all_python_rows_beside_the_frame(tmp_path: Path) -> None:
@@ -208,7 +208,7 @@ def test_parquet_round_trips_text(values: list[str], tmp_path_factory: pytest.Te
     out = tmp_path_factory.mktemp("parquet") / "table.parquet"
     rows = [{"value": value} for value in values]
     ledger._write_rows({"id": "test"}, out, {"source_id": "test"}, ["value"], rows)  # noqa: SLF001
-    assert ledger.read_output(out) == [{"source_id": "test", **row} for row in rows]
+    assert list(ledger.read_output(out)) == [{"source_id": "test", **row} for row in rows]
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="VmHWM is a Linux process counter")
@@ -250,7 +250,7 @@ def test_parquet_batches_preserve_order_values_and_determinism(tmp_path: Path) -
     for _ in range(2):
         count = ledger._write_rows({"id": "test"}, out, {"source_id": "test"}, ["value"], iter(expected))  # noqa: SLF001
         assert count == len(expected)
-        assert ledger.read_output(out) == expected
+        assert list(ledger.read_output(out)) == expected
         assert pl.read_parquet(out).to_dicts() == expected
         metadata = pq.read_metadata(out)
         assert [metadata.row_group(i).num_rows for i in range(metadata.num_row_groups)] == [10_000, 10_000, 1]
@@ -317,5 +317,5 @@ def test_parquet_writes_parser_cells_as_csv_does(output_format: str) -> None:
 
     sources = ledger.load_manifest()
     ledger.build(sources, parse=loose, output_format=output_format)
-    row = ledger.read_output(Path(f"data/processed/example.{output_format}"))[0]
+    row = next(ledger.read_output(Path(f"data/processed/example.{output_format}")))
     assert (row["code"], row["value"]) == ("7", "")

@@ -1,0 +1,16 @@
+// The Worker config of the site's pull request previews: the preview job in
+// .github/workflows/site.yml deploys site/dist/ with --name <slug>-site-pr-<number>.
+// Production is GitHub Pages, not a Worker.
+//
+// Keep the slug short: a Worker name can have at most 63 characters, and "-site-pr-123" takes 12.
+{
+  "name": "sourceledger-site",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./site/dist"
+  },
+  // Off, so the workers.dev address is a Worker's only one, and the retire job can
+  // check that one address after the delete.
+  "preview_urls": false,
+  "workers_dev": true
+}

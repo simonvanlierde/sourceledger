@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Sign the release tag vX.Y.Z on origin/main with your git signing key and push it.
-# The release workflow refuses a tag GitHub cannot verify, so a tag pushed any other
-# way publishes nothing. Run it on an up-to-date main.
+# The release workflow refuses a tag not signed with a key in .github/allowed_signers,
+# so a tag pushed any other way publishes nothing. Run it on an up-to-date main.
 # Usage: tag-release.sh X.Y.Z
 set -euo pipefail
 

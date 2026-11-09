@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import csv
 import dataclasses
+import difflib
 import errno
 import functools
 import gzip
@@ -194,10 +195,20 @@ class FetchError(OSError):
         self.failures = failures  # one line per source that did not
 
 
+_MANIFEST_KEYS = frozenset({"output_format", "source"})
+
+
 def load_manifest(path: Path = MANIFEST) -> list[Source]:
     """The `[[source]]` tables of sources.toml, after checking ids, URLs, caps, timeouts and pins."""
     with path.open("rb") as fh:
         manifest = tomllib.load(fh)
+    # A typo such as [[sources]] must not read as an empty manifest: build would then write
+    # an empty datapackage.json over a good one.
+    for key in sorted(manifest.keys() - _MANIFEST_KEYS):
+        close = difflib.get_close_matches(key.lower().replace("-", "_"), _MANIFEST_KEYS, n=1, cutoff=0.6)
+        hint = f"; did you mean {close[0]}?" if close else ""
+        msg = f"sources.toml: {key!r} is not a sources.toml key{hint}"
+        raise ValueError(msg)
     _check_output_format(manifest.get("output_format", "csv"))
     sources = manifest.get("source", [])
     if not isinstance(sources, list) or not all(isinstance(s, dict) and isinstance(s.get("id"), str) for s in sources):
@@ -787,10 +798,15 @@ def logged_versions(log: Path = FETCH_LOG) -> dict[str, str]:
 def _lock(raw: Path) -> Generator[None]:
     """Hold an exclusive lock on `raw/.lock`, so two fetches at once can't interleave their writes.
 
-    Fails at once rather than waiting.
+    Once it holds the lock it removes the `.*.part` temp files a killed run left in `raw`: every
+    writer there holds the same lock, so none of them is still being written. Fails at once
+    rather than waiting.
     """
     # Never truncated, and never through a symlink: a cloned checkout could plant one to another file.
-    # Windows has no O_NOFOLLOW; there a symlink needs a privilege a checkout does not grant.
+    # Windows has no O_NOFOLLOW, and Git there makes symlinks under Developer Mode: check first.
+    if (raw / ".lock").is_symlink():
+        msg = f"{(raw / '.lock').as_posix()} is a symlink; the lock must be a file of its own"
+        raise OSError(msg)
     flags = os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(raw / ".lock", flags, 0o644)
     with os.fdopen(fd, "wb") as fh:
@@ -803,6 +819,9 @@ def _lock(raw: Path) -> Generator[None]:
             msg = f"another fetch is already running in {raw.as_posix()}"
             raise OSError(msg) from error
         try:
+            for stale in raw.glob(".*.part"):
+                with contextlib.suppress(OSError):  # a scanner holding it, or a directory of that name
+                    stale.unlink(missing_ok=True)
             yield
         finally:
             if sys.platform == "win32":  # noqa: PLR2004
@@ -1013,7 +1032,9 @@ def record(
 
     The same bytes recorded again for the same request, URL, download time and validators add no log
     line; anything else adds one, so the log's last line names how the sidecar's bytes came
-    in. A record replaces the previous record's ETag and Last-Modified with its own.
+    in. A record replaces the previous record's ETag and Last-Modified with its own. For a
+    source with `archive = true` it asks for no snapshot: it keeps the one the log holds for
+    the same bytes, and otherwise leaves `archive_url` empty.
 
     Raises ValueError for a source that is not implemented, a URL with a user name or
     password, a time without a time zone or in the future, other `parameters`, a path that
@@ -1076,6 +1097,9 @@ def _record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before
             if source.get("sha256", digest) != digest:
                 msg = f"{sid}: {path.as_posix()} hashes to {digest}, not the sha256 in sources.toml"
                 raise ValueError(msg)
+            # No request: only the snapshot a fetch already logged for these bytes is kept, as fetch keeps it.
+            last = logged.get(sid, {})
+            archived = last.get("archive_url", "") if source.get("archive") and last.get("sha256") == digest else ""
             result = FetchRecord(
                 source_id=sid,
                 url=source["url"],
@@ -1088,6 +1112,7 @@ def _record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before
                 final_url=served,
                 recorded_at=_timestamp(now),
                 parameters=request,
+                archive_url=archived,
             )
             if temp:
                 _commit(source, temp, result, raw, log, logged)
@@ -1748,11 +1773,6 @@ def _provenance(source: Source, record: FetchRecord) -> dict[str, Any]:
     return stamp
 
 
-def read_output(path: Path) -> list[dict[str, str]]:
-    """A published CSV or Parquet table, as written. Parquet needs the parquet extra."""
-    return list(_output_rows(path))
-
-
 def _arrow() -> tuple[Any, Any]:  # optional dependency, imported only for Parquet
     """Load the Parquet backend, with an actionable error when the extra is missing."""
     try:
@@ -1780,8 +1800,16 @@ def _parquet_batches(path: Path) -> Iterator[Any]:
         raise ValueError(msg) from error
 
 
-def _output_rows(path: Path) -> Iterator[dict[str, str]]:
-    """Read CSV one row at a time, or Parquet in bounded batches with its optional backend."""
+def read_output(path: Path) -> Iterator[dict[str, str]]:
+    """The rows of a published CSV or Parquet table, as written, one at a time.
+
+    CSV is read row by row, Parquet in batches of at most 10,000 rows; Parquet needs the
+    parquet extra. Wrap the call in `list()` to hold the whole table. This is a generator, so
+    nothing runs until the first `next()`: every error, a missing file included (OSError), and
+    ValueError for a Parquet file that cannot be read, is raised there. An iterator left
+    unfinished keeps the file open; on Windows that blocks replacing the output, so exhaust it
+    or call `close()`.
+    """
     if path.suffix == _PARQUET_SUFFIX:
         for batch in _parquet_batches(path):
             yield from batch.to_pylist()

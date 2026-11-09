@@ -4,10 +4,11 @@ A change to any of these files is a change to a format other people read. Rerun 
 `pytest --update-goldens` only when the change is meant, and say so in the changelog.
 """
 
+import hashlib
 import io
 import json
-import re
 import shutil
+import urllib.request
 from collections.abc import Callable
 from email.message import Message
 from pathlib import Path
@@ -19,6 +20,8 @@ from sourceledger.cli import main
 from sourceledger.report import report
 
 FIXTURES = Path(__file__).parent / "fixtures"
+# Goldens name the publisher at this address, whatever free port it ran on.
+FIXED = "http://127.0.0.1:8000"
 TERMS = """terms = "Free to reuse with attribution"
 terms_url = "https://example.org/terms"
 license = "CC-BY-4.0"
@@ -37,30 +40,52 @@ def _project(root: Path, monkeypatch: pytest.MonkeyPatch, manifest: str) -> None
 
 def _text(path: str, publisher: str) -> str:
     """A written file, with the publisher's free port replaced by a fixed one."""
-    return Path(path).read_bytes().decode().replace(publisher, "http://127.0.0.1:8000")
+    return Path(path).read_bytes().decode().replace(publisher, FIXED)
+
+
+def _tables(publisher: str) -> list[tuple[tuple[int, str], tuple[int, str]]]:
+    """Each CSV output's size and SHA-256 as written, and as they are with the fixed port.
+
+    A table's rows hold the source URL and so its port. Its size and hash in the package and
+    the report are swapped for those of the table golden, so every other byte still counts.
+    """
+    tables = []
+    for path in sorted(Path("data/processed").glob("*.csv")):
+        written, fixed = path.read_bytes(), _text(str(path), publisher).encode()
+        tables.append(
+            ((len(written), hashlib.sha256(written).hexdigest()), (len(fixed), hashlib.sha256(fixed).hexdigest()))
+        )
+    return tables
 
 
 def _report(sources: list[ledger.Source], publisher: str) -> str:
-    """The HTML report, normalized as `_package` does."""
-    html = report(sources).replace(publisher, "http://127.0.0.1:8000")
-    return re.sub(
-        r"<dt>Size in bytes</dt><dd>\d+</dd><dt>SHA-256 of the output</dt><dd>sha256:[0-9a-f]{64}</dd>",
-        "<dt>Size in bytes</dt><dd>VARIES</dd><dt>SHA-256 of the output</dt><dd>VARIES</dd>",
-        html,
-    )
+    """The HTML report, with the fixed port and each table's size and hash as `_tables` gives them."""
+    html = report(sources).replace(publisher, FIXED)
+    for (size, digest), (fixed_size, fixed_digest) in _tables(publisher):
+        html = _swap(
+            html,
+            f"<dd>{size}</dd><dt>SHA-256 of the output</dt><dd>sha256:{digest}</dd>",
+            f"<dd>{fixed_size}</dd><dt>SHA-256 of the output</dt><dd>sha256:{fixed_digest}</dd>",
+        )
+    return html
 
 
 def _package(publisher: str) -> str:
-    """datapackage.json, normalized as `_text` does.
+    """datapackage.json, with the fixed port and each table's size and hash as `_tables` gives them."""
+    text = _text("data/processed/datapackage.json", publisher)
+    for (size, digest), (fixed_size, fixed_digest) in _tables(publisher):
+        text = _swap(
+            text,
+            f'"bytes": {size},\n      "hash": "sha256:{digest}"',
+            f'"bytes": {fixed_size},\n      "hash": "sha256:{fixed_digest}"',
+        )
+    return text
 
-    A table's size and hash cover its rows, whose URLs hold the free port. The table goldens
-    pin those rows, and validate checks the hashes against them.
-    """
-    package = json.loads(_text("data/processed/datapackage.json", publisher))
-    for resource in package["resources"]:
-        if resource.get("type") == "table":
-            resource.update(bytes="<varies with the port>", hash="<varies with the port>")
-    return json.dumps(package, indent=2) + "\n"
+
+def _swap(text: str, old: str, new: str) -> str:
+    """`text` with `old` replaced by `new`, which must be there exactly once."""
+    assert text.count(old) == 1, f"expected {old!r} once"
+    return text.replace(old, new)
 
 
 @pytest.mark.usefixtures("frozen_clock")
@@ -162,10 +187,13 @@ class _Response(io.BytesIO):
 
 @pytest.fixture
 def v040(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A project as sourceledger 0.4.0 left it after `fetch` and `build`, from a local HTTP server.
+    """A project as sourceledger 0.4.0 left it after two versions of a source and a `build`.
 
-    Made with `uvx --from sourceledger==0.4.0 sourceledger fetch` and `build`, in a folder
-    named `proj` against `python -m http.server 8731`. The server is not running now.
+    Made with `uvx --from sourceledger==0.4.0 sourceledger`, in a folder named `proj`,
+    against a local server on port 8731 that sent an ETag and Last-Modified and answered
+    If-None-Match with 304: `fetch` twice (new, then unchanged), a third row added to the
+    served file, `fetch` (new) and `build`. So the log has two lines and the record an ETag.
+    The server is not running now.
     """
     project = tmp_path / "proj"
     shutil.copytree(FIXTURES / "v0.4.0", project)
@@ -193,8 +221,10 @@ def test_a_fetch_over_a_0_4_0_project_writes_the_0_4_0_format(monkeypatch: pytes
     log = Path("data/fetches.jsonl").read_bytes()
     body = Path("data/raw/example.csv").read_bytes()
 
-    def open_(request: object, timeout: float) -> _Response:  # noqa: ARG001  # the stand-in ignores the timeout
-        return _Response(body, old["url"], **{"Last-Modified": old["last_modified"]})
+    def open_(request: urllib.request.Request, timeout: float) -> _Response:  # noqa: ARG001  # the stand-in ignores the timeout
+        # The 0.4.0 record's validators are sent; the stand-in answers in full anyway.
+        assert request.get_header("If-none-match") == old["etag"]
+        return _Response(body, old["url"], **{"ETag": old["etag"], "Last-Modified": old["last_modified"]})
 
     monkeypatch.setattr(ledger, "_open", open_)
     (record,) = ledger.fetch(ledger.load_manifest())

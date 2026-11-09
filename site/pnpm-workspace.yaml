@@ -1,0 +1,10 @@
+# pnpm reads the site's settings here, not from .npmrc. The site is a package of its
+# own, apart from any package at the repo root.
+
+# Resolve only releases at least a week old (in minutes): a compromised release
+# is usually caught and yanked within that window. The dependency bot waits the
+# same week.
+minimumReleaseAge: 10080
+# `pnpm audit --fix=update` lists a fresh security fix under minimumReleaseAgeExclude;
+# pnpm drops an entry once the lockfile no longer holds that version.
+minimumReleaseAgeExcludePrune: true

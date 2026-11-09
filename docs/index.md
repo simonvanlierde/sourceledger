@@ -9,9 +9,9 @@ description: Build a dataset from published sources and check when they change.
 Build a dataset from published sources. Keep a record of each download, trace the outputs back to it,
 and check when the publisher changes the file.
 
-{% include home-install.html %}
+<!-- include home-install -->
 
-{% include revision-example.html %}
+<!-- include revision-example -->
 
 Follow the [complete example](getting-started.md), or review the
 [installation options](https://github.com/simonvanlierde/sourceledger#install).

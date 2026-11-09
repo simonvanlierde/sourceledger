@@ -1,6 +1,6 @@
 ---
 parent: /secure-use.html
-title: What sourceledger's checks establish
+title: What sourceledger’s checks establish
 description: The trust boundaries, safeguards, evidence and limits behind a sourceledger dataset.
 ---
 

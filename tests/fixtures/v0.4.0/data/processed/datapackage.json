@@ -9,8 +9,8 @@
       "format": "csv",
       "mediatype": "text/csv",
       "encoding": "utf-8",
-      "bytes": 367,
-      "hash": "sha256:480270cf338404f16ba45d4e449f04c9490792859296425041222a05edf9fbb2",
+      "bytes": 518,
+      "hash": "sha256:0ab7f33f04d7201a835d01775e7e961b8e1a8ce4eb081b43c1f444f87f3ca6d6",
       "schema": {
         "fields": [
           {
@@ -57,9 +57,9 @@
         }
       ],
       "sourceledger": {
-        "retrieved_at": "2026-11-06T20:29:57Z",
+        "retrieved_at": "2026-11-07T15:50:06Z",
         "vintage": "2024 release",
-        "raw_sha256": "1453a301f534e2fe2f3beea7cab6aa4de5361a57f360975e49dbc61826c76dd2",
+        "raw_sha256": "6d56b6742008814ff6385af89c8e4a1a048db5704c882f5189abbc5223296d69",
         "final_url": "",
         "redistribute": true
       }
