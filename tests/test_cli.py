@@ -1,8 +1,10 @@
 """The command line's contract: per-stage help, error shape, exit codes, JSON, dry runs and progress."""
 
 import hashlib
+import io
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -419,3 +421,105 @@ def test_the_command_exits_with_mains_code() -> None:
         [sys.executable, "-c", "from sourceledger import cli; cli.main = lambda: 3; cli.entry()"], check=False
     )
     assert result.returncode == 3
+
+
+def _add_second_source() -> None:
+    manifest = Path("sources.toml")
+    text = manifest.read_text(encoding="utf-8")
+    manifest.write_text(text + text.replace('"example"', '"other"'), encoding="utf-8")
+
+
+def test_fetch_dry_run_json_lists_what_it_would_fetch(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _add_second_source()
+    assert main(["fetch", "--dry-run", "--json", "--only", "example"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["dry_run"] is True
+    assert report["would_fetch"] == [{"source_id": "example", "url": project.as_uri()}]
+
+
+@pytest.mark.usefixtures("project")
+def test_build_dry_run_honours_only(capsys: pytest.CaptureFixture[str]) -> None:
+    _add_second_source()
+    assert main(["fetch", "--only", "example"]) == 0
+    capsys.readouterr()
+    assert main(["build", "--dry-run", "--only", "example"]) == 0
+    assert capsys.readouterr().out == (
+        "would write data/processed/example.csv\nwould write data/processed/datapackage.json\n"
+    )
+
+
+@pytest.mark.usefixtures("project")
+def test_record_dry_run_says_unchanged_for_a_logged_file(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["fetch"]) == 0
+    capsys.readouterr()
+    assert main(["record", "example", "data/raw/example.csv", "--dry-run"]) == 0
+    assert capsys.readouterr().out.startswith("would record example from data/raw/example.csv: unchanged, 20 B, ")
+
+
+def test_a_missing_stage_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exit_:
+        main([])
+    assert exit_.value.code == 2
+    assert "error: the following arguments are required: STAGE" in capsys.readouterr().err
+
+
+def test_version_of_the_default_project_is_the_bare_release(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        main(["--version"])
+    assert capsys.readouterr().out == f"sourceledger {cli.version('sourceledger')}\n"
+
+
+@pytest.mark.usefixtures("project")
+def test_main_reads_sys_argv_by_default(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """Also checks the rerun hint, which repeats the arguments the run was given."""
+    monkeypatch.setattr(sys, "argv", ["sourceledger", "status", "--json"])
+    assert main() == 0
+    assert json.loads(capsys.readouterr().out)["stage"] == "status"
+
+    def interrupted(*_: object, **__: object) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "_fetch", interrupted)
+    monkeypatch.setattr(sys, "argv", ["sourceledger", "fetch"])
+    assert main() == 130
+    assert "run `sourceledger fetch` to finish" in capsys.readouterr().err
+
+
+class _Stream(io.StringIO):
+    """A text stream that records how main reconfigures it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: list[dict[str, str]] = []
+
+    def reconfigure(self, **kwargs: str) -> None:
+        self.calls.append(kwargs)
+
+
+@pytest.mark.usefixtures("project")
+def test_main_makes_both_streams_utf8_and_stdout_lf(monkeypatch: pytest.MonkeyPatch) -> None:
+    out, err = _Stream(), _Stream()
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr(sys, "stderr", err)
+    assert main(["status"]) == 0
+    assert out.calls == [{"encoding": "utf-8", "newline": "\n"}]
+    assert err.calls == [{"encoding": "utf-8"}]
+
+
+@pytest.mark.parametrize(
+    ("code", "platform", "kills"), [(130, "linux", True), (3, "linux", False), (130, "win32", False)]
+)
+def test_entry_re_raises_sigint_only_after_ctrl_c_off_windows(
+    code: int, platform: str, monkeypatch: pytest.MonkeyPatch, *, kills: bool
+) -> None:
+    """In process, so mutmut sees it: the signal calls are recorded, not sent."""
+    calls: list[tuple[object, ...]] = []
+    monkeypatch.setattr(cli, "main", lambda: code)
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(signal, "signal", lambda *args: calls.append(("signal", *args)))
+    monkeypatch.setattr(os, "kill", lambda *args: calls.append(("kill", *args)))
+    with pytest.raises(SystemExit) as exit_:
+        cli.entry()
+    assert exit_.value.code == code
+    expected = [("signal", signal.SIGINT, signal.SIG_DFL), ("kill", os.getpid(), signal.SIGINT)] if kills else []
+    assert calls == expected
