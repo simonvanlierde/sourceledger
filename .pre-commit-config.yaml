@@ -48,7 +48,7 @@ repos:
 
   # Every file has a copyright and license, from REUSE.toml or its own header.
   - repo: https://github.com/fsfe/reuse-tool
-    rev: a1bb792acda6fd0724936b4ebbdbc8eceb9c0459 # frozen: v6.2.0
+    rev: ea739bff9c6daa1c4c8a5c5dfd069f3fb0374728 # frozen: v6.3.0
     hooks:
       - id: reuse
 
@@ -56,7 +56,7 @@ repos:
   # .json files are read as JSON5, so comments and trailing commas in tsconfig
   # and VS Code settings pass; syntax errors and duplicate keys fail.
   - repo: https://github.com/simonvanlierde/jsonvet
-    rev: 022d320d5b971eccb28cfa6ce205152cbb382e53 # frozen: v3.2.0
+    rev: 83df66110a108e0fa4b7d2b2adcef6831f618e05 # frozen: v3.3.1
     hooks:
       - id: jsonvet
 
@@ -90,7 +90,7 @@ repos:
   # and shellcheck over every `run:` when shellcheck is on PATH. jactionlint is a
   # maintained fork of actionlint that adds release, cache and concurrency checks.
   - repo: https://github.com/jdx/jactionlint
-    rev: a65ab044e916760429068fe5794b8306abdfcbb9 # frozen: v2.3.0
+    rev: baa8d685e2b27ff5821558c9eeabb2051c1da61b # frozen: v2.4.0
     hooks:
       - id: jactionlint
 
@@ -104,7 +104,7 @@ repos:
   # CITATION.cff is the source: codemeta.json, any .zenodo.json and the package manifests
   # must agree with it. `just citation` runs the manual-stage writer to fix them.
   - repo: https://github.com/simonvanlierde/citesync
-    rev: a3c5a9794449e78a33583e456af41bb24ebd240e # frozen: v0.1.0
+    rev: 27c649e635302721583fd9a043865bfb98116225 # frozen: v0.4.0
     hooks:
       - id: citesync
       - id: citesync-write
@@ -115,7 +115,7 @@ repos:
       - id: nbstripout
         exclude: ^(data|tests/(fixtures|golden))/
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: eaeb8abc646954face3eb41726f085385410f761 # frozen: v0.3.1
+    rev: b0cff962ee693b9e612c097d22e71e0cba127447 # frozen: v0.3.2
     hooks:
       - id: rumdl
         args: [--fix]
