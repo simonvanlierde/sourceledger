@@ -7,7 +7,7 @@ name: cold install
 # before the first release, so keep those under another heading.
 on:
   pull_request:
-    paths: [README.md, .github/workflows/cold-install.yml, justfile, "just/**", "**/pyproject.toml", "**/uv.lock", "**/.python-version"]
+    paths: [README.md, .github/workflows/cold-install.yml, justfile, "just/**", site/package.json, site/pnpm-lock.yaml, "**/pyproject.toml", "**/uv.lock", "**/.python-version"]
   schedule:
     - cron: "47 5 * * 1" # Mondays, 05:47 UTC
   workflow_dispatch:
@@ -42,6 +42,12 @@ jobs:
       - uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
         with:
           tool: just@1.59.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: site/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
 
       - name: Run the README's Development blocks
         # shortcut: drops the task lines that need Docker, a browser's system libraries,

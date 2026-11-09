@@ -4,5 +4,5 @@
   flavor  = "gfm"
 
 [MD025]
-  # Jekyll's front-matter title is metadata; the Markdown supplies the visible heading.
+  # A page's front-matter title is metadata for the site; the Markdown supplies the visible heading.
   front-matter-title = ""

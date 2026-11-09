@@ -1,0 +1,72 @@
+name: Retire preview
+
+# Deletes the preview Worker of a pull request that closes or turns draft, and sweeps
+# daily for any that were missed. The README's "Pull request previews" has the rest.
+on:
+  pull_request:
+    types: [closed, converted_to_draft]
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      prs:
+        description: PR numbers to retire, separated by spaces. Leave empty to run the daily sweep.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  retire:
+    name: Retire
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !endsWith(github.event.pull_request.user.login, '[bot]'))
+    runs-on: ubuntu-latest
+    environment: preview
+    # One job per Worker name prefix, each in its preview job's group, so a retire waits for
+    # that deploy in flight and the two kinds never cancel each other's pending runs.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {slug: sourceledger-site, group: preview-site}
+    concurrency:
+      group: ${{ matrix.group }}-${{ github.event.pull_request.number || github.run_id }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read # the sweep reads each PR's state
+    steps:
+      - name: Check credentials
+        id: gate
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=""
+          [ -n "$TOKEN" ] || missing=CLOUDFLARE_API_TOKEN
+          [ -n "$ACCOUNT" ] || missing="${missing:+$missing and }CLOUDFLARE_ACCOUNT_ID"
+          if [ -n "$missing" ]; then
+            echo "::notice::Nothing to retire: $missing not set."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The base branch's script: a closed pull request may have no merge ref left.
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - if: steps.gate.outputs.run == 'true'
+        name: Delete the preview Workers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PRS: ${{ github.event.pull_request.number || inputs.prs }}
+          SLUG: ${{ matrix.slug }}
+        run: .github/scripts/preview-retire.sh

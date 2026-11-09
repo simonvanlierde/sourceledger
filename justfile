@@ -16,6 +16,7 @@ default:
 # The stack checks CI runs. `just hooks` runs the git hooks, which CI also runs.
 check:
     @just py-check
+    @just site
 
 # Fix and format every stack here, as each stack's `fmt` recipe does.
 fmt:
@@ -26,6 +27,16 @@ fmt:
 # this can fail where the checks workflow passes.
 hooks:
     prek run -a
+
+# Build the page in site/ into site/dist/, which site.yml deploys.
+site:
+    pnpm -C site install --frozen-lockfile
+    ASTRO_TELEMETRY_DISABLED=1 pnpm -C site run build
+
+# `just site` and CI install with --frozen-lockfile.
+# Install the site's node_modules, and write site/pnpm-lock.yaml if it is missing.
+site-sync:
+    pnpm -C site install
 
 # Rewrite codemeta.json to agree with CITATION.cff, then check. The writer
 # exits 1 whenever it changes a file, so the check that follows decides the result.

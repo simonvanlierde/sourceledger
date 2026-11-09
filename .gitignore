@@ -44,6 +44,7 @@ mutants/
 **/reports/mutation/
 mutants.out*/
 
-# Local documentation build
-_site/
-.jekyll-cache/
+# What `just site` builds from site/
+/site/dist/
+# Astro's generated types
+/site/.astro/
