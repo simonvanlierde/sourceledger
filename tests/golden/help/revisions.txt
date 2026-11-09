@@ -1,0 +1,10 @@
+usage: sourceledger revisions [-h] [--json] OLD_LOG
+
+List the sources whose bytes changed since an earlier log.
+
+positional arguments:
+  OLD_LOG     an earlier copy of data/fetches.jsonl
+
+options:
+  -h, --help  show this help message and exit
+  --json      print one JSON object instead of text

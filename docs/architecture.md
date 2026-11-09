@@ -131,8 +131,10 @@ It exits 1 if it finds any problem.
 - `src/sourceledger/ledger.py`: the pipeline stages, readers, fetch logic and integrity checks.
 - `src/sourceledger/report.py`: the standalone HTML provenance report; it reuses the
   pipeline's fetch records and integrity checks.
-- `src/sourceledger/cli.py`: the command line. It parses the arguments, runs one stage,
-  and reports expected errors with exit code 1. JSON reports put errors in the document on stdout.
+- `src/sourceledger/cli.py`: the command line. One argparse subcommand per stage; it runs
+  that stage and reports expected errors in one shape, with the
+  [exit codes](reference.md#options-output-and-exit-codes) the reference lists. JSON
+  reports put errors in the document on stdout.
 - `src/sourceledger/sources.schema.json`: the JSON Schema for `sources.toml`, for editors.
   A test checks that it accepts exactly what `load_manifest` accepts.
 - `src/sourceledger/__init__.py`: the public API, listed in `__all__`.

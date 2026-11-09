@@ -16,7 +16,7 @@ title: Download limits and retries
 - Fetch downloads one source at a time, in manifest order, so a host receives at most
   one source request at a time, including redirects and retries.
 - Every source is tried. When some fail, the others are still written, and the run
-  exits 1 with one line per failed source.
+  exits 3 with one `error:` line per failed source.
 - A second fetch in the same project, while one runs, exits at once (a lock on
   `data/raw/.lock`).
 - Each line it prints says `new` or `unchanged`, against the last version in the log.

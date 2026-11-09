@@ -1,0 +1,8 @@
+usage: sourceledger status [-h] [--manifest PATH] [--json]
+
+Print one line per source: status, vintage, last fetch, licence.
+
+options:
+  -h, --help       show this help message and exit
+  --manifest PATH  the manifest to read (default: sources.toml)
+  --json           print one JSON object instead of text

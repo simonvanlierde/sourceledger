@@ -96,7 +96,7 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   script, downloaded for source `ID`. It copies the file into `data/raw/`, checks the
   `sha256` pin, and writes the same log line and record as `fetch`, with `recorded_at` set
   to now. `--retrieved-at TIME` is when the file was downloaded, in ISO 8601 with a time
-  zone (`2026-11-05T09:30:00Z`). Without it the record and the rows' `retrieved_at` stay
+  zone (`2026-11-05T09:30:00Z`); a value that is not ISO 8601 is a usage error. Without it the record and the rows' `retrieved_at` stay
   empty rather than claim a download time. `--url URL` names where it came from if that
   is not the source's `url`; its query and fragment are dropped, since a signed download
   URL keeps its secret there. `--etag` and `--last-modified` keep the server's validators
@@ -106,11 +106,12 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   `sig` is refused ([safe use](secure-use.md) lists the rule). The file must be a regular
   file within the source's `max_bytes`. The library function is `record()`. The report and
   `datapackage.json` show the output as recorded, not fetched, and `status` shows the record
-  time when there is no download time.
+  time when there is no download time. `--dry-run` makes every check and hashes the file,
+  then prints what it would record and writes nothing.
 - `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
   log. Copy the log before you fetch (`cp data/fetches.jsonl before.jsonl`), then run
-  `sourceledger revisions before.jsonl`. A weekly CI run can use it to report a
-  publisher's revision.
+  `sourceledger revisions before.jsonl`. It prints `no revisions` when no source changed.
+  A weekly CI run can use it to report a publisher's revision.
 - `status` prints one line per source: its id, status and vintage, when its last logged
   version was fetched (or `never`), the start of its SHA-256, its licence, and whether
   the raw file may be republished. It reads the manifest and the log, never the network.
@@ -125,18 +126,38 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   SHA-256 it gives. It prints one line per problem and exits 1 if there are any. It needs
   no `sources.toml` and no network.
 
-Commands exit 0 on success and 1 on a runtime failure or validation problem.
-Invalid arguments exit 2. `revisions` exits 0 when sources changed: your downstream checks decide what a revision breaks.
+## Options, output and exit codes
 
-`fetch`, `build` and `validate` take `--only ID`, as often as needed, to work on just those
-sources. An id that is not in `sources.toml` is an error. `build --only` keeps the other
-sources' entries in `datapackage.json` as the last build wrote them, and
-`validate --only` skips the checks that cover the whole output.
+`sourceledger STAGE --help` lists the options of one stage; options go after the stage name.
 
-Every command that reads the manifest reads `./sources.toml` unless given `--manifest PATH`.
-The data folder stays `data/` in the current directory either way.
+| Option | Stages | Effect |
+| --- | --- | --- |
+| `--manifest PATH` | all but `revisions` and `verify` | Read this manifest instead of `./sources.toml`. The data folder stays `data/` in the current directory. |
+| `--only ID` | `fetch`, `build`, `validate` | Work on just this source; repeat it for more. `build --only` keeps the other sources' entries in `datapackage.json` as the last build wrote them, and `validate --only` skips the checks that cover the whole output. |
+| `--dry-run` | `fetch`, `record`, `build` | Say what would happen and write nothing: no download, no log line, no output. `build --dry-run` still checks each raw file against its fetch record, and `record --dry-run` still checks and hashes the file. |
+| `--json` | `fetch`, `record`, `validate`, `status`, `revisions`, `verify` | Print one JSON object on stdout instead of text; see [JSON reports](#json-reports). |
 
-`status`, `validate` and `revisions` accept `--json`; see [JSON reports](#json-reports) for fields and exit codes.
+Results go to stdout: fetch lines, outputs written, and the problems `validate` and
+`verify` find, followed by their count. Errors and warnings go to stderr. An error is
+one line in the form `error: <what went wrong>`, followed by `help: <what to do>` when
+there is a known next step:
+
+```text
+error: sources.toml is missing
+help: run `sourceledger init` to write one, or pass --manifest PATH
+```
+
+When stderr is a terminal and `--json` is off, `fetch` also prints `fetching ID (n of N)`
+there before each source. The output has no colour. It is UTF-8 with LF line ends on
+every system, also when redirected to a file on Windows.
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | Done, with nothing to report. `revisions` exits 0 when sources changed: your downstream checks decide what a revision breaks. `report` exits 0 when it writes a report, even one that lists problems. |
+| 1 | Problems found: `validate` or `verify` found at least one. |
+| 2 | Usage error: an unknown stage or option, a missing argument, or an `--only` or `record` id that is not in `sources.toml`, or a `--retrieved-at` that is not an ISO 8601 time. Nothing is written. |
+| 3 | Could not run: a missing or invalid file, a failed download, another fetch holding the lock, or an unexpected error such as a project's parser failing, printed as one `error:` line with its type. When some sources fail to fetch, the others are still written and logged. |
+| 130 | Interrupted with Ctrl-C. What finished before is kept, and the `help:` line repeats the command to finish. With `--json` the report still prints, and `fetch` lists the sources fetched before. The command then ends by SIGINT, as Ctrl-C does, so a shell loop around it stops too; on Windows it exits 130. `main()` returns 130: a project's own entry point that calls it should do what `sourceledger.cli.entry()` does, or the shell sees 130 without the signal. |
 
 ## JSON reports
 
@@ -146,18 +167,28 @@ Use `--json` when a script needs to read a report:
 sourceledger status --json
 sourceledger validate --json --only co2
 sourceledger revisions before.jsonl --json
+sourceledger fetch --json
 ```
 
 These commands print one JSON object on stdout. They do not print the usual text report.
-Every object has `stage` (the command name) and `errors` (a list of runtime error messages).
-A successful run has an empty `errors` list. Existing warnings can still appear on stderr.
-Other commands do not accept `--json`.
+Every object has `schema_version` (now `1`; it goes up when a field changes meaning or
+goes away), `stage` (the command name) and `errors`. Each error is an object with
+`message` and `help`, the same two lines the text output prints; `help` is `null` when
+there is no known next step. A successful run has an empty `errors` list. Warnings can
+still appear on stderr. `init`, `build`, `attribution` and `report` do not accept `--json`.
 
 | Command | Result field | Meaning |
 | --- | --- | --- |
+| `fetch` | `records` | One fetch record per source fetched, with the fields of a line in `data/fetches.jsonl` and `new`: `true` when its bytes differ from the last ones logged. A run where some sources failed lists the ones that worked. |
+| `record` | `records` | The one record, as for `fetch`. |
 | `status` | `sources` | One object per source, in manifest order. |
 | `validate` | `problems` | The same list of problem messages the Python function returns. |
+| `verify` | `problems` | The same list of problem messages the Python function returns. |
 | `revisions` | `revisions` | One object per changed source, in current-log order. New sources are excluded, as in text output. |
+
+With `--dry-run`, the object also has `"dry_run": true`. `fetch --dry-run` lists
+`would_fetch`, one `{"source_id", "url"}` object per source, in place of `records`.
+`record --dry-run` gives the record it would write.
 
 ### Source status
 
@@ -181,20 +212,21 @@ The two logs must exist. An empty `revisions` list means no existing source chan
 A validation run with no problems prints:
 
 ```json
-{"stage": "validate", "errors": [], "problems": []}
+{"schema_version": 1, "stage": "validate", "problems": [], "errors": []}
 ```
 
 Validation problems go in `problems` and cause exit code 1. Runtime failures, such as a
-missing manifest or log, go in `errors` and cause exit code 1. A failed run omits its
-result field. For example:
+missing manifest or log, go in `errors` and cause exit code 3. A failed run omits its
+result field, except `fetch`, which lists the sources that worked. For example:
 
 ```json
-{"stage": "status", "errors": ["sources.toml is missing"]}
+{"schema_version": 1, "stage": "status", "errors": [{"message": "sources.toml is missing", "help": "run `sourceledger init` to write one, or pass --manifest PATH"}]}
 ```
 
-Other successful reports exit 0. Finding revisions also exits 0: your downstream checks
-decide whether a revision breaks the dataset. Invalid command arguments, such as a
-missing `revisions` path, use argparse's text error on stderr and exit code 2.
+An `--only` id that is not in `sources.toml` is also reported in `errors`, with exit
+code 2. Other usage errors, such as a missing `revisions` path, are found before the
+stage runs: they print the text error on stderr and exit 2. The
+[exit code table](#options-output-and-exit-codes) holds the rest.
 
 These JSON structures are part of the CLI contract. Read fields by name; JSON object key
 order and whitespace are not significant. The [stability policy](https://github.com/simonvanlierde/sourceledger/blob/main/README.md#stability) applies.

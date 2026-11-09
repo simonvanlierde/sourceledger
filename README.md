@@ -54,6 +54,10 @@ sourceledger build
 sourceledger validate
 ```
 
+`sourceledger fetch --help` lists one stage's options, and `--dry-run` on `fetch`, `record`
+and `build` shows what they would write. Exit code 1 means `validate` found problems, 2 a
+usage error and 3 that a stage could not run; see [options and exit codes](docs/reference.md#options-output-and-exit-codes).
+
 For [Parquet outputs](docs/reference.md#sourcestoml), set `output_format = "parquet"`
 before the first `[[source]]` table in `sources.toml`, after installing the Parquet extra above.
 CSV remains the default. Parquet writing and validation use batches of at most 10,000 rows;

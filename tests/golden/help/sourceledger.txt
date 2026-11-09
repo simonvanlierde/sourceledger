@@ -1,0 +1,33 @@
+usage: sourceledger [-h] [--version] STAGE ...
+
+Fetch, build and validate the sources in sources.toml.
+
+options:
+  -h, --help     show this help message and exit
+  --version      show program's version number and exit
+
+stages:
+  STAGE
+    init         write a starter sources.toml
+    fetch        download every implemented source and log it
+    record       take in a file another tool downloaded, and log it as fetch
+                 would
+    build        write data/processed/ and datapackage.json
+    validate     check the outputs against the log and the manifest
+    status       print one line per source: status, vintage, last fetch,
+                 licence
+    attribution  print a Markdown table of the sources and their terms
+    revisions    list the sources whose bytes changed since an earlier log
+    verify       check a published dataset against its datapackage.json
+    report       write a standalone HTML provenance report to stdout
+
+a first run:
+  sourceledger init        write a starter sources.toml
+  sourceledger fetch       download every source and log it
+  sourceledger build       write data/processed/ and datapackage.json
+  sourceledger validate    check the outputs against the log and the manifest
+
+exit codes:
+  0 done, 1 problems found, 2 usage error, 3 could not run, 130 interrupted
+
+docs: https://simonvanlierde.com/sourceledger/reference.html
