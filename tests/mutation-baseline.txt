@@ -115,7 +115,6 @@ sourceledger.ledger.x_init__mutmut_8  codec names are case-insensitive, and the 
 sourceledger.ledger.x_parse_csv__mutmut_18  StringIO's default newline translates nothing either
 sourceledger.ledger.x_parse_csv__mutmut_9  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.ledger.x_parse_json__mutmut_15  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x_parse_xlsx__mutmut_20  TODO: no test unzips a workbook to exactly max_bytes
 sourceledger.ledger.x_parse_xlsx__mutmut_31  read-only mode changes memory use, not the cells read
 sourceledger.ledger.x_parse_xlsx__mutmut_34  read-only mode changes memory use, not the cells read
 sourceledger.ledger.x_parse_xlsx__mutmut_37  read-only mode changes memory use, not the cells read

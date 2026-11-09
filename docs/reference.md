@@ -31,12 +31,23 @@ The Parquet extra uses PyArrow. Writing and validation process at most 10,000 ro
 Validation decodes every column, including ordinary data columns, to detect unreadable pages.
 Memory also depends on row width, file metadata and encoded column dictionaries; this is not a fixed byte cap.
 JSON, Excel and custom readers still hold their input and parsed rows in memory.
-`read_output` still returns a list containing the whole table. `datapackage.json` records the format and media type;
+`read_output` yields one row at a time, so a large table is never held in memory; wrap it in `list()` to hold it all.
+It is a generator: a missing or unreadable file raises on the first `next()`, not at the call,
+and an iterator left unfinished keeps the file open, which on Windows blocks replacing the output.
+`datapackage.json` records the format and media type;
 `verify` checks the bytes without needing the extra.
 
 The default is `output_format = "csv"`. `format = "file"` sources keep their original bytes in either mode.
+Every CSV row repeats the five provenance columns, so a CSV output of a narrow table is many times the size of
+its raw file: a two-column table of 200,000 rows came out 14 times larger. Parquet stores those repeated values
+once per column chunk; the same table was smaller than its raw file. Use Parquet for large tables.
 When switching formats, move old outputs out of `data/processed/` before rebuilding; `validate` reports them as unclaimed files.
 Library callers pass `output_format="parquet"` to both `build` and `validate`; `load_manifest` returns only source tables.
+
+`output_format` and `[[source]]` are the only top-level keys. Any other, such as a misspelt
+`[[sources]]`, is refused, with the intended name when one is close, so a typo never reads as
+an empty manifest.
+A source table may hold extra keys for your own reader.
 
 Each `[[source]]` table takes these keys:
 
@@ -56,7 +67,7 @@ Each `[[source]]` table takes these keys:
 | `format` | no | `"file"` copies bytes unchanged. Table formats are `"csv"`, `"json"` and `"xlsx"`; see the details below. |
 | `sheet` | no | The Excel sheet to read. The first unless set. A cell right of the last header cell is refused, and a missing cell in a row reads as `""`. |
 | `headers` | no | Extra request headers, such as an API key, each value naming an environment variable: `{ Authorization = "env:EIA_TOKEN" }`. A literal value is refused, and so is a `url` that is not https. The record keeps the header names, not the values. A redirect to another scheme, host or port drops them. |
-| `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for http and https URLs, and not for a source that needs `headers`: the archive's request sends none. |
+| `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for http and https URLs, and not for a source that needs `headers`: the archive's request sends none. `record` asks for no snapshot: it keeps the one logged for the same bytes, and otherwise leaves `archive_url` empty. |
 | `reason` | no | A note for people, such as why a source is unimplemented. sourceledger doesn't read it. |
 
 Without `format`, the URL extension selects JSON (`.json`) or Excel (`.xlsx`); other extensions select CSV.

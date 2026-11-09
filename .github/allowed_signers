@@ -1,0 +1,3 @@
+# The keys a release tag may be signed with: python-release.yml checks the tag against
+# the copy on the default branch. Format: ssh-keygen(1), ALLOWED SIGNERS.
+90462640+simonvanlierde@users.noreply.github.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC2w5rH/cakbhUZkWx998fEmuLhBKNLfmgqYUkv3aE+v

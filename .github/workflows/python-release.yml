@@ -48,22 +48,22 @@ jobs:
         with:
           persist-credentials: false
 
-      # .github/scripts/tag-release.sh signs the tag. A lightweight or unverified one publishes
-      # nothing.
-      - name: refuse a tag GitHub cannot verify
+      # Publish only a tag signed with a key in .github/allowed_signers, read from the
+      # default branch: the tagged commit's own copy is whatever the tag's pusher wrote.
+      # GitHub's "verified" flag would accept a key registered to any account. The workflow
+      # also comes from the tagged commit, so the pypi environment's reviewer stays the gate.
+      - name: refuse a tag not signed by an allowed key
         env:
           TAG: ${{ github.ref_name }}
-          REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          read -r type sha < <(gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha')
-          if [ "$type" != tag ]; then
-            echo "$TAG is a lightweight tag; make it with .github/scripts/tag-release.sh" >&2
-            exit 1
-          fi
-          if [ "$(gh api "repos/$REPO/git/tags/$sha" --jq '.verification.verified')" != true ]; then
-            echo "GitHub cannot verify the signature on $TAG" >&2
+          # checkout fetches the tagged commit, not the annotated tag object that holds the signature.
+          git fetch --no-tags --depth=1 --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          git fetch --no-tags --depth=1 origin "refs/heads/$DEFAULT_BRANCH"
+          git show FETCH_HEAD:.github/allowed_signers >"$RUNNER_TEMP/allowed_signers"
+          if ! git -c gpg.ssh.allowedSignersFile="$RUNNER_TEMP/allowed_signers" tag -v "$TAG"; then
+            echo "$TAG is not an annotated tag signed with a key in .github/allowed_signers on $DEFAULT_BRANCH; make it with .github/scripts/tag-release.sh" >&2
             exit 1
           fi
 
