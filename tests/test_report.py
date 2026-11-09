@@ -371,3 +371,36 @@ def test_report_names_a_resource_without_a_name(dataset: list[ledger.Source]) ->
     page = report(dataset)
     assert ">unnamed</h" in page
     assert "unnamed: no fetch record in the log" in page
+
+
+def test_report_says_when_the_manifest_or_stamp_gives_no_url(dataset: list[ledger.Source]) -> None:
+    path = Path("data/processed/datapackage.json")
+    package = json.loads(path.read_text(encoding="utf-8"))
+    package["resources"][0]["sourceledger"].pop("final_url", None)
+    path.write_text(json.dumps(package), encoding="utf-8")
+    del dataset[0]["url"]
+    page = report(dataset)
+    assert "<dt>URL</dt><dd>not stated in sources.toml</dd>" in page
+    # Both outputs: the second one never had a final_url, so only a count tells them apart.
+    assert page.count("<dt>Served from</dt><dd>the URL above</dd>") == 2
+
+
+@pytest.mark.usefixtures("dataset")
+def test_report_lists_each_integrity_problem_in_one_failed_block() -> None:
+    Path("data/fetches.jsonl").unlink()
+    page = report([])
+    block = page[page.index('<div class="result failed">') : page.index('<h2 id="outputs">')]
+    assert block.startswith('<div class="result failed"><h2>Integrity problems</h2><ul><li>')
+    assert block.endswith("</li></ul></div>")
+    assert block.count("</li><li>") >= 2
+
+
+@pytest.mark.usefixtures("dataset")
+def test_report_names_the_rule_a_resource_path_breaks() -> None:
+    path = Path("data/processed/datapackage.json")
+    package = json.loads(path.read_text(encoding="utf-8"))
+    package["resources"][0]["path"] = "../escape.csv"
+    path.write_text(json.dumps(package), encoding="utf-8")
+    message = r"^datapackage\.json resource paths must be relative files inside the dataset$"
+    with pytest.raises(ValueError, match=message):
+        report([])
