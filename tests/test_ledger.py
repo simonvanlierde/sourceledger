@@ -3829,6 +3829,7 @@ def test_record_takes_the_earliest_utc_time_whatever_the_local_zone(
     assert result.retrieved_at.endswith("-01-01T00:00:00Z")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows cannot delete a file that is still open")
 def test_a_failed_copy_raises_its_own_error_even_if_the_temp_file_is_gone(
     upstream: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
