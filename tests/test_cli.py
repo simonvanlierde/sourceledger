@@ -362,6 +362,14 @@ def test_a_missing_path_says_what_to_pass(argv: list[str], error: str, capsys: p
     assert capsys.readouterr().err == error
 
 
+def test_a_missing_path_named_like_the_manifest_asks_for_the_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["revisions", "sources.toml"]) == 3
+    assert capsys.readouterr().err.endswith("help: pass an earlier copy of data/fetches.jsonl\n")
+
+
 @pytest.mark.usefixtures("project")
 def test_build_and_revisions_say_what_they_did(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["fetch"]) == 0
