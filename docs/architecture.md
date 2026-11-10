@@ -152,7 +152,7 @@ requests itself.
 
 A project that needs another file format writes its own reader: a function that takes the
 source's manifest table and the raw bytes, and returns columns and rows. It passes the
-reader to `build`, or to `main` from its own entry point. Everything else, including the
+reader to `build`, or to `entry` from its own entry point. Everything else, including the
 provenance columns, stays the same. A project that downloads with another tool, or its own
 code, calls `record` for each file. [Recipes](recipes.md) has examples of both.
 

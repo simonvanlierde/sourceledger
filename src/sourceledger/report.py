@@ -98,6 +98,18 @@ def validate(
     return problems + _package_problems(sources, processed, only, output_format)
 
 
+def _built_from(stamp: dict[str, Any], fields: dict[str, Any]) -> bool:
+    """Whether a resource's `sourceledger` block names this log line: its bytes and how they came in."""
+    logged = {
+        "raw_sha256": fields.get("sha256"),
+        "retrieved_at": fields.get("retrieved_at"),
+        "final_url": fields.get("final_url", ""),
+        "recorded_at": fields.get("recorded_at") or None,  # the block leaves both out when empty
+        "parameters": fields.get("parameters") or None,
+    }
+    return all(stamp.get(key) == value for key, value in logged.items())
+
+
 def _output_problems(source: Source, raw: Path, out: Path, resource: dict[str, Any] | None) -> list[str]:
     """Whether one built file and its metadata still match the current fetch."""
     try:
@@ -416,7 +428,7 @@ def report(sources: list[Source], *, processed: Path = PROCESSED, log: Path = FE
             problems.append(f"{sid}: source is missing from the manifest")
         if latest is None:
             problems.append(f"{sid}: no fetch record in the log")
-        elif stamp.get("raw_sha256") != latest["sha256"]:
+        elif not _built_from(stamp, latest):
             problems.append(f"{sid}: output was built from an earlier fetch; re-run build")
         origins = resource.get("sources")
         built_url = (

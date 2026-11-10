@@ -245,6 +245,10 @@ def test_a_cut_off_line_after_several_records_drops_only_itself(caplog: pytest.L
     assert "dropping a last line" in caplog.text
 
 
+def _hashes(log: Path) -> dict[str, str]:
+    return {sid: r["sha256"] for sid, r in ledger._last_records(log).items()}  # noqa: SLF001
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
@@ -262,10 +266,10 @@ def test_the_log_reader_skips_blank_lines_and_forgives_only_a_cut_off_end(
     log = tmp_path / "log.jsonl"
     log.write_text(text, encoding="utf-8", newline="")
     if isinstance(expected, dict):
-        assert ledger.logged_versions(log) == expected
+        assert _hashes(log) == expected
     else:
         with pytest.raises(ValueError, match=expected):
-            ledger.logged_versions(log)
+            _hashes(log)
 
 
 @pytest.mark.usefixtures("upstream")
@@ -343,8 +347,8 @@ def test_history_memory_tracks_sources_instead_of_versions(count: int, tmp_path:
     log = tmp_path / "history.jsonl"
     line = _record("example", "0") + "\n"
     log.write_text(line * count, encoding="utf-8", newline="")
-    assert _peak(lambda: ledger.logged_versions(log)) < 256 * 1024
-    assert ledger.logged_versions(log) == {"example": "0" * 64}
+    assert _peak(lambda: _hashes(log)) < 256 * 1024
+    assert _hashes(log) == {"example": "0" * 64}
 
 
 def test_a_bad_cr_terminated_history_batch_is_not_an_interrupted_tail(

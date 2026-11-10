@@ -193,12 +193,15 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
 
 
 def _time(text: str) -> str:
-    """`text` as given, once it reads as an ISO 8601 time; the library checks its zone and that it is past."""
+    """`text` as given, once it reads as an ISO 8601 time with a zone; the library checks that it is past."""
     try:
-        datetime.fromisoformat(text)
+        when = datetime.fromisoformat(text)
     except ValueError:
         msg = f"{text!r} is not an ISO 8601 time, such as 2026-11-05T09:30:00Z"
         raise argparse.ArgumentTypeError(msg) from None
+    if when.tzinfo is None:
+        msg = f"{text!r} needs a time zone, such as 2026-11-05T09:30:00Z"
+        raise argparse.ArgumentTypeError(msg)
     return text
 
 
@@ -369,6 +372,11 @@ def _relogged(record: FetchRecord, before: dict[str, dict[str, Any]]) -> bool:
     return last is not None and not _new(record, before) and log_version(last) != log_version(log_fields(record))
 
 
+def _json_record(record: FetchRecord, before: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """A record under --json: the log line's fields, `new` and `relogged`."""
+    return {**log_fields(record), "new": _new(record, before), "relogged": _relogged(record, before)}
+
+
 def _marker(record: FetchRecord, before: dict[str, dict[str, Any]]) -> str:
     """`new` bytes, the same bytes `relogged` another way, or `unchanged`."""
     return "new" if _new(record, before) else "relogged" if _relogged(record, before) else "unchanged"
@@ -383,9 +391,7 @@ def _fetch_line(record: FetchRecord, before: dict[str, dict[str, Any]]) -> str:
 
 
 def _report_records(run: _Run, records: list[FetchRecord], before: dict[str, dict[str, Any]]) -> None:
-    run.result["records"] = [
-        {**log_fields(r), "new": _new(r, before), "relogged": _relogged(r, before)} for r in records
-    ]
+    run.result["records"] = [_json_record(r, before) for r in records]
     for record in records:
         run.say(_fetch_line(record, before))
     if relogged := [r.source_id for r in records if _relogged(r, before)]:
@@ -457,9 +463,7 @@ def _record_stage(run: _Run) -> list[str]:
     )
     if args.dry_run:
         run.result["dry_run"] = True
-        run.result["records"] = [
-            {**log_fields(result), "new": _new(result, before), "relogged": _relogged(result, before)}
-        ]
+        run.result["records"] = [_json_record(result, before)]
         what = f"{_marker(result, before)}, {result.bytes:,} B, sha256 {result.sha256}"
         run.say(f"would record {source['id']} from {args.path.as_posix()}: {what}")
     else:

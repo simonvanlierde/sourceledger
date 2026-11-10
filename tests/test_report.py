@@ -15,6 +15,7 @@ from support import (
     OUT,
     RAW,
     TERMS,
+    WHEN,
     _http_error,
     _manifest,
     _peak,
@@ -123,6 +124,17 @@ def test_report_marks_an_output_from_an_earlier_fetch(dataset: list[manifest_mod
     Path("upstream/table.csv").write_text("year,value\n2023,2.5\n", encoding="utf-8")
     fetcher_mod.fetch(dataset)
     assert "built from an earlier fetch" in report(dataset)
+
+
+def test_report_marks_an_output_built_before_a_relog(upstream: Path) -> None:
+    """Same bytes recorded again with another time: validate fails, so the report must not pass."""
+    assert main(["record", "example", str(upstream)]) == 0
+    assert main(["build"]) == 0
+    assert main(["record", "example", str(upstream), "--retrieved-at", WHEN]) == 0
+    assert main(["validate"]) == 1
+    page = report(load_manifest())
+    assert "built from an earlier fetch" in page
+    assert "Integrity checks passed" not in page
 
 
 def test_report_cli_errors_do_not_write_partial_html(

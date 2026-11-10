@@ -30,7 +30,7 @@ _SCHEMA_URL = (
 _STARTER = f"""#:schema {_SCHEMA_URL}
 
 # One [[source]] table per input. Uncomment the example and point it at your own source.
-# Every key: https://github.com/simonvanlierde/sourceledger#sourcestoml
+# Every key: https://simonvanlierde.com/sourceledger/reference.html#sourcestoml
 
 # [[source]]
 # id = "co2"

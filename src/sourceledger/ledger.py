@@ -271,11 +271,6 @@ def _last_line_start(fh: IO[bytes], end: int) -> int:
     return 0
 
 
-def logged_versions(log: Path = FETCH_LOG) -> dict[str, str]:
-    """The SHA-256 most recently logged for each source id."""
-    return {sid: r["sha256"] for sid, r in _last_records(log).items()}
-
-
 @contextlib.contextmanager
 def _lock(raw: Path) -> Generator[None]:
     """Hold an exclusive lock on `raw/.lock`, so two fetches at once can't interleave their writes.
@@ -360,14 +355,18 @@ def _served_from(source: Source, url: str) -> str:
 
 def _commit(
     source: Source, temp: Path, record: FetchRecord, raw: Path, log: Path, logged: dict[str, dict[str, Any]]
-) -> None:
-    """Move `temp`, whose bytes `record` describes, into place as the raw file, and log and record it."""
+) -> dict[str, Any]:
+    """Move `temp`, whose bytes `record` describes, into place as the raw file, and log and record it.
+
+    Returns the fields the sidecar now holds: an earlier log line's when it was the same version.
+    """
     name = raw_name(source)
     temp.replace(raw / name)
     # Logged before the record is written: until the record matches the raw file, the next
     # run fetches in full, so a crash in between loses nothing.
     fields = _log_new_version(log, logged, record)
     _write_atomic(raw / f"{name}.fetch.json", (json.dumps(fields, indent=2) + "\n").encode())
+    return fields
 
 
 def record(
@@ -484,7 +483,7 @@ def record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before 
                 archive_url=archived,
             )
             if temp:
-                _commit(source, temp, result, raw, log, logged)
+                result = FetchRecord(**_commit(source, temp, result, raw, log, logged))
         finally:
             if temp:
                 temp.unlink(missing_ok=True)  # gone already once moved into place

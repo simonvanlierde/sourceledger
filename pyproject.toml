@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = []
 
-# `sourceledger fetch|build|validate|revisions`, using each source's format. A project
+# The `sourceledger` command, reading each source by its format. A project
 # with its own readers calls `sourceledger.entry` from its own entry point instead.
 [project.scripts]
 sourceledger = "sourceledger.cli:entry"

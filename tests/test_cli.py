@@ -235,13 +235,21 @@ def test_dry_runs_write_nothing_after_a_full_run(project: Path, tmp_path: Path) 
     assert _files(tmp_path) == before
 
 
-def test_a_bad_retrieved_at_is_a_usage_error(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("yesterday", "'yesterday' is not an ISO 8601 time, such as 2026-11-05T09:30:00Z"),
+        ("2026-11-05", "'2026-11-05' needs a time zone, such as 2026-11-05T09:30:00Z"),
+    ],
+)
+def test_a_bad_retrieved_at_is_a_usage_error(
+    project: Path, capsys: pytest.CaptureFixture[str], value: str, message: str
+) -> None:
     with pytest.raises(SystemExit) as exit_:
-        main(["record", "example", str(project), "--retrieved-at", "yesterday"])
+        main(["record", "example", str(project), "--retrieved-at", value])
     assert exit_.value.code == 2
     assert capsys.readouterr().err.endswith(
-        "error: argument --retrieved-at: 'yesterday' is not an ISO 8601 time, such as 2026-11-05T09:30:00Z\n"
-        "help: run `sourceledger record --help` for its options\n"
+        f"error: argument --retrieved-at: {message}\nhelp: run `sourceledger record --help` for its options\n"
     )
 
 
@@ -1001,3 +1009,22 @@ def test_the_rebuild_hint_names_every_relogged_source(
     capsys.readouterr()
     assert main(["fetch"]) == 0
     assert "run build: the outputs of a, b name the earlier log line" in capsys.readouterr().out
+
+
+def test_recording_the_same_file_again_returns_the_kept_log_line(
+    upstream: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The log and sidecar keep the first record, so `--json` must show its `recorded_at`, not a new one."""
+    assert main(["record", "example", str(upstream)]) == 0
+    sidecar = Path("data/raw/example.csv.fetch.json")
+    for path in (LOG, sidecar):
+        text = path.read_text(encoding="utf-8")
+        stamp = json.loads(text.splitlines()[-1] if path == LOG else text)["recorded_at"]
+        path.write_text(text.replace(stamp, "2026-01-01T00:00:00Z"), encoding="utf-8")
+    capsys.readouterr()
+    assert main(["record", "example", str(upstream), "--json"]) == 0
+    (recorded,) = json.loads(capsys.readouterr().out)["records"]
+    assert recorded["recorded_at"] == "2026-01-01T00:00:00Z"
+    assert json.loads(sidecar.read_text(encoding="utf-8")) == {
+        k: v for k, v in recorded.items() if k not in ("new", "relogged")
+    }
