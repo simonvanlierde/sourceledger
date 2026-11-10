@@ -40,6 +40,8 @@ just check
   reason. Lines are at most 120 characters. `ruff format` formats the code.
 - **Types:** every function in `src/` is annotated, and [ty](https://docs.astral.sh/ty/) checks them.
   Silence a false positive with `# ty: ignore[<rule>]` and a reason, never a bare ignore.
+- **Warnings:** fix every warning from ruff, ty, pytest or the build, or silence it where it
+  arises with the reason. A pull request never leaves one behind.
 - **Docstrings:** [Google style](https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings),
   checked by ruff. A docstring says what the function does and what it raises. A comment
   says why, not what the next line does.
