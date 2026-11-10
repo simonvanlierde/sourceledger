@@ -190,12 +190,15 @@ def _package_problems(
     except ValueError as error:
         return [f"{path.as_posix()} is not JSON ({error}); re-run build"]
     listed = _by_name(package)
+    problems = []
     if name is not None and isinstance(package, dict) and package.get("name") != name:
-        return [f"{path.as_posix()} names the package {package.get('name')!r}, not {name!r}; re-run build"]
+        problems.append(f"{path.as_posix()} names the package {package.get('name')!r}, not {name!r}; re-run build")
     if only is None and listed.keys() != expected.keys():
         names = sorted(map(str, listed))
-        return [f"{path.as_posix()} lists {names}, not the implemented sources {sorted(expected)}; re-run build"]
-    problems = []
+        return [
+            *problems,
+            f"{path.as_posix()} lists {names}, not the implemented sources {sorted(expected)}; re-run build",
+        ]
     for sid in sorted(checked):
         out = processed / output_name(expected[sid], output_format)
         if sid not in listed:

@@ -65,6 +65,8 @@ lower case letters, digits, `.`, `_` and `-`, and `validate` and `release` check
 name in `./pyproject.toml`, or else the current folder's name, made lower case. The folder
 differs between clones, worktrees and CI, so set `name` or keep a `pyproject.toml` when the
 file must be the same everywhere. Library callers pass `name=` to `build`, `validate` and `release`; `load_package_name` reads it.
+Without `name=`, `validate` and `release` skip the name check, as the fallbacks differ between checkouts.
+The check runs under `validate --only` too.
 
 `name`, `output_format`, `release_formats` and `[[source]]` are the only top-level keys. Any other, such as a misspelt
 `[[sources]]`, is refused, with the intended name when one is close, so a typo never reads as
@@ -289,10 +291,14 @@ new or empty. The folder holds:
 - `SHA256SUMS`: every other file, written last, in the format of `sha256sum -b`, so
   `sha256sum -c SHA256SUMS` checks the folder without sourceledger.
 
-The dataset's name, description, authors, licence, version, identifier, `datePublished` and
-`url` come from `codemeta.json` in the current directory, the project's CodeMeta file, or
-from the file `--codemeta PATH` names (`codemeta=` in the library).
-Its `license` becomes the dataset's licence. When the data has another licence than the code,
+The dataset's name, description, authors, contributors, publisher, keywords, licence, version,
+identifier, `datePublished` and `url` come from `codemeta.json` in the current directory, the project's CodeMeta file, or
+from the file `--codemeta PATH` names (`codemeta=` in the library). `release --check` takes no
+`--codemeta`: it reads only the folder.
+Its `license` becomes the dataset's licence. A publisher given as text, or as an object without
+`@type`, is written as an Organization, as both formats require. A contributor without an
+`@id` gets `#contributor-<n>`; in the RO-Crate, a person listed twice, or as author and
+contributor, is one entity. When the data has another licence than the code,
 as when the code is MIT and the data CC-BY-4.0, keep a CodeMeta file for the dataset and pass
 it with `--codemeta`.
 `release` does not write it, and reads it only when `release_formats` asks for a format.

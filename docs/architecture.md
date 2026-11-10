@@ -124,7 +124,8 @@ columns with the record. For a file source, it compares the output's hash with t
 record and checks that its package entry has the current provenance and reuse terms.
 
 It also reports a source without reuse terms, an output that no source owns, and a
-`datapackage.json` that no longer matches the outputs. Every file in `data/processed/`,
+`datapackage.json` that no longer matches the outputs, or whose `name` is not the one
+`sources.toml` sets. Every file in `data/processed/`,
 including non-CSV files, must belong to a source or be the package descriptor.
 `validate` exits 1 if it finds any problem.
 

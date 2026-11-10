@@ -373,6 +373,8 @@ def build_sources(
     """Build outputs with row counts for tables, or None for unchanged file copies."""
     _check_output_format(output_format)
     _check_name(name)
+    # Before any output is written: a broken pyproject.toml must not cost a whole build.
+    name = name or _package_name()
     selected = {s["id"] for s in select(sources, only)}
     earlier = {} if only is None else _listed(processed / DATAPACKAGE)
     processed.mkdir(parents=True, exist_ok=True)
@@ -390,7 +392,7 @@ def build_sources(
         record, fields, count = _build_one(source, raw, out, parse)
         written.append((out, count))
         resources.append(_resource(source, record, fields, out))
-    package = {"$schema": _DATAPACKAGE_PROFILE, "name": name or _package_name(), "resources": resources}
+    package = {"$schema": _DATAPACKAGE_PROFILE, "name": name, "resources": resources}
     _write_atomic(processed / DATAPACKAGE, json_bytes(package))
     return written
 

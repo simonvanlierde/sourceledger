@@ -15,8 +15,9 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Fixed
 
-- `validate` and `release` check that `datapackage.json` has the `name` set in `sources.toml`, so a name added after the last build no longer ships the old one. `validate()` and `release()` take `name=`.
-- A `pyproject.toml` that is not UTF-8, or that cannot be read, now gives the one-line `pyproject.toml: ...; fix it, or set name in sources.toml` that a TOML error already gave.
+- `release` copies `keywords`, `publisher` and `contributor` from `codemeta.json` into the RO-Crate and Croissant files; before, it dropped them. A publisher given as text, or as an object without `@type`, is written as an Organization, which both validators require. In the RO-Crate, a person listed twice is one entity.
+- `validate` and `release` check that `datapackage.json` has the `name` set in `sources.toml`, so a name added after the last build no longer ships the old one. `validate()` and `release()` take `name=`. A script that gates on `validate` exits 1 until the next `build`.
+- A `pyproject.toml` that is not UTF-8, or that cannot be read, now gives the one-line `pyproject.toml: ...; fix it, or set name in sources.toml` that a TOML error already gave, before `build` writes any output.
 - `release --check` refuses `--codemeta` even when it names `./codemeta.json`.
 - The reference says to put `name` above the first `[[source]]`, where TOML would otherwise make it that source's title.
 

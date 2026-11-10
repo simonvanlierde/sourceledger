@@ -157,8 +157,9 @@ gh attestation verify sourceledger-0.5.0-py3-none-any.whl --repo simonvanlierde/
 0.3.1 to 0.4.0 attached one bundle for all files, `sourceledger-<version>.sigstore.json`.
 
 From 0.5.0, a release also carries a CycloneDX SBOM, `sourceledger-<version>.tar.gz.cdx.json`.
-It lists only the package itself, because sourceledger has no required dependencies. The
-optional extras are not in it. Its attestation,
+From 0.5.1 it lists the locked dependencies of the `xlsx`, `parquet` and `release` extras, at
+the versions the release was tested with; 0.5.0's listed only the package itself, because
+sourceledger has no required dependencies. Its attestation,
 `sourceledger-<version>.tar.gz.sbom.intoto.jsonl`, ties it to the sdist:
 
 ```sh

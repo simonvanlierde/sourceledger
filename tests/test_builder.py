@@ -391,6 +391,15 @@ def test_a_broken_pyproject_is_named_when_it_would_name_the_package(
 
 
 @pytest.mark.usefixtures("upstream")
+def test_a_broken_pyproject_stops_build_before_any_output(capsys: pytest.CaptureFixture[str]) -> None:
+    assert _run("fetch") == [0]
+    Path("pyproject.toml").write_text("[project\n", encoding="utf-8")
+    assert _run("build") == [3]
+    assert "pyproject.toml: " in capsys.readouterr().err
+    assert not OUT.exists()
+
+
+@pytest.mark.usefixtures("upstream")
 def test_build_names_the_package_from_sources_toml_first() -> None:
     """`name` in sources.toml beats pyproject.toml, and the library takes it as `name=`."""
     Path("pyproject.toml").write_text('[project]\nname = "from-pyproject"\n', encoding="utf-8")
