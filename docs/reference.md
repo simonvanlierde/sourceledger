@@ -75,7 +75,7 @@ Each `[[source]]` table takes these keys:
 | `format` | no | `"file"` copies bytes unchanged. Table formats are `"csv"`, `"json"` and `"xlsx"`; see the details below. |
 | `sheet` | no | The Excel sheet to read. The first unless set. A cell right of the last header cell is refused, and a missing cell in a row reads as `""`. |
 | `headers` | no | Extra request headers, such as an API key, each value naming an environment variable: `{ Authorization = "env:EIA_TOKEN" }`. A literal value is refused, and so is a `url` that is not https. The record keeps the header names, not the values. A redirect to another scheme, host or port drops them. |
-| `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for http and https URLs, and not for a source that needs `headers`: the archive's request sends none. `record` asks for no snapshot: it keeps the one logged for the same bytes, and otherwise leaves `archive_url` empty. |
+| `archive` | no | `true` to ask the Internet Archive's [Save Page Now](https://web.archive.org/save) to snapshot the URL after each fetch that brings new bytes. The record keeps the snapshot's address as `archive_url`. Only for http and https URLs, and not for a source that needs `headers`: the archive's request sends none. `record` asks for no snapshot. It keeps the one logged for the same bytes, and otherwise leaves `archive_url` empty. |
 | `reason` | no | A note for people, such as why a source is unimplemented. sourceledger doesn't read it. |
 
 Without `format`, the URL extension selects JSON (`.json`) or Excel (`.xlsx`); other extensions select CSV.
@@ -103,21 +103,25 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 - `record ID PATH` takes in a file that another tool, such as pooch, DVC or your own
   script, downloaded for source `ID`. It copies the file into `data/raw/`, checks the
   `sha256` pin, and writes the same log line and record as `fetch`, with `recorded_at` set
-  to now. `--retrieved-at TIME` is when the file was downloaded, in ISO 8601 with a time
-  zone (`2026-11-05T09:30:00Z`); a value that is not ISO 8601 is a usage error. Without it the record and the rows' `retrieved_at` stay
-  empty rather than claim a download time. `--url URL` names where it came from if that
-  is not the source's `url`; its query and fragment are dropped, since a signed download
-  URL keeps its secret there. `--etag` and `--last-modified` keep the server's validators
-  for a later conditional `fetch`, but only when the URL is the source's own.
-  `--parameter NAME=VALUE`, repeatable, keeps request metadata such as a query's country
-  code; it is published with the dataset, as text, so a name such as `token`, `x-api-key` or
-  `sig` is refused ([safe use](secure-use.md) lists the rule). The file must be a regular
-  file within the source's `max_bytes`. The library function is `record()`. The report and
-  `datapackage.json` show the output as recorded, not fetched, and `status` shows the record
-  time when there is no download time. A later `fetch` of the same bytes logs a fetch over
-  the record and prints `relogged` with a reminder to run `build`, since the outputs still
-  name the record. `--dry-run` makes every check and hashes the file,
-  then prints what it would record and writes nothing.
+  to now. The file must be a regular file within the source's `max_bytes`. The library
+  function is `record()`.
+  - `--retrieved-at TIME` is when the file was downloaded, in ISO 8601 with a time zone
+    (`2026-11-05T09:30:00Z`). A value that is not ISO 8601 is a usage error. Without it,
+    the record and the rows' `retrieved_at` stay empty rather than claim a download time.
+  - `--url URL` names where the file came from, if that is not the source's `url`. Its query
+    and fragment are dropped, since a signed download URL keeps its secret there.
+  - `--etag` and `--last-modified` keep the server's validators for a later conditional
+    `fetch`, but only when the URL is the source's own.
+  - `--parameter NAME=VALUE`, repeatable, keeps request metadata such as a query's country
+    code. It is published with the dataset, as text, so a name such as `token`, `x-api-key`
+    or `sig` is refused ([safe use](secure-use.md) lists the rule).
+  - `--dry-run` makes every check and hashes the file, then prints what it would record and
+    writes nothing.
+
+  The report and `datapackage.json` show the output as recorded, not fetched. `status` shows
+  the record time when there is no download time. A later `fetch` of the same bytes logs a
+  fetch over the record and prints `relogged` with a reminder to run `build`, since the
+  outputs still name the record.
 - `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
   log. Copy the log before you fetch (`cp data/fetches.jsonl before.jsonl`), then run
   `sourceledger revisions before.jsonl`. It prints `no revisions` when no source changed.
@@ -138,7 +142,7 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 
 ## Options, output and exit codes
 
-`sourceledger STAGE --help` lists the options of one stage; options go after the stage name. Write each option in full: a prefix such as `--j` is refused.
+`sourceledger STAGE --help` lists the options of one stage. Options go after the stage name. Write each option in full: a prefix such as `--j` is refused.
 
 | Option | Stages | Effect |
 | --- | --- | --- |
@@ -167,7 +171,7 @@ every system, also when redirected to a file on Windows.
 | 1 | Problems found: `validate` or `verify` found at least one, or `release` refused its input or found a problem in the folder. |
 | 2 | Usage error: an unknown stage or option, a missing argument, or an `--only` or `record` id that is not in `sources.toml`, or a `--retrieved-at` that is not an ISO 8601 time. Nothing is written. |
 | 3 | Could not run: a missing or invalid file, a failed download, another fetch holding the lock, a validator `release` needs that is not installed or that stopped without a result, or an unexpected error such as a project's parser failing, printed as one `error:` line with its type. When some sources fail to fetch, the others are still written and logged. |
-| 130 | Interrupted with Ctrl-C. What finished before is kept, and the `help:` line repeats the command to finish. With `--json` the report still prints, and `fetch` lists the sources fetched before. The command then ends by SIGINT, as Ctrl-C does, so a shell loop around it stops too; on Windows it exits 130. `main()` returns 130, so a project's own command calls `sourceledger.entry()` instead, which ends by SIGINT ([custom readers](recipes.md#write-a-custom-reader)). |
+| 130 | Interrupted with Ctrl-C. What finished before is kept, and the `help:` line repeats the command to finish. With `--json` the report still prints, and `fetch` lists the sources fetched before. The command then ends by SIGINT, as Ctrl-C does, so a shell loop around it stops too. On Windows it exits 130. `main()` returns 130, so a project's own command calls `sourceledger.entry()` instead, which ends by SIGINT ([custom readers](recipes.md#write-a-custom-reader)). |
 
 ## JSON reports
 
@@ -271,13 +275,14 @@ new or empty. The folder holds:
   `sha256sum -c SHA256SUMS` checks the folder without sourceledger.
 
 The dataset's name, description, authors, licence, version, identifier, `datePublished` and
-`url` come from `codemeta.json` in the current directory, the project's CodeMeta file; `release`
-does not write it. RO-Crate needs
-`name`, `description`, `license` and `datePublished`, and Croissant `name`, `description`,
-`license` and `url`. A missing one stops `release` with exit code 1, naming it. `release` reads
-`codemeta.json` only when `release_formats` asks for a format; with the setting absent, no file is needed. When a format is asked for and the file is missing, `release` exits 1 and names `codemeta.json`.
+`url` come from `codemeta.json` in the current directory, the project's CodeMeta file.
+`release` does not write it, and reads it only when `release_formats` asks for a format.
+If the file is missing then, `release` exits 1 and names `codemeta.json`.
 
-After writing, `release` hashes every file in the folder, and refuses with exit code 1 when
+RO-Crate needs `name`, `description`, `license` and `datePublished`. Croissant needs `name`,
+`description`, `license` and `url`. A missing one stops `release` with exit code 1, naming it.
+
+After writing, `release` hashes every file in the folder. It refuses with exit code 1 when
 one has the bytes of a restricted source's raw file or output, whatever its name. Then it runs
 the same checks as `release --check DIR`, which checks a folder that exists:
 
@@ -287,21 +292,27 @@ the same checks as `release --check DIR`, which checks a folder that exists:
 | `ro-crate-metadata.json` | `rocrate-validator validate`, profile `ro-crate-1.3`. It downloads the context that the crate names, so it needs the network, and on a folder you received it makes the requests that crate asks for. |
 | `croissant.json` | `mlcroissant validate --jsonld`. |
 
-Each validator runs in its own process and every finding is a problem, with exit code 1. A
+Each validator runs in its own process, and every finding is a problem with exit code 1. A
 validator that stops without findings, such as roc-validator offline, or that runs past 10
-minutes, exits 3: the folder was not checked. The
-report names each check that ran, with its version. The two validators come with the release
-extra: `uv tool install 'sourceledger[release]'`, or `uv add 'sourceledger[release]'` in a
-project. When a metadata file is there but its validator is not, `release` exits 3 with the
-install line. The folder is written beside `OUT_DIR` and moved into place only once every
-check passes, so a refused release leaves nothing at `OUT_DIR`. A killed `release` leaves `.OUT_DIR.part` beside it, and the next run refuses until you delete that folder. An `OUT_DIR` that already
-exists and is empty, such as a mounted volume, is kept and the files are moved into it.
+minutes, exits 3: the folder was not checked. The report names each check that ran, with its
+version.
+
+The two validators come with the release extra: `uv tool install 'sourceledger[release]'`, or
+`uv add 'sourceledger[release]'` in a project. When a metadata file is there but its validator
+is not, `release` exits 3 with the install line.
+
+The folder is written beside `OUT_DIR` and moved into place only once every check passes, so a
+refused release leaves nothing at `OUT_DIR`. A killed `release` leaves `.OUT_DIR.part` beside
+it, and the next run refuses until you delete that folder. An `OUT_DIR` that already exists and
+is empty, such as a mounted volume, is kept and the files are moved into it.
 
 Above 100 files, `release` warns: Zenodo takes at most 100 files a record, so zip the folder
-yourself. It does not upload, and it writes no `.zenodo.json`, DataCite fields, dataset card
-or licence files. In Python, `release()` returns the fields of the `--json` report and raises
-`ReleaseError`, a `ValueError`, for refused input and findings: `RestrictedSourceError` when a
-restricted file reached the folder and `ValidatorFailed` when a validator reported findings.
+yourself. `release` does not upload, and it writes no `.zenodo.json`, DataCite fields, dataset
+card or licence files.
+
+In Python, `release()` returns the fields of the `--json` report. It raises `ReleaseError`, a
+`ValueError`, for refused input and findings: `RestrictedSourceError` when a restricted file
+reached the folder, and `ValidatorFailed` when a validator reported findings.
 `ValidatorMissing` and `ValidatorCouldNotRun` are `OSError`s. `check_release(DIR)` is
 `release --check DIR`: it returns the problems and the checks that ran.
 
