@@ -8,16 +8,17 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+### Changed
+
+- The release SBOM lists the dependencies of the `xlsx`, `parquet` and `release` extras, at the versions the release was tested with. The 0.5.0 SBOM listed none, because the core has no dependencies.
+- The [release docs](docs/reference.md#release-a-dataset) point to citesync 0.5.0, whose `check` compares a release folder's RO-Crate and Croissant files with `CITATION.cff`.
+
 ### Fixed
 
 - `validate` and `release` check that `datapackage.json` has the `name` set in `sources.toml`, so a name added after the last build no longer ships the old one. `validate()` and `release()` take `name=`.
 - A `pyproject.toml` that is not UTF-8, or that cannot be read, now gives the one-line `pyproject.toml: ...; fix it, or set name in sources.toml` that a TOML error already gave.
 - `release --check` refuses `--codemeta` even when it names `./codemeta.json`.
 - The reference says to put `name` above the first `[[source]]`, where TOML would otherwise make it that source's title.
-
-### Changed
-
-- The [release docs](docs/reference.md#release-a-dataset) point to citesync 0.5.0, whose `check` compares a release folder's RO-Crate and Croissant files with `CITATION.cff`.
 
 ## [0.5.0] - 2026-11-10
 
