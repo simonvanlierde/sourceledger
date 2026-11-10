@@ -837,8 +837,9 @@ def test_validate_checks_sources_after_an_unimplemented_or_unknown_one(
 
 def test_attribution_keeps_non_breaking_spaces_in_the_publisher_s_words() -> None:
     """Only ASCII whitespace breaks a Markdown row; a no-break space in 10 000 € is part of the terms."""
-    source = {"id": "a", "status": "implemented", "terms": " Fee\u00a010\u202f000 €\r\n\tper | year \u2003"}
-    assert report_mod.attribution([source])[2] == "| a | Fee\u00a010\u202f000 € per \\| year \u2003 |  |  | ? |"
+    terms = " Fee\u00a010\u202f000 €\r\n\tper | year \u2003"
+    source = {"id": "a", "name": "X-ray X", "status": "implemented", "terms": terms}
+    assert report_mod.attribution([source])[2] == "| X-ray X | Fee\u00a010\u202f000 € per \\| year \u2003 |  |  | ? |"
 
 
 def test_attribution_leaves_missing_terms_empty() -> None:
