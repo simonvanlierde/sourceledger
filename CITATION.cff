@@ -12,8 +12,8 @@ authors:
 doi: "10.5281/zenodo.23460694"
 repository-code: "https://github.com/simonvanlierde/sourceledger"
 license: MIT
-version: "0.5.0"
-date-released: "2026-11-10"
+version: "0.5.1"
+date-released: "2026-11-11"
 keywords:
   - "provenance"
   - "data pipeline"

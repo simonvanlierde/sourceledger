@@ -8,6 +8,8 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-11
+
 ### Changed
 
 - The release SBOM lists the dependencies of the `xlsx`, `parquet` and `release` extras, at the versions the release was tested with. The 0.5.0 SBOM listed none, because the core has no dependencies.
@@ -366,7 +368,8 @@ Upgrade steps:
   vintage or pin.
 - Manifest key `vintage`. The key `release` is still read, with a warning.
 
-[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/simonvanlierde/sourceledger/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/simonvanlierde/sourceledger/compare/v0.3.0...v0.3.1
