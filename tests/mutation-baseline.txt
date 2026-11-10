@@ -131,21 +131,19 @@ sourceledger.report.x__scan__mutmut_19  the default text encoding is UTF-8 on Li
 sourceledger.report.x__scan__mutmut_22  codec names are case-insensitive: "UTF-8" is utf-8
 sourceledger.report.x__url__mutmut_16  [-1] of rsplit is the same for any maxsplit of 1 or more, and for the default (all splits)
 sourceledger.report.x__url__mutmut_19  [-1] of rsplit is the same for any maxsplit of 1 or more
-sourceledger.report.x_report__mutmut_127  fallback for a key build always writes (path is checked to be a string above)
-sourceledger.report.x_report__mutmut_129  fallback for a key build always writes (path is checked to be a string above)
-sourceledger.report.x_report__mutmut_132  fallback for a key build always writes
-sourceledger.report.x_report__mutmut_133  fallback for a key build always writes (path is checked to be a string above)
-sourceledger.report.x_report__mutmut_164  _url treats None like "", so the default is the same
-sourceledger.report.x_report__mutmut_166  fallback for a key build always writes
-sourceledger.report.x_report__mutmut_176  fallback for a key build always writes
-sourceledger.report.x_report__mutmut_178  fallback for a key build always writes
-sourceledger.report.x_report__mutmut_18  TODO: changes the page; the record PR's report goldens kill it
-sourceledger.report.x_report__mutmut_181  TODO: changes the page; the record PR's report goldens kill it
-sourceledger.report.x_report__mutmut_182  report label case; the record PR's report goldens pin it
-sourceledger.report.x_report__mutmut_202  _url treats None like "", so the default is the same
-sourceledger.report.x_report__mutmut_204  report label case; the record PR's report goldens pin it
-sourceledger.report.x_report__mutmut_237  report label case; the record PR's report goldens pin it
-sourceledger.report.x_report__mutmut_239  dict.get without a default returns None, which _url treats like ""
+sourceledger.report.x_report__mutmut_126  fallback for a key build always writes (path is checked to be a string above)
+sourceledger.report.x_report__mutmut_128  fallback for a key build always writes (path is checked to be a string above)
+sourceledger.report.x_report__mutmut_131  fallback for a key build always writes
+sourceledger.report.x_report__mutmut_132  fallback for a key build always writes (path is checked to be a string above)
+sourceledger.report.x_report__mutmut_163  _url treats None like "", so the default is the same
+sourceledger.report.x_report__mutmut_165  fallback for a key build always writes
+sourceledger.report.x_report__mutmut_175  fallback for a key build always writes
+sourceledger.report.x_report__mutmut_177  fallback for a key build always writes
+sourceledger.report.x_report__mutmut_181  report label case; the record PR's report goldens pin it
+sourceledger.report.x_report__mutmut_201  _url treats None like "", so the default is the same
+sourceledger.report.x_report__mutmut_203  report label case; the record PR's report goldens pin it
+sourceledger.report.x_report__mutmut_236  report label case; the record PR's report goldens pin it
+sourceledger.report.x_report__mutmut_238  dict.get without a default returns None, which _url treats like ""
 sourceledger.report.x_report__mutmut_3  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.report.x_report__mutmut_6  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.report.x_status__mutmut_3  an empty source list prints nothing, whatever the width

@@ -137,6 +137,15 @@ def test_report_marks_an_output_built_before_a_relog(upstream: Path) -> None:
     assert "Integrity checks passed" not in page
 
 
+def test_report_passes_a_build_from_a_log_line_older_than_final_url(dataset: list[manifest_mod.Source]) -> None:
+    """Lines logged before `final_url` existed lack it; the build stamped the empty default."""
+    log = Path("data/fetches.jsonl")
+    lines = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    assert all(line.pop("final_url") == "" for line in lines)
+    log.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+    assert "Integrity checks passed" in report(dataset)
+
+
 def test_report_cli_errors_do_not_write_partial_html(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -149,7 +158,7 @@ def test_report_cli_errors_do_not_write_partial_html(
 @pytest.mark.parametrize("package", [[], {}, {"resources": [None]}])
 def test_report_rejects_malformed_package(dataset: list[manifest_mod.Source], package: object) -> None:
     Path("data/processed/datapackage.json").write_text(json.dumps(package), encoding="utf-8")
-    with pytest.raises(ValueError, match="list of resource objects"):
+    with pytest.raises(ValueError, match=r"^datapackage.json needs a list of resource objects; re-run build$"):
         report(dataset)
 
 
@@ -221,10 +230,11 @@ def test_report_says_not_stated_for_what_a_damaged_package_leaves_out(dataset: l
     package = json.loads(path.read_text(encoding="utf-8"))
     for key in ("bytes", "hash"):
         del package["resources"][0][key]
-    del package["resources"][0]["sourceledger"]["raw_sha256"]
+    for key in ("raw_sha256", "vintage"):
+        del package["resources"][0]["sourceledger"][key]
     path.write_text(json.dumps(package), encoding="utf-8")
     page = report(dataset)
-    for label in ("Size in bytes", "SHA-256 of the output", "SHA-256 of the downloaded file"):
+    for label in ("Size in bytes", "SHA-256 of the output", "SHA-256 of the downloaded file", "Vintage"):
         assert f"<dt>{label}</dt><dd>not stated</dd>" in page
 
 
