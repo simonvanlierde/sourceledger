@@ -67,6 +67,8 @@ _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 _ENV_REF = re.compile(r"env:([A-Za-z_][A-Za-z0-9_]*)")
+# C0 except tab, LF and CR, then DEL and C1.
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 
 
 # Headers a manifest may not set: the fetch's own.
@@ -125,6 +127,7 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
         raise ValueError(msg)
     for source in sources:
         _check_placement(source)
+        _check_text(source)
         _check_pin(source)
         _check_vintage(source)
         _check_format(source)
@@ -136,6 +139,13 @@ def _check_placement(source: Source) -> None:
     """Refuse a project-wide key that an appended line put in the last [[source]] table, where it does nothing."""
     if "output_format" in source:  # noqa: PLR2004
         msg = f"source {source['id']!r} in sources.toml sets output_format; put it above the first [[source]]"
+        raise ValueError(msg)
+
+
+def _check_text(source: Source) -> None:
+    """Refuse a control character: manifest text reaches the terminal, where an ESC could rewrite the screen."""
+    if any(_CONTROL.search(value) for value in source.values() if isinstance(value, str)):
+        msg = f"{source['id']}: sources.toml text may not hold a control character other than a tab or line break"
         raise ValueError(msg)
 
 

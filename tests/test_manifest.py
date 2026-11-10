@@ -216,6 +216,22 @@ def test_an_id_must_be_ascii(tmp_path: Path, capsys: pytest.CaptureFixture[str])
     assert "ASCII" in capsys.readouterr().err
 
 
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("char", ["\\u001b", "\\u009b", "\\u007f", "\\u0000"])
+def test_a_control_character_in_the_manifest_is_refused(tmp_path: Path, char: str) -> None:
+    """An ESC or C1 byte in a url or name would reach the terminal raw and could rewrite it."""
+    _manifest(tmp_path, f"https://example.invalid/{char}[31mdata.csv")
+    with pytest.raises(ValueError, match=r"example: sources\.toml text may not hold a control character"):
+        manifest_mod.load_manifest()
+
+
+@pytest.mark.usefixtures("upstream")
+def test_line_breaks_and_tabs_in_manifest_text_are_allowed(tmp_path: Path) -> None:
+    """Terms are often quoted over several lines."""
+    _manifest(tmp_path, "https://example.invalid/data.csv", terms=f'{TERMS}\nname = "a\\tb\\r\\nc"')
+    assert manifest_mod.load_manifest()[0]["name"] == "a\tb\r\nc"
+
+
 _GOOD = f'[[source]]\nid = "a"\nstatus = "implemented"\nurl = "https://example.org/a.csv"\n{TERMS}\n'
 
 
