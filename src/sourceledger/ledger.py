@@ -599,8 +599,12 @@ def _log_new_version(log: Path, logged: dict[str, dict[str, Any]], record: Fetch
     last = logged.get(record.source_id, {})
     if log_version(last) == log_version(log_fields(record)):
         # A recorded file keeps its logged fields, so recording it again changes no byte of the
-        # sidecar and the package built from it stays current.
-        return last if last.get("recorded_at") else log_fields(record)
+        # sidecar and the package built from it stays current. A fetched one keeps the logged
+        # time and final URL, which the report checks the build against, and takes the new
+        # validators for the next conditional request.
+        if last.get("recorded_at"):
+            return last
+        return {**log_fields(record), "retrieved_at": last["retrieved_at"], "final_url": last.get("final_url", "")}
     _append(log, record)
     logged[record.source_id] = log_fields(record)
     return log_fields(record)

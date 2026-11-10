@@ -3,8 +3,11 @@
 import gzip
 import hashlib
 import json
+import time
+from datetime import datetime, tzinfo
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Self
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -1075,3 +1078,23 @@ def test_scan_reports_rows_and_a_stale_stamp(tmp_path: Path, text: str, stamp: s
     out = tmp_path / "out.csv"
     out.write_bytes(text.encode())
     assert report_mod._scan(out, {"source_id": stamp}) == scanned  # noqa: SLF001
+
+
+class _AnHourLater(datetime):
+    @classmethod
+    def now(cls, tz: tzinfo | None = None) -> Self:
+        return cls.fromtimestamp(time.time() + 3600, tz=tz)
+
+
+@pytest.mark.usefixtures("upstream")
+def test_report_passes_a_build_after_a_refetch_of_the_same_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 200 with the bytes the log has (a file:// URL, or a server without ETag) keeps the logged time."""
+    assert _run("fetch", "build") == [0, 0]
+    monkeypatch.setattr(fetcher_mod, "datetime", _AnHourLater)
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    logged = json.loads(LOG.read_text(encoding="utf-8"))
+    sidecar = json.loads(RAW.with_name(RAW.name + ".fetch.json").read_text(encoding="utf-8"))
+    assert sidecar["retrieved_at"] == logged["retrieved_at"]
+    page = report(load_manifest())
+    assert "Integrity checks passed" in page
+    assert "built from an earlier fetch" not in page
