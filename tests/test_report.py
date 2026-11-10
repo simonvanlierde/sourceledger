@@ -836,12 +836,16 @@ def test_verify_names_the_hash_it_found(tmp_path: Path) -> None:
 def test_validate_reads_an_output_one_row_at_a_time(big: int) -> None:
     sources = manifest_mod.load_manifest()
     builder_mod.build(sources)
+    report_mod.validate(sources)  # unmeasured, as in the build test below
     assert _peak(lambda: report_mod.validate(sources)) < big // 4
     assert report_mod.validate(sources) == []
 
 
 def test_build_streams_a_csv_source_one_row_at_a_time(big: int) -> None:
     sources = manifest_mod.load_manifest()
+    # Built once unmeasured: under coverage, the first run of a code path allocates the tracer's
+    # own records, about 150 kB here, which a fresh container counted against the limit.
+    builder_mod.build(sources)
     assert _peak(lambda: builder_mod.build(sources)) < big // 4
     assert report_mod.validate(sources) == []
 
@@ -852,6 +856,7 @@ def test_build_streams_a_gzipped_csv_source(rows: int, upstream: Path) -> None:
     upstream.write_bytes(gzip.compress(body.encode()))
     sources = manifest_mod.load_manifest()
     fetcher_mod.fetch(sources)
+    builder_mod.build(sources)  # unmeasured, as in the CSV test above
     # gzip has fixed decompression buffers in addition to the CSV reader's row-sized memory.
     assert _peak(lambda: builder_mod.build(sources)) < len(body) // 4 + 1024 * 1024
     assert report_mod.validate(sources) == []

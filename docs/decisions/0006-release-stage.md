@@ -30,8 +30,8 @@ stage name. The exit codes are sourceledger's: 0 done, 1 problems found, 2 usage
 130 interrupted. `--json` carries `schema_version`.
 
 **Input.** A manifest that `validate` passes. `release` runs that check first and stops with 1 if
-it fails. The dataset's descriptive fields (name, author, license, version, identifier or DOI,
-`datePublished`) come from the project's `codemeta.json`, which `citesync` keeps right from
+it fails. The dataset's descriptive fields (name, description, author, license, version,
+identifier or DOI, `datePublished`, and `url`, which Croissant requires) come from the project's `codemeta.json`, which `citesync` keeps right from
 `CITATION.cff`. CodeMeta, RO-Crate and Croissant share schema.org terms, so the fields copy over
 with no new mapping. A requested format whose field is missing stops the stage with 1, naming it.
 

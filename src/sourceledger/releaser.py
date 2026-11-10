@@ -194,13 +194,24 @@ def release(
         problems, result["validators"] = check_release(folder)
         if problems:
             raise ValidatorFailed(problems, result["validators"])
-        if out_dir.exists():
-            out_dir.rmdir()  # empty, as checked above; Windows cannot rename onto it
-        folder.rename(out_dir)
+        _place(folder, out_dir)
     finally:
         if folder.exists():
             shutil.rmtree(folder)
     return result
+
+
+def _place(folder: Path, out_dir: Path) -> None:
+    """Move the checked `folder` to `out_dir`, or into it when it exists, empty.
+
+    An existing folder is filled, not replaced: it can be a mount point, or carry its own owner and mode.
+    """
+    if not out_dir.exists():
+        folder.rename(out_dir)
+        return
+    for child in folder.iterdir():
+        shutil.move(child, out_dir / child.name)
+    folder.rmdir()
 
 
 def _part_folder(out_dir: Path) -> Path:

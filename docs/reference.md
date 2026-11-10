@@ -293,7 +293,8 @@ report names each check that ran, with its version. The two validators come with
 extra: `uv tool install 'sourceledger[release]'`, or `uv add 'sourceledger[release]'` in a
 project. When a metadata file is there but its validator is not, `release` exits 3 with the
 install line. The folder is written beside `OUT_DIR` and moved into place only once every
-check passes, so a refused release leaves nothing at `OUT_DIR`.
+check passes, so a refused release leaves nothing at `OUT_DIR`. An `OUT_DIR` that already
+exists and is empty, such as a mounted volume, is kept and the files are moved into it.
 
 Above 100 files, `release` warns: Zenodo takes at most 100 files a record, so zip the folder
 yourself. It does not upload, and it writes no `.zenodo.json`, DataCite fields, dataset card

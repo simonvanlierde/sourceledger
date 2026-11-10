@@ -266,7 +266,10 @@ def test_a_dry_run_writes_nothing_and_says_what_it_would(project: Path, capsys: 
 
 def test_an_empty_out_dir_is_used_and_a_full_one_refused(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
     OUT.mkdir()
+    made = OUT.stat()
     assert _release(str(OUT)) == 0
+    # Filled, not replaced: a mount point or a folder with its own owner and mode cannot be removed and renamed onto.
+    assert (OUT.stat().st_dev, OUT.stat().st_ino) == (made.st_dev, made.st_ino)
     capsys.readouterr()
     assert _release(str(OUT)) == 3
     assert capsys.readouterr().err == (
