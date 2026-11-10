@@ -369,9 +369,14 @@ def _relogged(record: FetchRecord, before: dict[str, dict[str, Any]]) -> bool:
     return last is not None and not _new(record, before) and log_version(last) != log_version(log_fields(record))
 
 
+def _marker(record: FetchRecord, before: dict[str, dict[str, Any]]) -> str:
+    """`new` bytes, the same bytes `relogged` another way, or `unchanged`."""
+    return "new" if _new(record, before) else "relogged" if _relogged(record, before) else "unchanged"
+
+
 def _fetch_line(record: FetchRecord, before: dict[str, dict[str, Any]]) -> str:
-    """One line per source: `new` bytes, the same bytes `relogged` another way, or `unchanged`."""
-    marker = "new" if _new(record, before) else "relogged" if _relogged(record, before) else "unchanged"
+    """One line per source, with its `_marker`."""
+    marker = _marker(record, before)
     return (
         f"{record.source_id}  {marker:<9}  {record.bytes:>9,} B  {record.sha256[:12]}  {record.vintage}  {record.url}"
     )
@@ -455,8 +460,7 @@ def _record_stage(run: _Run) -> list[str]:
         run.result["records"] = [
             {**log_fields(result), "new": _new(result, before), "relogged": _relogged(result, before)}
         ]
-        state = "new" if _new(result, before) else "unchanged"
-        what = f"{state}, {result.bytes:,} B, sha256 {result.sha256}"
+        what = f"{_marker(result, before)}, {result.bytes:,} B, sha256 {result.sha256}"
         run.say(f"would record {source['id']} from {args.path.as_posix()}: {what}")
     else:
         _report_records(run, [result], before)

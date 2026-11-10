@@ -109,6 +109,11 @@ def test_the_library_reads_the_projects_output_format() -> None:
     assert problems
     assert all("output_format is 'csv'; build again" in p for p in problems if ".parquet:" in p)
     assert not any("delete it" in p for p in problems)
+    sourceledger.build(sources)
+    problems = sourceledger.validate(sources, output_format=output_format)
+    assert problems
+    assert all("output_format is 'parquet'; build again" in p for p in problems if ".csv:" in p)
+    assert any(".csv:" in p for p in problems)
 
 
 @pytest.mark.usefixtures("project")
