@@ -102,6 +102,25 @@ def test_a_usage_error_has_the_same_shape_and_exit_2(capsys: pytest.CaptureFixtu
     assert err.endswith("error: unrecognized arguments: extra\nhelp: run `sourceledger fetch --help` for its options\n")
 
 
+@pytest.mark.parametrize(
+    ("argv", "option"),
+    [
+        (["validate", "--j"], "--j"),
+        (["fetch", "--dry"], "--dry"),
+        (["release", "--ch", "x"], "--ch"),
+        (["--vers"], "--vers"),
+    ],
+)
+def test_an_abbreviated_option_is_a_usage_error(
+    argv: list[str], option: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A prefix that names one option today would name two once another option starts the same way."""
+    with pytest.raises(SystemExit) as exit_:
+        main(argv)
+    assert exit_.value.code == 2
+    assert option in capsys.readouterr().err
+
+
 @pytest.mark.usefixtures("project")
 def test_an_unknown_only_id_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["fetch", "--only", "zz"]) == 2
@@ -433,7 +452,7 @@ def test_output_is_utf8_with_lf_in_any_locale(tmp_path: Path) -> None:
     out = tmp_path / "provenance.html"
     with out.open("wb") as fh:
         subprocess.run(  # fixed arguments
-            [sys.executable, "-c", "import sys; from sourceledger.cli import main; sys.exit(main())", "report"],
+            [sys.executable, "-c", "from sourceledger.cli import entry; entry()", "report"],
             stdout=fh,
             env=env,
             check=True,
@@ -536,13 +555,25 @@ class _Stream(io.StringIO):
 
 
 @pytest.mark.usefixtures("project")
-def test_main_makes_both_streams_utf8_and_stdout_lf(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_entry_makes_both_streams_utf8_and_stdout_lf_and_main_leaves_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command owns its streams; a process that calls main() keeps its own."""
     out, err = _Stream(), _Stream()
     monkeypatch.setattr(sys, "stdout", out)
     monkeypatch.setattr(sys, "stderr", err)
     assert main(["status"]) == 0
+    assert (out.calls, err.calls) == ([], [])
+    monkeypatch.setattr(sys, "argv", ["sourceledger", "status"])
+    monkeypatch.setattr(signal, "signal", lambda *_: None)
+    with pytest.raises(SystemExit) as exit_:
+        cli.entry()
+    assert exit_.value.code == 0
     assert out.calls == [{"encoding": "utf-8", "newline": "\n"}]
     assert err.calls == [{"encoding": "utf-8"}]
+    # A stream with nothing to reconfigure, such as a StringIO a caller put there, is left as it is.
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    with pytest.raises(SystemExit) as exit_:
+        cli.entry()
+    assert exit_.value.code == 0
 
 
 @pytest.mark.parametrize(

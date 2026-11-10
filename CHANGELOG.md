@@ -64,6 +64,8 @@ recorded file needs 0.5.0 to build. Details under Changed.
 - `fetch` and `record` take the `data/raw/.lock` lock on Windows too, so a second run is refused there as on Linux and macOS. The test suite and CI now run on Windows.
 - The HTML report said "Local or non-HTTP URL omitted" for an empty final or terms URL, and "None" for an unknown redistribution flag. It now says "the URL above", "not stated in sources.toml", and "yes" or "no".
 - HTTPS downloads keep the SSL context on their own handler instead of reading a private standard-library attribute.
+- `fetch` fails at once on a TLS certificate that does not verify. Before, it retried it three times, waiting 35 s in all, before the same error.
+- A `fetch` that downloads the same bytes again in full, as from a `file://` URL or a server that sends no ETag, keeps the logged download time and final URL in the fetch record. Before, the record took the new time, the next `build` stamped it, and the HTML report said the outputs were built from an earlier fetch while `validate` passed.
 - A changed `url` or `vintage` that brings the same bytes adds a log line and prints `relogged`. Before, the log kept the old line while the fetch record took the new values, so the log disagreed with the record that `build` and `validate` read. 0.4.0 did the same.
 
 ### Security
@@ -72,7 +74,10 @@ recorded file needs 0.5.0 to build. Details under Changed.
 - The release workflow publishes only a tag signed with a key listed in `.github/allowed_signers` on `main`. Before, it published from any pushed `v*` tag, signed or not. See [checking a release](docs/secure-use.md#check-a-sourceledger-release).
 - `fetch` keeps a redirect's final URL without its query and fragment, which can hold a signature, as signed download links from cloud storage do. Before, the full URL went into `fetches.jsonl`, the fetch record and `datapackage.json`.
 - A redirect from a public host to a non-HTTP URL, such as `ftp://` on an internal address, is refused. Before, urllib followed it past the check that refuses inward redirects.
-- `sources.toml` text with a control character other than a tab or line break, such as the ESC that starts a terminal escape sequence, is refused. Before, an ESC in a `url` reached the terminal raw in `fetch` and could recolour or rewrite the screen.
+- `sources.toml` text with a control character other than a tab or line break, such as the ESC that starts a terminal escape sequence, is refused. Before, an ESC in a `url` reached the terminal raw in `fetch` and could recolour or rewrite the screen. The check covers nested tables, arrays and keys too, such as a `[source.headers]` name.
+- A `url` in `sources.toml` that holds a user name or password is refused. Before, it was copied into `fetches.jsonl`, the fetch record, `datapackage.json` and `ro-crate-metadata.json`, which go out with the dataset.
+- `release --check` and `verify` show a control character in a received folder's file names, its `SHA256SUMS` or a validator's output as an escape such as `\x1b`, so a crafted name cannot recolour or rewrite the terminal.
+- `release --check` reads `SHA256SUMS` only when it is a regular file of at most 64 MiB. Before, a named pipe there made the check hang, and a link to `/dev/zero` filled memory.
 
 ## [0.4.0] - 2026-11-01
 

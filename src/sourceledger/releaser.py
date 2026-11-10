@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from importlib.metadata import PackageNotFoundError, version
@@ -14,9 +15,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote_plus
 
-from sourceledger.builder import DATAPACKAGE, PROCESSED, _by_name
+from sourceledger.builder import DATAPACKAGE, PROCESSED, _by_name, json_bytes
 from sourceledger.ledger import RAW, _digest, current_record
-from sourceledger.manifest import RELEASE_FORMATS, Source, implemented, output_name
+from sourceledger.manifest import RELEASE_FORMATS, Source, implemented, output_name, printable
 from sourceledger.report import leaves_folder, validate
 
 if TYPE_CHECKING:
@@ -44,6 +45,10 @@ _FORMAT_ROCRATE, _FORMAT_CROISSANT = RELEASE_FORMATS
 
 
 _FILES = {_FORMAT_ROCRATE: _ROCRATE, _FORMAT_CROISSANT: _CROISSANT}
+
+
+# A SHA256SUMS line is about 100 bytes, so this lists over half a million files.
+_SUMS_MAX_BYTES = 64 * 1024 * 1024
 
 
 # Zenodo takes at most 100 files a record; past that, the project zips the folder itself.
@@ -152,7 +157,7 @@ def release(
 
     The result has `files` (paths in the folder), `excluded` (source ids), `formats` (each
     optional format "written" or "skipped") and `validators` (`file`, `name`, `version` of each
-    check that ran). Raises ReleaseError when `validate` finds problems or codemeta.json lacks a
+    check that ran). Raises ReleaseError when `validate` finds problems or codemeta.json is missing or lacks a
     field a format needs, RestrictedSourceError when a restricted source's bytes reached the
     folder, ValidatorFailed when a check reports findings, ValidatorMissing when a check a format
     needs is not installed, ValidatorCouldNotRun when a check stopped without reporting, and
@@ -205,12 +210,23 @@ def _place(folder: Path, out_dir: Path) -> None:
     """Move the checked `folder` to `out_dir`, or into it when it exists, empty.
 
     An existing folder is filled, not replaced: it can be a mount point, or carry its own owner and mode.
+    It is filled SHA256SUMS last, and emptied again when a move fails, so it never holds part of a release.
     """
     if not out_dir.exists():
         folder.rename(out_dir)
         return
-    for child in folder.iterdir():
-        shutil.move(child, out_dir / child.name)
+    moved: list[Path] = []
+    try:
+        for child in sorted(folder.iterdir(), key=lambda child: child.name == SUMS):
+            shutil.move(child, out_dir / child.name)
+            moved.append(out_dir / child.name)
+    except BaseException:
+        for path in moved:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+        raise
     folder.rmdir()
 
 
@@ -251,12 +267,12 @@ def _write(
         name = output_name(source, output_format)
         shutil.copyfile(processed / name, folder / _DATA / name)
     package = _package(processed, shipped)
-    _write_json(folder / DATAPACKAGE, package)
+    (folder / DATAPACKAGE).write_bytes(json_bytes(package))
     if _FORMAT_ROCRATE in formats:
         records = {s["id"]: current_record(s, raw) for s in implemented(sources)}
-        _write_json(folder / _ROCRATE, _ro_crate(described, package, shipped, excluded, records))
+        (folder / _ROCRATE).write_bytes(json_bytes(_ro_crate(described, package, shipped, excluded, records)))
     if _FORMAT_CROISSANT in formats:
-        _write_json(folder / _CROISSANT, _croissant(described, package))
+        (folder / _CROISSANT).write_bytes(json_bytes(_croissant(described, package)))
     _write_sums(folder)
 
 
@@ -287,7 +303,8 @@ def check_release(folder: Path) -> tuple[list[str], list[dict[str, str]]]:
             msg = f"{name}: {dist} did not finish in {_TIMEOUT_S} s"
             raise ValidatorCouldNotRun(msg) from None
         ran.append({"file": name, "name": dist, "version": versions[name]})
-    return problems, ran
+    # The names and findings come from someone else's folder; an ESC in one must not reach the terminal.
+    return [printable(problem) for problem in problems], ran
 
 
 def _validator_version(name: str) -> str:
@@ -331,7 +348,7 @@ def _findings(name: str, dist: str, failed: subprocess.CalledProcessError) -> li
     crashed = any(line.startswith("Traceback") for line in stderr.splitlines())
     if dist in _EXIT_1_IS_FINDINGS and failed.returncode == 1 and said and not crashed:
         return [last]
-    msg = f"{name}: {dist} exited {failed.returncode}: {last}"
+    msg = f"{name}: {dist} exited {failed.returncode}: {printable(last)}"
     raise ValidatorCouldNotRun(msg)
 
 
@@ -341,11 +358,16 @@ _EXIT_1_IS_FINDINGS = {"mlcroissant"}
 
 
 def _described(codemeta: Path, formats: Collection[str]) -> dict[str, Any]:
-    """The dataset's descriptive fields from codemeta.json; ReleaseError naming each field a format lacks."""
+    """The dataset's descriptive fields from codemeta.json; ReleaseError when it is missing or lacks a field."""
     if not formats:
         return {}
     try:
         meta = json.loads(codemeta.read_bytes())
+    except FileNotFoundError:
+        path = codemeta.as_posix()
+        raise ReleaseError(
+            [f"{path} is missing, which {fmt} needs; write it, or drop {fmt} from release_formats" for fmt in formats]
+        ) from None
     except ValueError as error:  # also bytes outside UTF-8
         raise ReleaseError([f"{codemeta.as_posix()} is not valid JSON: {error}"]) from None
     if not isinstance(meta, dict):
@@ -376,11 +398,6 @@ def _package(processed: Path, shipped: list[Source]) -> dict[str, Any]:
     return package
 
 
-def _write_json(path: Path, document: object) -> None:
-    """`document` as UTF-8 indented by 2, with LF line ends, as `build` writes datapackage.json."""
-    path.write_bytes((json.dumps(document, indent=2, ensure_ascii=False) + "\n").encode())
-
-
 def _files(folder: Path) -> list[str]:
     """Every file under `folder` but SHA256SUMS, as sorted paths with `/`."""
     return sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file() and p != folder / SUMS)
@@ -396,9 +413,17 @@ def _sums_problems(folder: Path) -> list[str]:
     """Whether SHA256SUMS lists every other file in `folder`, each with its current SHA-256."""
     path = folder / SUMS
     try:
-        text = path.read_bytes().decode()
+        info = path.lstat()
     except FileNotFoundError:
         return [f"{path.as_posix()} is missing"]
+    # The folder is someone else's: a pipe would hang the read, and a link to /dev/zero fill memory.
+    if not stat.S_ISREG(info.st_mode):
+        return [f"{path.as_posix()} is not a regular file"]
+    if info.st_size > _SUMS_MAX_BYTES:
+        return [f"{path.as_posix()} is larger than {_SUMS_MAX_BYTES:,} bytes"]
+    try:
+        with path.open("rb") as fh:
+            text = fh.read(_SUMS_MAX_BYTES + 1).decode()
     except UnicodeDecodeError:
         return [f"{path.as_posix()} is not UTF-8 text"]
     problems, listed = [], set()
@@ -408,6 +433,7 @@ def _sums_problems(folder: Path) -> list[str]:
             problems.append(f"{path.as_posix()}: line {number} is not `<sha256> *<path>`")
             continue
         digest, name = match.groups()
+        name = re.sub(r"^(?:\./)+", "", name)  # as `find . -exec sha256sum` writes it
         listed.add(name)
         file = folder / name
         if leaves_folder(name) or not file.resolve().is_relative_to(folder.resolve()):
@@ -531,8 +557,36 @@ def _ro_crate(
     }
     return {
         "@context": "https://w3id.org/ro/crate/1.3/context",
-        "@graph": [descriptor, root, *people, *files, *origins, *fetches],
+        "@graph": _flat([descriptor, root, *people, *files, *origins, *fetches]),
     }
+
+
+def _flat(graph: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """`graph` with each nested object, such as an author's affiliation, lifted into an entity of its own.
+
+    RO-Crate refuses a graph that is not flat. A lifted object keeps its @id, or gets `#<key>-<n>`,
+    and leaves an `{"@id": ...}` reference behind; one @id is one entity, the first one met.
+    """
+    ids = {entity["@id"] for entity in graph}
+    lifted = 0
+
+    def lift(key: str, value: object) -> object:
+        nonlocal lifted
+        if isinstance(value, list):
+            return [lift(key, item) for item in value]
+        # {"@value": ...} is a JSON-LD literal, not an entity.
+        if not isinstance(value, dict) or value.keys() <= {"@id"} or "@value" in value:  # noqa: PLR2004
+            return value
+        lifted += 1
+        entity = {**value, "@id": value.get("@id") or f"#{key}-{lifted}"}
+        if entity["@id"] not in ids:
+            ids.add(entity["@id"])
+            graph.append(entity)
+        return {"@id": entity["@id"]}
+
+    for entity in graph:  # grows as objects are lifted, so theirs are lifted too
+        entity.update({key: lift(key, value) for key, value in entity.items()})
+    return graph
 
 
 # Croissant's JSON-LD context, as mlcroissant writes it.
@@ -574,6 +628,10 @@ _CROISSANT_CONTEXT = {
 }
 
 
+# mlcroissant 1.1 reads Parquet only under this older type, not IANA's application/vnd.apache.parquet.
+_CROISSANT_TYPES = {"application/vnd.apache.parquet": "application/x-parquet"}
+
+
 def _croissant(described: dict[str, Any], package: dict[str, Any]) -> dict[str, Any]:
     """A Croissant 1.1 description built from the package: a FileObject per output, a RecordSet per table."""
     document: dict[str, Any] = {
@@ -591,7 +649,7 @@ def _croissant(described: dict[str, Any], package: dict[str, Any]) -> dict[str, 
             "@id": r["path"],
             "name": Path(r["path"]).name,
             "contentUrl": r["path"],
-            "encodingFormat": _media_type(r),
+            "encodingFormat": _CROISSANT_TYPES.get(_media_type(r), _media_type(r)),
             "sha256": _hex(r),
         }
         for r in resources

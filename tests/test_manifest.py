@@ -230,6 +230,19 @@ def test_headers_on_a_plain_http_url_are_a_manifest_error(tmp_path: Path, capsys
 
 
 @pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("url", ["https://user:secret@example.org/x.csv", "https://token@example.org/x.csv"])
+def test_a_url_with_a_user_name_or_password_is_refused(tmp_path: Path, url: str) -> None:
+    """The url goes into the log, the fetch record, datapackage.json and the RO-Crate, all published."""
+    _manifest(tmp_path, url)
+    with pytest.raises(ValueError, match="user name or password") as refused:
+        manifest_mod.load_manifest()
+    assert str(refused.value) == (
+        "example: the url in sources.toml holds a user name or password; "
+        'send it in a header from an environment variable, as headers = { Authorization = "env:NAME" }'
+    )
+
+
+@pytest.mark.usefixtures("upstream")
 def test_an_id_must_be_ascii(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """An id names files, which must mean the same file on every system."""
     manifest = tmp_path / "sources.toml"
@@ -243,6 +256,23 @@ def test_an_id_must_be_ascii(tmp_path: Path, capsys: pytest.CaptureFixture[str])
 def test_a_control_character_in_the_manifest_is_refused(tmp_path: Path, char: str) -> None:
     """An ESC or C1 byte in a url or name would reach the terminal raw and could rewrite it."""
     _manifest(tmp_path, f"https://example.invalid/{char}[31mdata.csv")
+    with pytest.raises(ValueError, match=r"example: sources\.toml text may not hold a control character"):
+        manifest_mod.load_manifest()
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize(
+    "nested",
+    [
+        'headers = { "X-\\u001b[2J" = "env:TOKEN" }',
+        'headers = { Authorization = "env:TOKEN\\u001b" }',
+        'tags = ["ok", { note = "\\u009b" }]',
+        '"key\\u001b" = 1',
+    ],
+)
+def test_a_control_character_in_a_nested_table_or_key_is_refused(tmp_path: Path, nested: str) -> None:
+    """A header name reaches stderr in fetch; nested tables, arrays and keys are text too."""
+    _manifest(tmp_path, "https://example.invalid/data.csv", terms=f"{TERMS}\n{nested}")
     with pytest.raises(ValueError, match=r"example: sources\.toml text may not hold a control character"):
         manifest_mod.load_manifest()
 
@@ -285,6 +315,12 @@ _GOOD = f'[[source]]\nid = "a"\nstatus = "implemented"\nurl = "https://example.o
         'release_formats = ["ro-crate", "ro-crate"]\n' + _GOOD,
         'release_formats = ["zip"]\n' + _GOOD,
         'release_formats = "ro-crate"\n' + _GOOD,
+        # Appended below the last [[source]], so inside it, where both keys are refused.
+        _GOOD + 'output_format = "csv"\n',
+        _GOOD + "release_formats = []\n",
+        _GOOD.replace("https://", "https://user:pw@"),
+        _GOOD.replace("https://", "https://token@"),
+        _GOOD.replace("a.csv", "a@2x.csv?by=me@host"),
     ],
 )
 def test_the_schema_and_the_loader_agree(tmp_path: Path, text: str) -> None:

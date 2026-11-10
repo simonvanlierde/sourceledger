@@ -27,6 +27,7 @@ sourceledger.builder.x_build_sources__mutmut_1  every caller passes output_forma
 sourceledger.builder.x_build_sources__mutmut_12  earlier is read only when `only` is set
 sourceledger.builder.x_build_sources__mutmut_2  every caller passes output_format
 sourceledger.builder.x_build_sources__mutmut_80  None is falsy, as False is
+sourceledger.builder.x_json_bytes__mutmut_4  None is falsy, as False is
 sourceledger.builder.x_parse_csv__mutmut_18  StringIO's default newline translates nothing either
 sourceledger.builder.x_parse_csv__mutmut_23  _checked_rows already refuses every row whose length differs from the header, so zip never sees unequal lengths
 sourceledger.builder.x_parse_csv__mutmut_26  _checked_rows already refuses every row whose length differs from the header, so zip never sees unequal lengths
@@ -40,16 +41,17 @@ sourceledger.builder.x_read_output__mutmut_4  the default text encoding is UTF-8
 sourceledger.builder.x_read_output__mutmut_6  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14
 sourceledger.builder.x_read_output__mutmut_9  codec names are case-insensitive: "UTF-8" is utf-8
 sourceledger.cli.x__check_parameters__mutmut_8  rpartition and partition return the same separator: "=" when present, "" when not
-sourceledger.cli.x__parser__mutmut_109  add_help=None is falsy, the same as False
-sourceledger.cli.x__parser__mutmut_17  importlib.metadata matches distribution names case-insensitively, so the same version comes back
-sourceledger.cli.x__parser__mutmut_33  json=None and json=False are both falsy for every check on args.json
-sourceledger.cli.x__parser__mutmut_34  revisions and verify, the stages without --manifest, never read the manifest path
-sourceledger.cli.x__parser__mutmut_55  add_help=None is falsy, the same as False
-sourceledger.cli.x__parser__mutmut_74  add_help=None is falsy, the same as False
-sourceledger.cli.x__parser__mutmut_90  add_help=None is falsy, the same as False
-sourceledger.cli.x_main__mutmut_10  help text: tests check what the CLI does, not its wording
-sourceledger.cli.x_main__mutmut_41  level=None leaves basicConfig's default, WARNING
-sourceledger.cli.x_main__mutmut_43  help text: tests check what the CLI does, not its wording
+sourceledger.cli.x__parser__mutmut_112  add_help=None is falsy, the same as False
+sourceledger.cli.x__parser__mutmut_154  allow_abbrev=None is falsy, the same as False
+sourceledger.cli.x__parser__mutmut_20  importlib.metadata matches distribution names case-insensitively, so the same version comes back
+sourceledger.cli.x__parser__mutmut_36  json=None and json=False are both falsy for every check on args.json
+sourceledger.cli.x__parser__mutmut_37  revisions and verify, the stages without --manifest, never read the manifest path
+sourceledger.cli.x__parser__mutmut_58  add_help=None is falsy, the same as False
+sourceledger.cli.x__parser__mutmut_6  allow_abbrev=None is falsy, the same as False
+sourceledger.cli.x__parser__mutmut_77  add_help=None is falsy, the same as False
+sourceledger.cli.x__parser__mutmut_93  add_help=None is falsy, the same as False
+sourceledger.cli.x_main__mutmut_26  level=None leaves basicConfig's default, WARNING
+sourceledger.cli.x_main__mutmut_28  basicConfig with no level leaves the root logger at its default, WARNING
 sourceledger.fetcher.x__archive__mutmut_18  HTTP header names are case-insensitive
 sourceledger.fetcher.x__archive__mutmut_19  HTTP header names are case-insensitive
 sourceledger.fetcher.x__archive__mutmut_30  HTTP header names are case-insensitive
@@ -107,7 +109,7 @@ sourceledger.ledger.x__history_batches__mutmut_8  codec names are case-insensiti
 sourceledger.ledger.x__last_line_start__mutmut_13  reads more at once; finds the same newline
 sourceledger.ledger.x__last_line_start__mutmut_3  differs only for a one-byte first line, which is not JSON
 sourceledger.ledger.x__last_records__mutmut_19  the line is the batch's last, so both end the loop
-sourceledger.ledger.x__log_new_version__mutmut_20  `logged[id]` is read only before that id's own log line, and ids are unique, so the stored value is never read
+sourceledger.ledger.x__log_new_version__mutmut_31  `logged[id]` is read only before that id's own log line, and ids are unique, so the stored value is never read
 sourceledger.ledger.x__record__mutmut_5  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.ledger.x__record__mutmut_8  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.ledger.x__recorded_url__mutmut_17  for the source's own URL `_served_from` returns "" anyway, the same as the else branch
@@ -124,7 +126,9 @@ sourceledger.manifest.x_init__mutmut_8  codec names are case-insensitive, and th
 sourceledger.manifest.x_load_manifest__mutmut_15  only close[0] is used, and the best match comes first whatever n is
 sourceledger.manifest.x_load_manifest__mutmut_16  0.6 is get_close_matches' default cutoff
 sourceledger.manifest.x_load_manifest__mutmut_24  only close[0] is used, and the best match comes first whatever n is
-sourceledger.releaser.x__write_json__mutmut_5  None is falsy, as False is
+sourceledger.manifest.x_printable__mutmut_9  codec names are case-insensitive
+sourceledger.releaser.x__sums_problems__mutmut_11  the size is checked against the cap just above, so reading it all reads the same bytes; the bound only matters for a file that grows after lstat
+sourceledger.releaser.x__sums_problems__mutmut_13  the size is checked against the cap just above, so a larger bound reads the same bytes
 sourceledger.report.x__package_problems__mutmut_15  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.report.x__package_problems__mutmut_17  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.report.x__scan__mutmut_17  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14
@@ -138,12 +142,9 @@ sourceledger.report.x_report__mutmut_131  fallback for a key build always writes
 sourceledger.report.x_report__mutmut_132  fallback for a key build always writes (path is checked to be a string above)
 sourceledger.report.x_report__mutmut_163  _url treats None like "", so the default is the same
 sourceledger.report.x_report__mutmut_165  fallback for a key build always writes
-sourceledger.report.x_report__mutmut_175  fallback for a key build always writes
-sourceledger.report.x_report__mutmut_177  fallback for a key build always writes
-sourceledger.report.x_report__mutmut_181  report label case; the record PR's report goldens pin it
 sourceledger.report.x_report__mutmut_201  _url treats None like "", so the default is the same
-sourceledger.report.x_report__mutmut_203  report label case; the record PR's report goldens pin it
-sourceledger.report.x_report__mutmut_236  report label case; the record PR's report goldens pin it
+sourceledger.report.x_report__mutmut_203  dict.get without a default returns None, which _url treats like ""
+sourceledger.report.x_report__mutmut_236  dict.get without a default returns None, which _url treats like ""
 sourceledger.report.x_report__mutmut_238  dict.get without a default returns None, which _url treats like ""
 sourceledger.report.x_report__mutmut_3  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.report.x_report__mutmut_6  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it

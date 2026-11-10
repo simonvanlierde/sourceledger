@@ -368,8 +368,13 @@ def build_sources(
         written.append((out, count))
         resources.append(_resource(source, record, fields, out))
     package = {"$schema": _DATAPACKAGE_PROFILE, "name": _package_name(), "resources": resources}
-    _write_atomic(processed / DATAPACKAGE, (json.dumps(package, indent=2, ensure_ascii=False) + "\n").encode())
+    _write_atomic(processed / DATAPACKAGE, json_bytes(package))
     return written
+
+
+def json_bytes(document: object) -> bytes:
+    """`document` as `build` writes datapackage.json: UTF-8, indented by 2, ending in a line break."""
+    return (json.dumps(document, indent=2, ensure_ascii=False) + "\n").encode()
 
 
 def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[FetchRecord, list[str], int | None]:

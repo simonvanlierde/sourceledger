@@ -64,7 +64,7 @@ Each `[[source]]` table takes these keys:
 | `id` | yes | ASCII letters, digits, `_` and `-`. Names the raw file (`id` plus the URL's extension) and the output. |
 | `name` | no | A title for people. The data package and `attribution` show it in place of the id. |
 | `status` | yes | `"implemented"`, read by every stage, or `"unimplemented"`: a source you know about but don't read yet. `validate` fails if one of those has output. |
-| `url` | for implemented sources | What `fetch` downloads. Change it and `build` refuses the old download until you fetch again. |
+| `url` | for implemented sources | What `fetch` downloads. Change it and `build` refuses the old download until you fetch again. A user name or password in it is refused: send it in `headers`. |
 | `terms`, `terms_url` | for implemented sources | The publisher's reuse terms in their words, and where they are stated. |
 | `license` | for implemented sources | The same terms as an [SPDX id](https://spdx.org/licenses/), such as `"CC-BY-4.0"`, or `"LicenseRef-<name>"` for terms with none. |
 | `redistribute` | for implemented sources | `true` if the terms let you republish the raw file, `false` if not. |

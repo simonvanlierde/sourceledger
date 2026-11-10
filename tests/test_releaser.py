@@ -7,6 +7,7 @@ import importlib
 import importlib.util
 import json
 import logging
+import os
 import subprocess
 import sys
 from collections.abc import Callable
@@ -14,6 +15,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 import pytest
+from support import _symlink
 
 import sourceledger
 from sourceledger import manifest as manifest_mod
@@ -281,6 +283,29 @@ def test_an_empty_out_dir_is_used_and_a_full_one_refused(project: Path, capsys: 
     assert project.joinpath("file").read_text(encoding="utf-8") == "x"
 
 
+@pytest.mark.usefixtures("project")
+def test_a_move_that_fails_part_way_leaves_the_empty_out_dir_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Filling an existing OUT_DIR moves file by file; a failure, such as a full disk, takes back what moved."""
+    OUT.mkdir()
+    real, moves = releaser.shutil.move, []
+
+    def move(src: Path, dst: Path) -> object:
+        moves.append(Path(src).name)
+        if Path(src).name == "SHA256SUMS":  # the last move, after data/ and the package
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real(src, dst)
+
+    monkeypatch.setattr(releaser.shutil, "move", move)
+    with pytest.raises(OSError, match="No space left"):
+        sourceledger.release(manifest_mod.load_manifest(), OUT)
+    assert list(OUT.iterdir()) == []
+    assert not Path(".release.part").exists()
+    monkeypatch.setattr(releaser.shutil, "move", lambda src, dst: moves.append(Path(src).name) or real(src, dst))
+    moves.clear()
+    sourceledger.release(manifest_mod.load_manifest(), OUT)
+    assert moves[-1] == "SHA256SUMS"
+
+
 def test_out_dir_may_be_in_a_new_folder(project: Path) -> None:
     assert _release("releases/2026/v1") == 0
     assert (project / "releases" / "2026" / "v1" / "SHA256SUMS").is_file()
@@ -349,6 +374,11 @@ def test_release_warns_above_zenodos_file_limit(
         assert _release(str(OUT)) == 0
     assert caplog.messages == ["the release has 3 files; Zenodo takes at most 2, so zip them first"]
     assert sorted(_all_files(OUT)) == ["SHA256SUMS", "data/open.csv", "datapackage.json"]
+
+
+def test_the_limits_are_the_documented_ones() -> None:
+    """The tests above patch both limits, so only this pins the 100 files and 10 minutes the docs promise."""
+    assert (releaser._ZENODO_FILES, releaser._TIMEOUT_S) == (100, 600)  # noqa: SLF001
 
 
 def test_a_table_source_that_is_restricted_stays_out_too(project: Path) -> None:
@@ -527,6 +557,53 @@ def test_people_get_an_id_and_a_name() -> None:
     ]
 
 
+def _nested(entity: dict) -> list[str]:
+    """The keys of `entity` that hold an object other than an `{"@id": ...}` reference, in a list or not."""
+    return [
+        key
+        for key, value in entity.items()
+        for item in (value if isinstance(value, list) else [value])
+        if isinstance(item, dict) and item.keys() != {"@id"}
+    ]
+
+
+@pytest.mark.usefixtures("stand_ins")
+def test_the_crate_is_flat_when_codemeta_nests_objects(project: Path) -> None:
+    """RO-Crate wants a flat graph: an affiliation, identifier or licence object becomes an entity of its own."""
+    org = {"@type": "Organization", "name": "Dune Institute"}
+    shared = {"@type": "Organization", "@id": "https://ror.org/05xg72x27", "name": "Duck Society"}
+    doi = {"@type": "PropertyValue", "propertyID": "DOI", "value": "10.5281/zenodo.1234567"}
+    meta = {
+        **CODEMETA,
+        "author": [{**AUTHOR, "affiliation": [org, shared]}, {"name": "Bea Duck", "affiliation": shared}],
+        "description": {"@value": "Duck counts", "@language": "en"},
+        "identifier": doi,
+        "license": {"@id": "https://spdx.org/licenses/CC-BY-4.0", "@type": "CreativeWork", "name": "CC BY 4.0"},
+    }
+    (project / "codemeta.json").write_text(json.dumps(meta), encoding="utf-8")
+    sourceledger.release(manifest_mod.load_manifest(), OUT, formats=["ro-crate"])
+    graph = json.loads((OUT / "ro-crate-metadata.json").read_text(encoding="utf-8"))["@graph"]
+    # A JSON-LD literal stays where it is, and a reference to an entity outside the crate stays a reference.
+    assert {e["@id"]: _nested(e) for e in graph if _nested(e)} == {"./": ["description"]}
+    assert [e for e in graph if e.keys() == {"@id"}] == []
+    ids = [e["@id"] for e in graph]
+    assert len(ids) == len(set(ids))
+    by_id = {e["@id"]: e for e in graph}
+    root = by_id["./"]
+    assert root["description"] == meta["description"]
+    assert root["author"] == [{"@id": AUTHOR["@id"]}, {"@id": "#author-2"}]
+    ada, bea = by_id[AUTHOR["@id"]], by_id["#author-2"]
+    # Numbered in the order met: the licence (1, which keeps its @id), the identifier, the affiliation.
+    assert root["identifier"] == {"@id": "#identifier-2"}
+    assert by_id["#identifier-2"] == {**doi, "@id": "#identifier-2"}
+    assert ada["affiliation"] == [{"@id": "#affiliation-3"}, {"@id": shared["@id"]}]
+    assert by_id["#affiliation-3"] == {**org, "@id": "#affiliation-3"}
+    assert bea["affiliation"] == {"@id": shared["@id"]}
+    assert by_id[shared["@id"]] == shared
+    assert by_id["./"]["license"] == {"@id": "https://spdx.org/licenses/CC-BY-4.0"}
+    assert by_id["https://spdx.org/licenses/CC-BY-4.0"]["name"] == "CC BY 4.0"
+
+
 @pytest.mark.usefixtures("stand_ins")
 def test_one_author_need_not_be_a_list_and_none_is_left_out(project: Path) -> None:
     meta = {**CODEMETA, "author": AUTHOR}
@@ -590,8 +667,12 @@ def test_codemeta_must_be_a_json_object_and_exist(project: Path, capsys: pytest.
     assert _release(str(OUT)) == 1
     assert capsys.readouterr().out.startswith("codemeta.json is not valid JSON: Expecting value")
     (project / "codemeta.json").unlink()
-    assert _release(str(OUT)) == 3
-    assert capsys.readouterr().err.startswith("error: codemeta.json is missing\n")
+    assert _release(str(OUT)) == 1
+    assert capsys.readouterr().out == (
+        "codemeta.json is missing, which croissant needs; write it, or drop croissant from release_formats\n1 problem\n"
+    )
+    _write_manifest(project)
+    assert _release(str(OUT)) == 0
 
 
 # The checks: SHA256SUMS, the validators in their own processes, and --check.
@@ -725,6 +806,7 @@ def test_the_croissant_findings_are_its_errors_without_its_warnings() -> None:
         "x.json: mlcroissant exited 1: KeyError: 'x'"
     )
     assert _could_not_run("mlcroissant", _done(3, "\n", " \n")) == "x.json: mlcroissant exited 3: with no output"
+    assert _could_not_run("mlcroissant", _done(3, "\x1b[2Jgone")) == "x.json: mlcroissant exited 3: \\x1b[2Jgone"
     last = "Found the following 1 error(s) during the validation:\n  -  no url"
     assert releaser._findings("x.json", "mlcroissant", _done(1, "", last)) == ["no url"]  # noqa: SLF001
     # On Windows mlcroissant reported a broken licence only as a warning, still exiting 1.
@@ -813,6 +895,38 @@ def test_check_reads_on_past_a_bad_line(released: Path) -> None:
     ]
 
 
+def test_check_shows_control_characters_from_the_folder_as_escapes(
+    released: Path, stand_ins: Callable[..., None], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A received SHA256SUMS and a validator's output can hold an ESC; the terminal gets an escape, not the byte."""
+    stand_ins(croissant="import sys; print('\\x1b[31mred', end=''); sys.exit(1)")
+    sums = released / "SHA256SUMS"
+    sums.write_text(sums.read_text(encoding="utf-8") + "0" * 64 + " *data/\x1b[2Jgone\n", encoding="utf-8")
+    capsys.readouterr()
+    assert _release("--check", str(released)) == 1
+    out = capsys.readouterr().out
+    assert "\x1b" not in out
+    assert "release/data/\\x1b[2Jgone is listed in SHA256SUMS but missing\n" in out
+    assert "croissant.json: \\x1b[31mred\n" in out
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
+def test_check_reads_sums_only_from_a_regular_file_of_bounded_size(
+    released: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A received SHA256SUMS that is a pipe would hang the check, and a huge one or a link to /dev/zero fill memory."""
+    sums = released / "SHA256SUMS"
+    sums.write_text(sums.read_text(encoding="utf-8").rstrip("\n"), encoding="utf-8")  # every byte counts
+    cap = sums.stat().st_size
+    monkeypatch.setattr(releaser, "_SUMS_MAX_BYTES", cap)
+    assert releaser._sums_problems(released) == []  # noqa: SLF001
+    monkeypatch.setattr(releaser, "_SUMS_MAX_BYTES", cap - 1)
+    assert releaser._sums_problems(released) == [f"release/SHA256SUMS is larger than {cap - 1:,} bytes"]  # noqa: SLF001
+    sums.unlink()
+    os.mkfifo(sums)
+    assert releaser._sums_problems(released) == ["release/SHA256SUMS is not a regular file"]  # noqa: SLF001
+
+
 def test_check_reads_text_mode_sums_too(released: Path) -> None:
     """`sha256sum` without -b marks a path with a space instead of `*`."""
     sums = released / "SHA256SUMS"
@@ -820,13 +934,17 @@ def test_check_reads_text_mode_sums_too(released: Path) -> None:
     assert releaser._sums_problems(released) == []  # noqa: SLF001
 
 
+def test_check_reads_sums_written_from_inside_the_folder(released: Path) -> None:
+    """`find . -type f -exec sha256sum -b {} +` names each file `./data/...`; `sha256sum -c` reads that too."""
+    sums = released / "SHA256SUMS"
+    sums.write_text(sums.read_text(encoding="utf-8").replace(" *", " *./"), encoding="utf-8")
+    assert releaser._sums_problems(released) == []  # noqa: SLF001
+
+
 def test_check_refuses_a_listed_symlink_out_of_the_folder(released: Path) -> None:
     """A link inside the folder that points out of it is not a file of the release, whatever its hash."""
     outside = Path("sources.toml")
-    try:
-        (released / "data/link").symlink_to(Path("../..") / outside)
-    except OSError:  # Windows without Developer Mode
-        pytest.skip("this host cannot make symlinks")
+    _symlink(released / "data/link", Path("../..") / outside)
     sums = released / "SHA256SUMS"
     digest = hashlib.sha256(outside.read_bytes()).hexdigest()
     sums.write_text(sums.read_text(encoding="utf-8") + f"{digest} *data/link\n", encoding="utf-8")
@@ -889,6 +1007,21 @@ def test_mlcroissant_passes_the_croissant_and_finds_a_broken_one(
     assert any(p.startswith("croissant.json: ") and "license" in p for p in problems)
 
 
+@pytest.mark.skipif(not _HAS["mlcroissant"], reason="needs the release extra")
+def test_mlcroissant_reads_the_records_of_a_parquet_release(project: Path) -> None:
+    """Its reader knows Parquet only as application/x-parquet; the IANA type passes validate but loads nothing."""
+    pytest.importorskip("pyarrow")
+    import mlcroissant  # noqa: PLC0415  # the release extra, which most test runs lack
+
+    _write_manifest(project, head='output_format = "parquet"\n\n', formats='"croissant"')
+    Path("data/processed/open.csv").unlink()
+    assert main(["build"]) == 0
+    assert _release(str(OUT)) == 0
+    dataset = mlcroissant.Dataset(jsonld=str(OUT / "croissant.json"))
+    record = next(iter(dataset.records("open")))
+    assert record["open/year"] == b"2020"
+
+
 @pytest.mark.live
 @pytest.mark.skipif(not _HAS["roc-validator"], reason="needs the release extra")
 def test_rocrate_validator_passes_the_crate_and_finds_a_broken_one(
@@ -919,8 +1052,16 @@ def test_check_runs_no_code_planted_in_the_folder(tmp_path: Path, name: str, tex
     (folder / package / "__init__.py").write_text(f"open({str(marker)!r}, 'w').close()\n", encoding="utf-8")
     (folder / f"{package}.py").write_text(f"open({str(marker)!r}, 'w').close()\n", encoding="utf-8")
     (folder / name).write_text(text, encoding="utf-8")
-    with contextlib.suppress(OSError):  # the stand-in folder need not pass
-        releaser.check_release(folder)
+    # The installed validator must have checked the file: a finding on it, or a stop that names it.
+    try:
+        problems, ran = releaser.check_release(folder)
+    except sourceledger.ValidatorCouldNotRun as error:  # mlcroissant stops on a graph with no node
+        stopped = str(error)
+    else:
+        stopped = ""
+        assert ran[-1]["file"] == name
+        assert any(p.startswith(f"{name}: ") for p in problems)
+    assert stopped.startswith(f"{name}: ") or not stopped
     assert not marker.exists()
 
 

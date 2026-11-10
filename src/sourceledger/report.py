@@ -31,6 +31,7 @@ from sourceledger.manifest import (
     _vintage,
     implemented,
     output_name,
+    printable,
     raw_name,
     select,
 )
@@ -73,6 +74,7 @@ def validate(
     listed = _listed(processed / DATAPACKAGE)
     outputs = {output_name(source, output_format) for source in sources}
     # Output of a source since removed or renamed would otherwise pass as published data.
+    # A `.NAME.<random>.part` is the temp file of a build that was killed or is still running.
     if only is None:
         ids = {source["id"] for source in sources}
         problems += [
@@ -81,7 +83,7 @@ def validate(
             if out.stem in ids and out.suffix in (".csv", ".parquet")
             else f"{out.as_posix()}: no source {out.stem!r} in sources.toml; delete it"
             for out in sorted(processed.glob("*"))
-            if out.is_file() and out.name != DATAPACKAGE and out.name not in outputs
+            if out.is_file() and out.name != DATAPACKAGE and out.name not in outputs and not out.match(".*.part")
         ]
     for source in selected:
         sid, status = source["id"], source.get("status")
@@ -287,7 +289,10 @@ def verify(folder: Path) -> list[str]:
     resources = package.get("resources") if isinstance(package, dict) else None
     if not isinstance(resources, list):
         return [f"{path.as_posix()} has no list of resources"]
-    return [problem for r in resources for problem in _file_problems(folder, r if isinstance(r, dict) else {})]
+    # The names come from someone else's folder; an ESC in one must not reach the terminal.
+    return [
+        printable(problem) for r in resources for problem in _file_problems(folder, r if isinstance(r, dict) else {})
+    ]
 
 
 def leaves_folder(name: str) -> bool:

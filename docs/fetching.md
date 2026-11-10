@@ -7,7 +7,8 @@ title: Download limits and retries
 
 - It tries four times, waiting 5, 10 and 20 s between attempts, on 429, 500, 502, 503,
   504, network errors and a body cut short. A `Retry-After` header, in seconds or as a
-  date, raises the wait to at most 120 s. Any other error status fails at once.
+  date, raises the wait to at most 120 s. Any other error status, and a certificate that does
+  not verify, fails at once.
 - One source's download has a `timeout_s` budget, 300 s unless set, including retries and waits.
   It is checked before each attempt and after each body read. Each socket operation times
   out after the smaller of 30 s and the budget left at the start of that attempt.
