@@ -218,7 +218,8 @@ def test_report_displays_the_built_metadata_and_security_policy(dataset: list[ma
         "Raw redistribution allowed": "no",
     }
     for key, value in expected.items():
-        assert f"<dt>{key}</dt><dd>{value}</dd>" in page
+        direction = ' dir="auto"' if key in {"Vintage", "Licence", "Terms"} else ""
+        assert f"<dt>{key}</dt><dd{direction}>{value}</dd>" in page
     assert "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'" in page
 
 
@@ -239,8 +240,9 @@ def test_report_says_not_stated_for_what_a_damaged_package_leaves_out(dataset: l
         del package["resources"][0]["sourceledger"][key]
     path.write_text(json.dumps(package), encoding="utf-8")
     page = report(dataset)
-    for label in ("Size in bytes", "SHA-256 of the output", "SHA-256 of the downloaded file", "Vintage"):
+    for label in ("Size in bytes", "SHA-256 of the output", "SHA-256 of the downloaded file"):
         assert f"<dt>{label}</dt><dd>not stated</dd>" in page
+    assert '<dt>Vintage</dt><dd dir="auto">not stated</dd>' in page
 
 
 @pytest.mark.parametrize("value", [["yes"], {"a": 1}, 1])
@@ -293,10 +295,21 @@ def test_report_keeps_source_urls_and_names(dataset: list[manifest_mod.Source]) 
     package["resources"][0]["sourceledger"]["final_url"] = "https://example.org/final?token=secret"
     path.write_text(json.dumps(package), encoding="utf-8")
     page = report(dataset)
-    assert '<h4 id="source-0">Example observations</h4>' in page
-    assert '<h4 id="source-1">document</h4>' in page
+    assert '<h4 id="source-0" dir="auto">Example observations</h4>' in page
+    assert '<h4 id="source-1" dir="auto">document</h4>' in page
     assert "<dt>URL</dt><dd>https://example.org/data</dd>" in page
     assert "<dt>Served from</dt><dd>https://example.org/final</dd>" in page
+
+
+def test_report_lets_free_text_from_the_manifest_set_its_own_direction(dataset: list[manifest_mod.Source]) -> None:
+    """An Arabic name or a U+202E in the terms must not reorder the text around it."""
+    dataset[0].update(name="بيانات", terms="\u202eterms", license="LicenseRef-عام")
+    page = report(dataset)
+    assert '<h4 id="source-0" dir="auto">بيانات</h4>' in page
+    assert '<dt>Terms</dt><dd dir="auto">\u202eterms</dd>' in page
+    assert '<dt>Licence</dt><dd dir="auto">LicenseRef-عام</dd>' in page
+    assert '<dt>Vintage</dt><dd dir="auto">' in page
+    assert "<dt>URL</dt><dd>" in page
 
 
 def test_report_accepts_a_source_without_a_declared_vintage(dataset: list[manifest_mod.Source]) -> None:
@@ -820,6 +833,12 @@ def test_validate_checks_sources_after_an_unimplemented_or_unknown_one(
     monkeypatch.chdir(tmp_path)
     problems = report_mod.validate(sources)
     assert any(p.startswith("x: no terms") for p in problems)
+
+
+def test_attribution_keeps_non_breaking_spaces_in_the_publisher_s_words() -> None:
+    """Only ASCII whitespace breaks a Markdown row; a no-break space in 10 000 € is part of the terms."""
+    source = {"id": "a", "status": "implemented", "terms": " Fee\u00a010\u202f000 €\r\n\tper | year \u2003"}
+    assert report_mod.attribution([source])[2] == "| a | Fee\u00a010\u202f000 € per \\| year \u2003 |  |  | ? |"
 
 
 def test_attribution_leaves_missing_terms_empty() -> None:
