@@ -86,7 +86,9 @@ type Source = dict[str, Any]
 
 # The formats `build._PARSERS` reads; a test keeps the two in step.
 _FORMATS = ("csv", "json", "xlsx")
-_MANIFEST_KEYS = frozenset({"output_format", "release_formats", "source"})
+_MANIFEST_KEYS = frozenset({"name", "output_format", "release_formats", "source"})
+# What Data Package v2 asks of a package name.
+_PACKAGE_NAME = re.compile(r"[a-z0-9._-]+")
 # The optional metadata files `release` writes when `release_formats` asks for them.
 RELEASE_FORMATS = ("ro-crate", "croissant")
 
@@ -104,6 +106,7 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
         raise ValueError(msg)
     _check_output_format(manifest.get("output_format", "csv"))
     _check_release_formats(manifest.get("release_formats", []))
+    _check_name(manifest.get("name"))
     sources = manifest.get("source", [])
     if not isinstance(sources, list) or not all(isinstance(s, dict) and isinstance(s.get("id"), str) for s in sources):
         msg = "sources.toml: every [[source]] needs a string id"
@@ -232,6 +235,21 @@ def load_output_format(path: Path = MANIFEST) -> str:
         output_format = tomllib.load(fh).get("output_format", "csv")
     _check_output_format(output_format)
     return output_format
+
+
+def _check_name(name: object) -> None:
+    """Refuse a package `name` Data Package readers would not accept; None is unset."""
+    if name is not None and not (isinstance(name, str) and _PACKAGE_NAME.fullmatch(name)):
+        msg = f"name in sources.toml must be lower case letters, digits, '.', '_' or '-', as 'co2-annual', not {name!r}"
+        raise ValueError(msg)
+
+
+def load_package_name(path: Path = MANIFEST) -> str | None:
+    """The project's `name` from sources.toml, None when unset: pass it to `build`, which then picks one."""
+    with path.open("rb") as fh:
+        name = tomllib.load(fh).get("name")
+    _check_name(name)
+    return name
 
 
 def _check_release_formats(formats: object) -> None:

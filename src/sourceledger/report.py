@@ -82,7 +82,8 @@ def validate(
             f"{out.as_posix()}: output_format is {output_format!r}; "
             "build again, or validate with the format it was built in"
             if out.stem in ids and out.suffix in (".csv", ".parquet")
-            else f"{out.as_posix()}: no source {out.stem!r} in sources.toml; delete it"
+            else f"{out.as_posix()}: no source {out.stem!r} in sources.toml, and {processed.as_posix()}/ holds "
+            "only build outputs; delete it, or keep the file elsewhere, as data/extra/"
             for out in sorted(processed.glob("*"))
             if out.is_file() and out.name != DATAPACKAGE and out.name not in outputs and not out.match(".*.part")
         ]

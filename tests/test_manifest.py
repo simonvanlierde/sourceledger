@@ -139,6 +139,25 @@ def test_release_formats_is_empty_unless_set(tmp_path: Path) -> None:
     assert manifest_mod.load_release_formats(path) == ["croissant", "ro-crate"]
 
 
+@pytest.mark.parametrize("value", ['"CO2"', '"co2 annual"', '""', "1", '["co2"]'])
+def test_name_must_be_a_data_package_name(tmp_path: Path, value: str) -> None:
+    path = tmp_path / "sources.toml"
+    path.write_text(f"name = {value}\n", encoding="utf-8")
+    message = r"^name in sources.toml must be lower case letters, digits, '.', '_' or '-'"
+    with pytest.raises(ValueError, match=message):
+        manifest_mod.load_manifest(path)
+    with pytest.raises(ValueError, match=message):
+        manifest_mod.load_package_name(path)
+
+
+def test_name_is_none_unless_set(tmp_path: Path) -> None:
+    path = tmp_path / "sources.toml"
+    path.write_text("", encoding="utf-8")
+    assert manifest_mod.load_package_name(path) is None
+    path.write_text('name = "co2.annual_v2-x"\n', encoding="utf-8")
+    assert manifest_mod.load_package_name(path) == "co2.annual_v2-x"
+
+
 def test_an_unknown_top_level_key_with_no_close_match_gets_no_hint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -150,7 +169,7 @@ def test_an_unknown_top_level_key_with_no_close_match_gets_no_hint(
 
 def test_the_schema_closes_the_top_level() -> None:
     assert SCHEMA["additionalProperties"] is False
-    assert set(SCHEMA["properties"]) == {"output_format", "release_formats", "source"}
+    assert set(SCHEMA["properties"]) == {"name", "output_format", "release_formats", "source"}
 
 
 @pytest.mark.usefixtures("upstream")

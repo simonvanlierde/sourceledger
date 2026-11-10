@@ -639,7 +639,10 @@ def test_validate_only_skips_the_check_for_files_no_source_owns(capsys: pytest.C
     Path("data/processed/old.csv").write_text("x\n", encoding="utf-8", newline="")
     capsys.readouterr()
     assert _run("validate") == [1]
-    assert "data/processed/old.csv: no source 'old' in sources.toml; delete it" in capsys.readouterr().out
+    assert (
+        "data/processed/old.csv: no source 'old' in sources.toml, and data/processed/ holds only build outputs"
+        in capsys.readouterr().out
+    )
     assert main(["validate", "--only", "example"]) == 0
 
 

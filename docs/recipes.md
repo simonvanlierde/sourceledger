@@ -119,7 +119,8 @@ For a file you want to keep unchanged, set `format = "file"`; you do not need a 
 For tables, `parse_source` chooses `parse_csv`, `parse_json` or `parse_xlsx`.
 
 To read another table format, write a function that takes a source's manifest table and raw bytes.
-Return the column names and rows. Pass the function to your project's command:
+Return the column names and rows: any iterable of mappings, whose cells may be numbers or None as well as text
+(None is written as an empty cell). Pass the function to your project's command:
 
 ```python
 # src/my_dataset/pipeline.py

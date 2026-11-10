@@ -589,6 +589,54 @@ def _nested(entity: dict) -> list[str]:
     ]
 
 
+def test_release_names_a_missing_codemeta_field_before_a_missing_validator(
+    project: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Installing the validators is the slow fix, so the cheap one is reported first."""
+    monkeypatch.setitem(releaser._VALIDATORS, releaser._CROISSANT, ("no-such-validator-dist", ("-c", "pass")))  # noqa: SLF001
+    _write_manifest(project, formats='"croissant"')
+    Path("codemeta.json").write_text(json.dumps({**CODEMETA, "url": ""}), encoding="utf-8")
+    assert _release(str(OUT)) == 1
+    assert "codemeta.json has no url, which croissant needs" in capsys.readouterr().out
+
+
+def test_a_release_with_no_shareable_source_says_nothing_ships(
+    project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    secret_url = (project / "upstream" / "secret.bin").as_uri()
+    (project / "sources.toml").write_text(_source("secret", secret_url, redistribute=False, extra='format = "file"\n'))
+    Path("data/processed/open.csv").unlink()
+    assert main(["build"]) == 0
+    capsys.readouterr()
+    assert _release(str(OUT)) == 0
+    assert (
+        "\nnothing to ship: no implemented source has redistribute = true, so data/ is empty\n"
+        in capsys.readouterr().out
+    )
+    assert _release("other") == 0
+    capsys.readouterr()
+    _write_manifest(project)
+    Path("data/processed/datapackage.json").unlink()
+    assert [main(["fetch"]), main(["build"]), _release("third")] == [0, 0, 0]
+    assert "nothing to ship" not in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("stand_ins")
+def test_release_codemeta_names_a_dataset_file_with_its_own_licence(
+    project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The code's codemeta.json says MIT; the dataset's own CodeMeta file gives the data's licence."""
+    _write_manifest(project, formats='"ro-crate"')
+    Path("codemeta.json").write_text(json.dumps({**CODEMETA, "license": "https://spdx.org/licenses/MIT"}), "utf-8")
+    dataset = {**CODEMETA, "license": "https://spdx.org/licenses/CC-BY-4.0"}
+    Path("dataset.codemeta.json").write_text(json.dumps(dataset), encoding="utf-8")
+    assert _release(str(OUT), "--codemeta", "dataset.codemeta.json") == 0
+    graph = json.loads((OUT / "ro-crate-metadata.json").read_text(encoding="utf-8"))["@graph"]
+    assert {e["@id"]: e for e in graph}["./"]["license"] == dataset["license"]
+    assert _release("other", "--codemeta", "missing.json") == 1
+    assert "missing.json is missing, which ro-crate needs" in capsys.readouterr().out
+
+
 @pytest.mark.usefixtures("stand_ins")
 def test_codemeta_3_id_and_type_aliases_become_json_ld_keywords(project: Path) -> None:
     """CodeMeta 3's context makes `id` and `type` aliases of `@id` and `@type`; RO-Crate's context has no such terms."""
@@ -744,7 +792,7 @@ def test_a_missing_validator_exits_3_before_writing(
     assert _release(str(OUT)) == 3
     assert capsys.readouterr().err == (
         "error: checking croissant.json needs no-such-validator-dist, from the release extra: "
-        "uv tool install 'sourceledger[release]'\n"
+        "uv add 'sourceledger[release]' (project) or uv tool install 'sourceledger[release]' (CLI)\n"
     )
     assert not OUT.exists()
     assert _release(str(OUT), "--dry-run") == 3
@@ -1061,6 +1109,7 @@ def test_check_of_a_missing_folder_says_what_to_pass(tmp_path: Path, capsys: pyt
         (["out", "--check", "out"], "pass OUT_DIR to write a release, or --check DIR to check one"),
         (["--check", "out", "--dry-run"], "--check writes nothing; drop --dry-run"),
         (["--check", "out", "--manifest", "other.toml"], "--check reads no manifest; drop --manifest"),
+        (["--check", "out", "--codemeta", "data.json"], "--check reads no codemeta.json; drop --codemeta"),
     ],
 )
 def test_release_needs_one_folder(argv: list[str], message: str, capsys: pytest.CaptureFixture[str]) -> None:

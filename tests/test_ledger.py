@@ -139,7 +139,9 @@ def test_revisions_needs_the_earlier_log_to_exist(
     assert "missing.jsonl is missing" in capsys.readouterr().err
     (tmp_path / "before.jsonl").write_text("", encoding="utf-8", newline="")
     assert main(["revisions", "before.jsonl"]) == 3
-    assert "data/fetches.jsonl is missing" in capsys.readouterr().err
+    assert capsys.readouterr().err == (
+        "error: data/fetches.jsonl is missing\nhelp: run `sourceledger fetch` first; it writes the log\n"
+    )
     LOG.parent.mkdir()
     LOG.write_text("", encoding="utf-8", newline="")
     assert main(["revisions", "before.jsonl"]) == 0

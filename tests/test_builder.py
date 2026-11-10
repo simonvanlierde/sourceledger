@@ -356,6 +356,48 @@ def test_the_package_name_comes_from_the_folder(
     assert builder_mod._package_name() == name  # noqa: SLF001
 
 
+@pytest.mark.parametrize(
+    ("pyproject", "name"),
+    [
+        ('[project]\nname = "CML-IA_Factors"\n', "cml-ia_factors"),
+        ('[project]\nname = "  "\n', "checkout"),
+        ("[tool.uv]\n", "checkout"),
+        ('project = "x"\n', "checkout"),
+    ],
+)
+def test_the_package_name_comes_from_pyproject_before_the_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pyproject: str, name: str
+) -> None:
+    """A clone, worktree or CI path renames the folder, not the project."""
+    (tmp_path / "checkout").mkdir()
+    monkeypatch.chdir(tmp_path / "checkout")
+    Path("pyproject.toml").write_text(pyproject, encoding="utf-8")
+    assert builder_mod._package_name() == name  # noqa: SLF001
+
+
+def test_a_broken_pyproject_is_named_when_it_would_name_the_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("pyproject.toml").write_text("[project\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"^pyproject.toml: .*; fix it, or set name in sources.toml$"):
+        builder_mod._package_name()  # noqa: SLF001
+
+
+@pytest.mark.usefixtures("upstream")
+def test_build_names_the_package_from_sources_toml_first() -> None:
+    """`name` in sources.toml beats pyproject.toml, and the library takes it as `name=`."""
+    Path("pyproject.toml").write_text('[project]\nname = "from-pyproject"\n', encoding="utf-8")
+    manifest = Path("sources.toml")
+    manifest.write_text('name = "co2-annual"\n' + manifest.read_text(encoding="utf-8"), encoding="utf-8")
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    assert json.loads(Path("data/processed/datapackage.json").read_bytes())["name"] == "co2-annual"
+    builder_mod.build(manifest_mod.load_manifest())
+    assert json.loads(Path("data/processed/datapackage.json").read_bytes())["name"] == "from-pyproject"
+    with pytest.raises(ValueError, match=r"^name in sources\.toml must be"):
+        builder_mod.build(manifest_mod.load_manifest(), name="Bad Name")
+
+
 def test_build_only_a_later_source_builds_it(upstream: Path, tmp_path: Path) -> None:
     """Skipping an unselected source moves on to the next one."""
     other = upstream.with_name("b.csv")
