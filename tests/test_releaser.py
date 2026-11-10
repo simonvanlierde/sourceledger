@@ -676,6 +676,23 @@ def test_release_copies_keywords_publisher_and_contributors(project: Path) -> No
 
 
 @pytest.mark.usefixtures("stand_ins")
+def test_a_person_listed_twice_is_one_crate_entity_and_contributors_need_no_authors(project: Path) -> None:
+    bea = {"@type": "Person", "@id": "#bea", "name": "Bea Duck"}
+    meta = {key: value for key, value in CODEMETA.items() if key != "author"} | {"contributor": [bea, bea, "Cy"]}
+    (project / "codemeta.json").write_text(json.dumps(meta), encoding="utf-8")
+    sourceledger.release(manifest_mod.load_manifest(), OUT, formats=["ro-crate", "croissant"])
+    graph = json.loads((OUT / "ro-crate-metadata.json").read_text(encoding="utf-8"))["@graph"]
+    ids = [e["@id"] for e in graph]
+    assert len(ids) == len(set(ids))
+    root = {e["@id"]: e for e in graph}["./"]
+    assert "author" not in root
+    assert root["contributor"] == [{"@id": "#bea"}, {"@id": "#bea"}, {"@id": "#contributor-3"}]
+    croissant = json.loads((OUT / "croissant.json").read_text(encoding="utf-8"))
+    assert "creator" not in croissant
+    assert [c["@id"] for c in croissant["contributor"]] == ["#bea", "#bea", "#contributor-3"]
+
+
+@pytest.mark.usefixtures("stand_ins")
 def test_release_writes_a_publisher_given_as_text_as_an_organization(project: Path) -> None:
     """RO-Crate and Croissant refuse a text publisher, which CodeMeta allows."""
     (project / "codemeta.json").write_text(json.dumps({**CODEMETA, "publisher": "Duck Society"}), encoding="utf-8")
@@ -689,10 +706,25 @@ def test_release_writes_a_publisher_given_as_text_as_an_organization(project: Pa
     }
     croissant = json.loads((OUT / "croissant.json").read_text(encoding="utf-8"))
     assert croissant["publisher"] == {"@type": "Organization", "name": "Duck Society"}
-    (project / "codemeta.json").write_text(json.dumps({**CODEMETA, "publisher": ["A", {"@id": "#b"}]}), "utf-8")
-    sourceledger.release(manifest_mod.load_manifest(), Path("again"), formats=["croissant"])
+    ror = "https://ror.org/05xg72x27"
+    publishers = ["A", {"@id": ror}, {"name": "C"}]
+    (project / "codemeta.json").write_text(json.dumps({**CODEMETA, "publisher": publishers}), "utf-8")
+    sourceledger.release(manifest_mod.load_manifest(), Path("again"), formats=["ro-crate", "croissant"])
+    expected = [
+        {"@type": "Organization", "name": "A"},
+        {"@type": "Organization", "@id": ror},
+        {"@type": "Organization", "name": "C"},
+    ]
     croissant = json.loads(Path("again/croissant.json").read_text(encoding="utf-8"))
-    assert croissant["publisher"] == [{"@type": "Organization", "name": "A"}, {"@id": "#b"}]
+    assert croissant["publisher"] == expected
+    graph = json.loads(Path("again/ro-crate-metadata.json").read_text(encoding="utf-8"))["@graph"]
+    by_id = {e["@id"]: e for e in graph}
+    refs = by_id["./"]["publisher"]
+    assert by_id[ror] == expected[1]
+    assert [by_id[r["@id"]] | {"@id": ""} for r in refs if r["@id"] != ror] == [
+        {**expected[0], "@id": ""},
+        {**expected[2], "@id": ""},
+    ]
 
 
 @pytest.mark.usefixtures("stand_ins")

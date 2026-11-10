@@ -173,11 +173,12 @@ import sourceledger
 
 sources = sourceledger.load_manifest()
 output_format = sourceledger.load_output_format()
+name = sourceledger.load_package_name()
 published, staged = Path("data/published"), Path("data/staged")
 shutil.rmtree(staged, ignore_errors=True)
 shutil.rmtree("data/previous", ignore_errors=True)  # left by a run that stopped between the renames
-sourceledger.build(sources, processed=staged, output_format=output_format)
-if problems := sourceledger.validate(sources, processed=staged, output_format=output_format):
+sourceledger.build(sources, processed=staged, output_format=output_format, name=name)
+if problems := sourceledger.validate(sources, processed=staged, output_format=output_format, name=name):
     raise SystemExit("\n".join(problems))
 if published.exists():
     published.rename("data/previous")

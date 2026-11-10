@@ -1151,3 +1151,19 @@ def test_report_passes_a_build_after_a_refetch_of_the_same_bytes(monkeypatch: py
     page = report(load_manifest())
     assert "Integrity checks passed" in page
     assert "built from an earlier fetch" not in page
+
+
+@pytest.mark.usefixtures("upstream")
+def test_validate_checks_the_package_name_only_when_given() -> None:
+    """None skips the check; a wrong name is reported beside the package's other problems."""
+    assert main(["fetch"]) == 0
+    sources = manifest_mod.load_manifest()
+    builder_mod.build(sources, name="built-name")
+    assert report_mod.validate(sources) == []
+    assert report_mod.validate(sources, name="built-name") == []
+    package = Path("data/processed/datapackage.json")
+    package.write_text(json.dumps({**json.loads(package.read_bytes()), "resources": []}), encoding="utf-8")
+    assert report_mod.validate(sources, name="other") == [
+        "data/processed/datapackage.json names the package 'built-name', not 'other'; re-run build",
+        "data/processed/datapackage.json lists [], not the implemented sources ['example']; re-run build",
+    ]

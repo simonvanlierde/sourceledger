@@ -385,14 +385,22 @@ def _described(codemeta: Path, formats: Collection[str]) -> dict[str, Any]:
     ]:
         raise ReleaseError(missing)
     described = {term: _keywords(meta[term]) for term in _TERMS if meta.get(term)}
-    # Both validators want the publisher as an Organization or Person, not text.
     if publishers := described.get("publisher"):
-        named = [{"@type": "Organization", "name": p} if isinstance(p, str) else p for p in _as_list(publishers)]
+        named = [_organization(p) for p in _as_list(publishers)]
         described["publisher"] = named if isinstance(publishers, list) else named[0]
     for role in _ROLES:
         if people := _keywords(meta.get(role)):
-            described[role] = people if isinstance(people, list) else [people]
+            described[role] = _as_list(people)
     return described
+
+
+def _organization(publisher: object) -> object:
+    """A publisher as both validators want it: text, or an object without a type, becomes an Organization."""
+    if isinstance(publisher, str):
+        return {"@type": "Organization", "name": publisher}
+    if isinstance(publisher, dict):
+        return {"@type": "Organization", **publisher}  # a @type it has wins
+    return publisher
 
 
 def _as_list(value: object) -> list[Any]:
@@ -532,12 +540,16 @@ def _ro_crate(
     root: dict[str, Any] = {"@id": "./", "@type": "Dataset"}
     root.update(described)
     people: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for role in _ROLES:
         refs, entities = _people(described.get(role, []), role)
         if refs:
             root[role] = refs
-        # A contributor who is also an author, by @id, is one entity.
-        people += [e for e in entities if e["@id"] not in {p["@id"] for p in people}]
+        # One entity per @id: a person listed twice, or as author and contributor, is one person.
+        for entity in entities:
+            if entity["@id"] not in seen:
+                seen.add(entity["@id"])
+                people.append(entity)
     resources = _by_name(package)
     files = []
     for source in shipped:
