@@ -379,10 +379,27 @@ def _described(codemeta: Path, formats: Collection[str]) -> dict[str, Any]:
         if not meta.get(field)
     ]:
         raise ReleaseError(missing)
-    described = {term: meta[term] for term in _TERMS if meta.get(term)}
-    if authors := meta.get("author"):
+    described = {term: _keywords(meta[term]) for term in _TERMS if meta.get(term)}
+    if authors := _keywords(meta.get("author")):
         described["author"] = authors if isinstance(authors, list) else [authors]
     return described
+
+
+# CodeMeta 3's context makes these aliases of the JSON-LD keywords; RO-Crate's and Croissant's do not.
+_ALIASES = {"id": "@id", "type": "@type"}
+
+
+def _keywords(value: object) -> Any:  # noqa: ANN401  # any JSON value
+    """`value` with CodeMeta's `id` and `type` written as `@id` and `@type`, at every depth; an `@` form wins."""
+    if isinstance(value, list):
+        return [_keywords(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    renamed = {key: _keywords(item) for key, item in value.items() if key not in _ALIASES}
+    for alias, keyword in _ALIASES.items():
+        if alias in value:
+            renamed.setdefault(keyword, value[alias])
+    return renamed
 
 
 def _package(processed: Path, shipped: list[Source]) -> dict[str, Any]:

@@ -590,6 +590,39 @@ def _nested(entity: dict) -> list[str]:
 
 
 @pytest.mark.usefixtures("stand_ins")
+def test_codemeta_3_id_and_type_aliases_become_json_ld_keywords(project: Path) -> None:
+    """CodeMeta 3's context makes `id` and `type` aliases of `@id` and `@type`; RO-Crate's context has no such terms."""
+    orcid = "https://orcid.org/0000-0002-1825-0097"
+    author = {
+        "type": "Person",
+        "id": orcid,
+        "givenName": "Ada",
+        "familyName": "Duck",
+        "affiliation": {"type": "Organization", "id": "https://ror.org/05xg72x27", "name": "Duck Society"},
+    }
+    both = {"@type": "Person", "type": "Organization", "@id": "#bea", "id": "#ignored", "name": "Bea Duck"}
+    (project / "codemeta.json").write_text(json.dumps({**CODEMETA, "author": [author, both]}), encoding="utf-8")
+    sourceledger.release(manifest_mod.load_manifest(), OUT, formats=["ro-crate", "croissant"])
+    crate = (OUT / "ro-crate-metadata.json").read_text(encoding="utf-8")
+    graph = {e["@id"]: e for e in json.loads(crate)["@graph"]}
+    assert graph["./"]["author"] == [{"@id": orcid}, {"@id": "#bea"}]
+    assert graph[orcid] == {
+        "@type": "Person",
+        "@id": orcid,
+        "givenName": "Ada",
+        "familyName": "Duck",
+        "affiliation": {"@id": "https://ror.org/05xg72x27"},
+        "name": "Ada Duck",
+    }
+    assert graph["#bea"]["@type"] == "Person"
+    assert graph["https://ror.org/05xg72x27"]["@type"] == "Organization"
+    croissant = json.loads((OUT / "croissant.json").read_text(encoding="utf-8"))
+    assert [c["@id"] for c in croissant["creator"]] == [orcid, "#bea"]
+    for text in (crate, json.dumps(croissant)):
+        assert '"id":' not in text
+        assert '"type":' not in text
+
+
 def test_the_crate_is_flat_when_codemeta_nests_objects(project: Path) -> None:
     """RO-Crate wants a flat graph: an affiliation, identifier or licence object becomes an entity of its own."""
     org = {"@type": "Organization", "name": "Dune Institute"}

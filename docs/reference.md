@@ -279,6 +279,7 @@ The dataset's name, description, authors, licence, version, identifier, `datePub
 `url` come from `codemeta.json` in the current directory, the project's CodeMeta file.
 `release` does not write it, and reads it only when `release_formats` asks for a format.
 If the file is missing then, `release` exits 1 and names `codemeta.json`.
+Both CodeMeta 2 and 3 files work: CodeMeta 3's `id` and `type` are written as `@id` and `@type`, so an author's ORCID stays its `@id`.
 
 RO-Crate needs `name`, `description`, `license` and `datePublished`. Croissant needs `name`,
 `description`, `license` and `url`. A missing one stops `release` with exit code 1, naming it.
