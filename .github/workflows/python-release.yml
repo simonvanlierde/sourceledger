@@ -16,8 +16,8 @@ name: python release
 # `id-token: write` exposes an OpenID Connect (OIDC) request token to every step
 # in its job, so publish is a separate job that runs no project code.
 #
-# After PyPI, the release job attaches distributions, a CycloneDX SBOM and their
-# provenance to a draft, checks every attestation, then publishes the draft. Immutable
+# After PyPI, the release job checks every attestation, attaches distributions, a
+# CycloneDX SBOM and their provenance to a draft, then publishes the draft. Immutable
 # releases accept no assets after publication. Each asset carries its bundle as
 # `<asset>.intoto.jsonl`, the name Scorecard's Signed-Releases check scores highest.
 
@@ -147,7 +147,6 @@ jobs:
       contents: read
       id-token: write # required for trusted publishing, and to sign the attestation
       attestations: write
-      artifact-metadata: write # the attestation's storage record
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -167,12 +166,15 @@ jobs:
           subject-path: |
             dist/*
             sbom/*
+      # sbom-path takes one literal path, not a glob as subject-path does.
+      - id: sbom
+        run: echo "path=$(echo sbom/*.cdx.json)" >>"$GITHUB_OUTPUT"
       # The SBOM, attested against the sdist it was exported alongside.
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         id: attest-sbom
         with:
           subject-path: dist/*.tar.gz
-          sbom-path: sbom/*.cdx.json
+          sbom-path: ${{ steps.sbom.outputs.path }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: provenance
@@ -226,13 +228,13 @@ jobs:
           for f in *; do cp ../provenance/*.json "$f.intoto.jsonl"; done
           sdist=$(echo *.tar.gz)
           cp ../sbom-attestation/*.json "$sdist.sbom.intoto.jsonl"
-          printf '\nThe SBOM lists the dependency versions this release was tested with, not what an install will resolve.\n' >>../notes/notes.md
-          gh release create "$TAG" --draft --verify-tag --title "$TAG" --notes-file ../notes/notes.md ./*
-          # Immutable once published: check every attestation against the repo first.
+          # Immutable once published: check every attestation before anything is uploaded.
           for f in *; do
             case $f in *.intoto.jsonl) continue ;; esac
             gh attestation verify "$f" --repo "$GH_REPO" --bundle "$f.intoto.jsonl"
           done
           gh attestation verify "$sdist" --repo "$GH_REPO" --bundle "$sdist.sbom.intoto.jsonl" \
             --predicate-type https://cyclonedx.org/bom
+          printf '\nThe SBOM lists the dependency versions this release was tested with, not what an install will resolve.\n' >>../notes/notes.md
+          gh release create "$TAG" --draft --verify-tag --title "$TAG" --notes-file ../notes/notes.md ./*
           gh release edit "$TAG" --draft=false
