@@ -73,7 +73,8 @@ the same lock and makes no request.
 
 The record keeps `recorded_at`, the time of the call. `retrieved_at` is the download time
 the other tool reported, or empty. A log line is added for new bytes, and also when the
-same bytes switch between fetched and recorded, or are recorded for other `parameters`,
+same bytes come under another `url` or `vintage`, switch between fetched and recorded, or are
+recorded for other `parameters`,
 so the log's last line always describes the current record. A later `fetch` sends the
 recorded ETag or Last-Modified only when they came from the source's own URL.
 

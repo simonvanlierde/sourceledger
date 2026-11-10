@@ -607,10 +607,14 @@ def _log_new_version(log: Path, logged: dict[str, dict[str, Any]], record: Fetch
 
 
 def log_version(fields: dict[str, Any]) -> tuple[object, ...]:
-    """What makes a log line new: the bytes and how they came in; for a recorded file, also where, when, validators."""
+    """What makes a log line new: the bytes, the request (URL, vintage) and how they came in.
+
+    For a recorded file, also where, when and with which validators the other tool fetched it.
+    """
     keys = ("final_url", "retrieved_at", "etag", "last_modified")
     stated = tuple(fields.get(k) for k in keys) if fields.get("recorded_at") else ()
-    return fields.get("sha256"), bool(fields.get("recorded_at")), fields.get("parameters", {}), *stated
+    request = fields.get("url"), fields.get("vintage")
+    return fields.get("sha256"), *request, bool(fields.get("recorded_at")), fields.get("parameters", {}), *stated
 
 
 def verified(source: Source, *, raw: Path = RAW) -> tuple[FetchRecord, bytes]:

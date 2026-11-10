@@ -23,6 +23,7 @@ from support import (
     RAW,
     TERMS,
     WHEN,
+    _lines,
     _manifest,
     _peak,
     _record,
@@ -179,6 +180,24 @@ def test_a_new_vintage_needs_a_new_fetch(upstream: Path, tmp_path: Path, monkeyp
     assert _run("fetch", "build", "validate") == [0, 0, 0]
     assert calls[0].get_header("If-none-match") is None
     assert {r["vintage"] for r in builder_mod.read_output(OUT)} == {"2025"}
+
+
+@pytest.mark.parametrize("change", ["vintage", "url"])
+def test_a_new_request_for_the_same_bytes_is_logged(
+    change: str, upstream: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The log's last line and the sidecar agree after a vintage or URL change that leaves the bytes as they were."""
+    _run("fetch")
+    url = upstream.as_uri() if change == "vintage" else "https://example.org/moved.csv"
+    vintage = '\nvintage = "2025"' if change == "vintage" else ""
+    _manifest(tmp_path, url, terms=TERMS + vintage)
+    _serve(monkeypatch, _Response(FIXTURE.encode()))
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    sidecar = json.loads(RAW.with_name(f"{RAW.name}.fetch.json").read_text(encoding="utf-8"))
+    lines = _lines()
+    assert len(lines) == 2
+    assert (lines[-1]["vintage"], lines[-1]["url"]) == (sidecar["vintage"], sidecar["url"])
+    assert report_mod.status_records([_source()])[0]["sha256"] == sidecar["sha256"]
 
 
 @pytest.mark.usefixtures("upstream")

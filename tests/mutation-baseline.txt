@@ -111,10 +111,10 @@ sourceledger.ledger.x__log_new_version__mutmut_20  `logged[id]` is read only bef
 sourceledger.ledger.x__record__mutmut_5  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.ledger.x__record__mutmut_8  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.ledger.x__recorded_url__mutmut_17  for the source's own URL `_served_from` returns "" anyway, the same as the else branch
-sourceledger.ledger.x_log_version__mutmut_21  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
-sourceledger.ledger.x_log_version__mutmut_22  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
-sourceledger.ledger.x_log_version__mutmut_23  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
-sourceledger.ledger.x_log_version__mutmut_24  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
+sourceledger.ledger.x_log_version__mutmut_28  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
+sourceledger.ledger.x_log_version__mutmut_29  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
+sourceledger.ledger.x_log_version__mutmut_30  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
+sourceledger.ledger.x_log_version__mutmut_31  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
 sourceledger.ledger.x_record_file__mutmut_67  `temp` is only tested for truthiness and "" and None are both falsy
 sourceledger.ledger.x_without_query__mutmut_1  urlunsplit treats a None query like ""
 sourceledger.ledger.x_without_query__mutmut_2  urlunsplit treats a None fragment like ""
