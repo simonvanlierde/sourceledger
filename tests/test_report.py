@@ -25,6 +25,7 @@ from support import (
     _peak,
     _run,
     _serve,
+    _symlink,
     _two_sources,
     builder_mod,
     fetcher_mod,
@@ -765,7 +766,7 @@ def test_verify_reports_a_package_it_cannot_check(
     Path("d").mkdir()
     Path("d/a.csv").write_text("x\n", encoding="utf-8", newline="")
     Path("outside.csv").write_text("x\n", encoding="utf-8", newline="")
-    Path("d/out.csv").symlink_to(Path("../outside.csv"))
+    _symlink(Path("d/out.csv"), Path("../outside.csv"))
     Path("d/datapackage.json").write_text(json.dumps({"resources": resources}), encoding="utf-8", newline="")
     problems = report_mod.verify(Path("d"))
     assert len(problems) == len(expected)

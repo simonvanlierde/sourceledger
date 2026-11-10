@@ -122,6 +122,14 @@ _DATA = "https://example.org/data.csv"
 _SNAPSHOT = f"https://web.archive.org/web/20261018033833/{_DATA}"
 
 
+def _symlink(link: Path, target: Path) -> None:
+    """Make `link` point at `target`, or skip the test on a host that cannot, such as Windows without Developer Mode."""
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("this host cannot make symlinks")
+
+
 def _peak(run: Callable[[], object]) -> int:
     """The most memory Python held at once while `run` ran, in bytes."""
     tracemalloc.start()

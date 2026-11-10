@@ -5,6 +5,7 @@ import hashlib
 import http.client
 import http.server
 import io
+import itertools
 import json
 import re
 import shutil
@@ -39,6 +40,7 @@ from support import (
     _run,
     _serve,
     _source,
+    _symlink,
     _two_sources,
     builder_mod,
     fetcher_mod,
@@ -317,7 +319,8 @@ def test_a_download_that_outlasts_its_budget_fails(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A server trickling bytes inside every socket timeout is still stopped."""
-    clock = iter([0, 0, 301, 301])
+    # 150 s pass at each look at the clock: the start, the attempt, then the first read is past 300 s.
+    clock = itertools.count(0, 150)
     monkeypatch.setattr(time, "monotonic", lambda: next(clock))
     _serve(monkeypatch, _Response(FIXTURE.encode()))
     assert _run("fetch") == [3]
@@ -346,12 +349,14 @@ def test_a_server_trickling_bytes_is_stopped_near_the_budget(
     threading.Thread(target=trickle, daemon=True).start()
     monkeypatch.chdir(tmp_path)
     _manifest(tmp_path, f"http://127.0.0.1:{listener.getsockname()[1]}/data.csv")
-    start = time.monotonic()
-    assert _run("fetch") == [3]
-    # Within the budget plus one socket timeout; the whole body takes 6 s.
-    assert time.monotonic() - start < 1.5 + 0.5
-    assert "unfinished after 0.5 s" in capsys.readouterr().err
-    listener.close()
+    try:
+        start = time.monotonic()
+        assert _run("fetch") == [3]
+        # Within the budget plus one socket timeout; the whole body takes 6 s.
+        assert time.monotonic() - start < 1.5 + 0.5
+        assert "unfinished after 0.5 s" in capsys.readouterr().err
+    finally:
+        listener.close()
 
 
 @pytest.mark.parametrize("timeout", [1, 0.5, 600])
@@ -602,7 +607,7 @@ def test_a_symlinked_fetch_log_is_refused(tmp_path: Path, capsys: pytest.Capture
     victim = tmp_path / "victim.txt"
     victim.write_text("", encoding="utf-8", newline="")
     LOG.parent.mkdir(parents=True)
-    LOG.symlink_to(victim)
+    _symlink(LOG, victim)
     assert _run("fetch") == [3]
     assert (
         capsys.readouterr().err == "error: data/fetches.jsonl is a symlink; the fetch log must be a file of its own\n"

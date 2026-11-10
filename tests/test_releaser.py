@@ -15,6 +15,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 import pytest
+from support import _symlink
 
 import sourceledger
 from sourceledger import manifest as manifest_mod
@@ -932,10 +933,7 @@ def test_check_reads_sums_written_from_inside_the_folder(released: Path) -> None
 def test_check_refuses_a_listed_symlink_out_of_the_folder(released: Path) -> None:
     """A link inside the folder that points out of it is not a file of the release, whatever its hash."""
     outside = Path("sources.toml")
-    try:
-        (released / "data/link").symlink_to(Path("../..") / outside)
-    except OSError:  # Windows without Developer Mode
-        pytest.skip("this host cannot make symlinks")
+    _symlink(released / "data/link", Path("../..") / outside)
     sums = released / "SHA256SUMS"
     digest = hashlib.sha256(outside.read_bytes()).hexdigest()
     sums.write_text(sums.read_text(encoding="utf-8") + f"{digest} *data/link\n", encoding="utf-8")
