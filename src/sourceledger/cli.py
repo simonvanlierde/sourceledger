@@ -234,7 +234,7 @@ def entry(
     130 alone does not stop it, so after Ctrl-C this dies of SIGINT. `main` itself returns 130.
     A reader that closes the pipe early, such as `head`, ends the command quietly by SIGPIPE.
     """
-    if sys.platform != "win32":  # noqa: PLR2004
+    if hasattr(signal, "SIGPIPE"):  # not on Windows
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     code = main(parse=parse, prog=prog, user_agent=user_agent, manifest=manifest)
     if code == EXIT_INTERRUPTED and sys.platform != "win32":  # noqa: PLR2004

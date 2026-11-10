@@ -529,7 +529,7 @@ def test_entry_re_raises_sigint_only_after_ctrl_c_off_windows(
     with pytest.raises(SystemExit) as exit_:
         cli.entry()
     assert exit_.value.code == code
-    pipe = [] if platform == "win32" else [("signal", signal.SIGPIPE, signal.SIG_DFL)]
+    pipe = [("signal", signal.SIGPIPE, signal.SIG_DFL)] if hasattr(signal, "SIGPIPE") else []
     kill = [("signal", signal.SIGINT, signal.SIG_DFL), ("kill", os.getpid(), signal.SIGINT)] if kills else []
     assert calls == pipe + kill
 
