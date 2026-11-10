@@ -276,6 +276,59 @@ def test_an_id_must_be_ascii(tmp_path: Path, capsys: pytest.CaptureFixture[str])
 
 
 @pytest.mark.usefixtures("upstream")
+def test_ids_that_differ_only_in_case_are_refused(tmp_path: Path) -> None:
+    """Windows and macOS file systems ignore case, so Pudl.csv and pudl.csv would be one file."""
+    manifest = tmp_path / "sources.toml"
+    manifest.write_text(manifest.read_text(encoding="utf-8").replace('"later"', '"Example"'), encoding="utf-8")
+    with pytest.raises(ValueError, match="case") as refused:
+        manifest_mod.load_manifest()
+    assert str(refused.value) == (
+        "example: the id 'Example' in sources.toml differs from it only in case, "
+        "so both name one file on Windows and macOS; rename one of them"
+    )
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("name", ["CON", "con", "Prn", "aux", "NUL", "com1", "COM9", "lpt1", "LPT9"])
+def test_a_windows_device_name_as_an_id_is_refused(tmp_path: Path, name: str) -> None:
+    """On Windows, CON.csv opens the console, not a file."""
+    manifest = tmp_path / "sources.toml"
+    manifest.write_text(manifest.read_text(encoding="utf-8").replace('"later"', f'"{name}"'), encoding="utf-8")
+    with pytest.raises(ValueError, match="device") as refused:
+        manifest_mod.load_manifest()
+    assert str(refused.value) == f"{name}: the id names a device on Windows, not a file; rename it, as {name}_data"
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("name", ["COM0", "LPT10", "CONSOLE", "nul_data", "com"])
+def test_an_id_near_a_windows_device_name_is_allowed(tmp_path: Path, name: str) -> None:
+    manifest = tmp_path / "sources.toml"
+    manifest.write_text(manifest.read_text(encoding="utf-8").replace('"later"', f'"{name}"'), encoding="utf-8")
+    assert [s["id"] for s in manifest_mod.load_manifest()] == ["example", name]
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("url", ["https://example.invalid/dä.csv", "https://example.invalid/d.csv?q=é", "dä.csv"])
+def test_a_url_with_non_ascii_outside_its_host_is_refused_by_id(
+    tmp_path: Path, url: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The request line is ASCII: fetch would fail with only "'ascii' codec can't encode character"."""
+    _manifest(tmp_path, url)
+    assert _run("fetch") == [3]
+    assert capsys.readouterr().err.splitlines()[0] == (
+        "error: example: the url in sources.toml holds a character that is not ASCII outside its host; "
+        "percent-encode it as UTF-8, as d%C3%A4.csv for dä.csv"
+    )
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_url_with_a_non_ascii_host_is_allowed(tmp_path: Path) -> None:
+    """The fetch IDNA-encodes the host, so only the rest of the url must be ASCII."""
+    _manifest(tmp_path, "https://bücher.example/data.csv?q=x")
+    assert manifest_mod.load_manifest()[0]["url"] == "https://bücher.example/data.csv?q=x"
+
+
+@pytest.mark.usefixtures("upstream")
 @pytest.mark.parametrize("char", ["\\u001b", "\\u009b", "\\u007f", "\\u0000"])
 def test_a_control_character_in_the_manifest_is_refused(tmp_path: Path, char: str) -> None:
     """An ESC or C1 byte in a url or name would reach the terminal raw and could rewrite it."""
@@ -347,6 +400,24 @@ _GOOD = f'[[source]]\nid = "a"\nstatus = "implemented"\nurl = "https://example.o
         _GOOD.replace("a.csv", "a@2x.csv?by=me@host"),
         _GOOD.replace("https://example.org/terms", "https://user:pw@example.org/terms"),
         _GOOD.replace('"https://example.org/a.csv"', '" https://user@example.org/a.csv"'),
+        *[_GOOD.replace('id = "a"', f'id = "{name}"') for name in ["CON", "nul", "Com1", "lpT9", "COM0", "CONSOLE"]],
+        *[
+            _GOOD.replace('"https://example.org/a.csv"', f'"{url}"')
+            for url in [
+                "https://example.org/dä.csv",
+                "https://example.org/a.csv?q=é",
+                "https://example.org?q=é",
+                "https://example.org/a.csv#é",
+                "dä.csv",
+                "//example.org/dä.csv",
+                "file:dä.csv",
+                " https://example.org/dä.csv",
+                "https://bücher.example/a.csv",
+                "https://bücher.example",
+                "//bücher.example",
+                "https://example.org/d%C3%A4.csv",
+            ]
+        ],
     ],
 )
 def test_the_schema_and_the_loader_agree(tmp_path: Path, text: str) -> None:

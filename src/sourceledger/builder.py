@@ -9,6 +9,7 @@ import itertools
 import json
 import re
 import shutil
+import unicodedata
 import zipfile
 import zlib
 from collections import Counter
@@ -89,14 +90,24 @@ def _format(source: Source) -> str:
 def parse_csv(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
     """One raw CSV file as its columns and rows. A gzipped file is decompressed first.
 
-    Raises ValueError for a repeated column name, a row with more or fewer fields than the
-    header, or a gzipped file that is damaged or decompresses past the source's `max_bytes`.
+    Raises ValueError for a file that is not UTF-8, a repeated column name, a row with more or
+    fewer fields than the header, or a gzipped file that is damaged or decompresses past the
+    source's `max_bytes`.
     """
-    payload = _maybe_gunzip(source, payload)
-    # utf-8-sig drops the byte-order mark that spreadsheet exports start with. Plain UTF-8 reads the same.
-    text = payload.decode("utf-8-sig")
+    text = _text(source, _maybe_gunzip(source, payload))
     columns, rows = _csv_rows(source, io.StringIO(text, newline=""))
     return columns, [dict(zip(columns, row, strict=True)) for row in rows]
+
+
+def _text(source: Source, payload: bytes) -> str:
+    """The payload decoded as UTF-8. Raises ValueError naming the source and the first byte that is not UTF-8."""
+    # utf-8-sig drops the byte-order mark that spreadsheet exports start with. Plain UTF-8 reads the same.
+    try:
+        return payload.decode("utf-8-sig")
+    except UnicodeDecodeError as error:
+        where = f"byte 0x{error.object[error.start]:02x} at offset {error.start}"
+        msg = f"{source['id']}: the raw file is not UTF-8 ({where}); re-save it as UTF-8"
+        raise ValueError(msg) from error
 
 
 def _csv_rows(source: Source, text: IO[str]) -> tuple[list[str], Iterator[list[str]]]:
@@ -209,14 +220,14 @@ def parse_json(source: Source, payload: bytes) -> tuple[list[str], list[dict[str
     """A JSON array of objects as columns and rows: one column per key, in the order keys first appear.
 
     A key an object lacks is an empty cell. Numbers are kept as written, and nested values
-    as JSON text. Raises ValueError for anything but an array of objects, or for one
-    nested too deeply to read.
+    as JSON text. Raises ValueError for a file that is not UTF-8, anything but an array of
+    objects, or one nested too deeply to read.
     """
     payload = _maybe_gunzip(source, payload)
     # From 3.14 the reader's depth limit follows the stack size, so a deep value can load and
     # then overflow while its cell is written: both steps are covered.
     try:
-        data = json.loads(payload.decode("utf-8-sig"), parse_float=_Number, parse_int=_Number)
+        data = json.loads(_text(source, payload), parse_float=_Number, parse_int=_Number)
         if not (isinstance(data, list) and all(isinstance(item, dict) for item in data)):
             msg = f"{source['id']}: expected a JSON array of objects"
             raise ValueError(msg)
@@ -442,35 +453,43 @@ def _write_cells(
     """Write CSV or Parquet with provenance columns first, and return the number of rows written.
 
     Each row holds its cells in `columns` order. None is written as "", anything else through
-    str(), as csv.writer does.
+    str(), as csv.writer does. Raises ValueError for text UTF-8 cannot hold: an unpaired surrogate.
     """
     if clash := stamp.keys() & set(columns):
         msg = f"{source['id']}: source columns {sorted(clash)} collide with the provenance columns"
         raise ValueError(msg)
     fields, head = [*stamp, *columns], list(stamp.values())
     stamped = ([*head, *row] for row in rows)
-    if out.suffix == _PARQUET_SUFFIX:
-        pa, pq = _arrow()
-        schema = pa.schema([(field, pa.string()) for field in fields])
-        count = 0
-        with _replacing(out) as fh, pq.ParquetWriter(fh, schema, compression="zstd") as writer:
-            while batch := list(itertools.islice(stamped, _PARQUET_BATCH_ROWS)):
-                arrays = [
-                    pa.array(["" if cell is None else str(cell) for cell in column], pa.string())
-                    for column in zip(*batch, strict=True)
-                ]
-                writer.write_table(pa.Table.from_arrays(arrays, schema=schema))
-                count += len(batch)
-        return count
-    with _replacing(out) as fh:
-        text = io.TextIOWrapper(fh, encoding="utf-8", newline="")
-        writer = csv.writer(text)
-        writer.writerow(fields)
-        count = 0
-        for row in stamped:
-            writer.writerow(row)
-            count += 1
-        text.detach()  # flushes; _replacing closes fh
+    try:
+        if out.suffix == _PARQUET_SUFFIX:
+            pa, pq = _arrow()
+            schema = pa.schema([(field, pa.string()) for field in fields])
+            count = 0
+            with _replacing(out) as fh, pq.ParquetWriter(fh, schema, compression="zstd") as writer:
+                while batch := list(itertools.islice(stamped, _PARQUET_BATCH_ROWS)):
+                    arrays = [
+                        pa.array(["" if cell is None else str(cell) for cell in column], pa.string())
+                        for column in zip(*batch, strict=True)
+                    ]
+                    writer.write_table(pa.Table.from_arrays(arrays, schema=schema))
+                    count += len(batch)
+            return count
+        with _replacing(out) as fh:
+            text = io.TextIOWrapper(fh, encoding="utf-8", newline="")
+            writer = csv.writer(text)
+            writer.writerow(fields)
+            count = 0
+            for row in stamped:
+                writer.writerow(row)
+                count += 1
+            text.detach()  # flushes; _replacing closes fh
+    except UnicodeEncodeError as error:
+        # JSON can escape half of a UTF-16 pair, such as \ud800, which UTF-8 cannot write.
+        msg = (
+            f"{source['id']}: the raw file holds an unpaired surrogate escape, {error.object[error.start]!r}, "
+            "which is not text; remove it or write the whole character"
+        )
+        raise ValueError(msg) from error
     return count
 
 
@@ -494,8 +513,9 @@ def _by_name(package: object) -> dict[str, Any]:
 
 
 def _package_name() -> str:
-    """The project directory's name, lower-cased, as Data Package names should be."""
-    return re.sub(r"[^a-z0-9._-]+", "-", Path.cwd().name.lower()).strip("-") or "dataset"
+    """The project directory's name, lower-cased and without accents, as Data Package names should be."""
+    letters = "".join(c for c in unicodedata.normalize("NFKD", Path.cwd().name) if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9._-]+", "-", letters.lower()).strip("-") or "dataset"
 
 
 def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path) -> dict[str, Any]:

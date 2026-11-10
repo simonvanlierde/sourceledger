@@ -70,6 +70,8 @@ _ENV_REF = re.compile(r"env:([A-Za-z_][A-Za-z0-9_]*)")
 # C0 except tab, LF and CR, then DEL and C1.
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _USERINFO_END = "@"  # in a url, ends the user name or password
+# Names Windows opens as a device, whatever the case or extension: CON.csv is the console.
+_DEVICE = re.compile(r"CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9]", re.IGNORECASE)
 # What `printable` escapes: the refused characters, plus the line breaks, tab and bidirectional controls that
 # sources.toml may hold but that a one-line terminal message must not, since they can overwrite or reorder it.
 _UNPRINTABLE = re.compile(r"[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
@@ -106,14 +108,7 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
     if not isinstance(sources, list) or not all(isinstance(s, dict) and isinstance(s.get("id"), str) for s in sources):
         msg = "sources.toml: every [[source]] needs a string id"
         raise ValueError(msg)
-    ids = [s["id"] for s in sources]
-    # ASCII only: an id names files, and must mean the same file on every system.
-    if bad := [i for i in ids if not re.fullmatch(r"[\w-]+", i, re.ASCII)]:
-        msg = f"ids {bad} in sources.toml may hold only ASCII letters, digits, _ and -"
-        raise ValueError(msg)
-    if dupes := sorted(i for i, n in Counter(ids).items() if n > 1):
-        msg = f"ids {dupes} appear more than once in sources.toml"
-        raise ValueError(msg)
+    _check_ids([s["id"] for s in sources])
     if no_url := [s["id"] for s in implemented(sources) if not isinstance(s.get("url"), str)]:
         msg = f"implemented sources {no_url} in sources.toml have no url"
         raise ValueError(msg)
@@ -141,6 +136,29 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
         _check_format(source)
         _check_headers(source)
     return sources
+
+
+def _check_ids(ids: list[str]) -> None:
+    """Refuse ids that could not name their own file on every system."""
+    # ASCII only: an id names files, and must mean the same file on every system.
+    if bad := [i for i in ids if not re.fullmatch(r"[\w-]+", i, re.ASCII)]:
+        msg = f"ids {bad} in sources.toml may hold only ASCII letters, digits, _ and -"
+        raise ValueError(msg)
+    if dupes := sorted(i for i, n in Counter(ids).items() if n > 1):
+        msg = f"ids {dupes} appear more than once in sources.toml"
+        raise ValueError(msg)
+    # Windows and macOS file systems ignore case: Pudl.csv and pudl.csv are one file there.
+    seen: dict[str, str] = {}
+    for i in ids:
+        if (first := seen.setdefault(i.casefold(), i)) != i:
+            msg = (
+                f"{first}: the id {i!r} in sources.toml differs from it only in case, "
+                "so both name one file on Windows and macOS; rename one of them"
+            )
+            raise ValueError(msg)
+        if _DEVICE.fullmatch(i):
+            msg = f"{i}: the id names a device on Windows, not a file; rename it, as {i}_data"
+            raise ValueError(msg)
 
 
 def _check_placement(source: Source) -> None:
@@ -177,7 +195,10 @@ def printable(text: str) -> str:
 
 
 def _check_url(source: Source) -> None:
-    """Refuse a user name or password in a url: url is logged and terms_url published with the dataset."""
+    """Refuse a user name or password in a url, and non-ASCII outside the host of the url fetch sends.
+
+    url is logged and terms_url published with the dataset.
+    """
     for key, fix in (
         ("url", 'send it in a header from an environment variable, as headers = { Authorization = "env:NAME" }'),
         ("terms_url", "remove it"),
@@ -187,6 +208,14 @@ def _check_url(source: Source) -> None:
         if not isinstance(url, str) or _USERINFO_END not in url or urlsplit(url).username is None:
             continue
         msg = f"{source['id']}: the {key} in sources.toml holds a user name or password; {fix}"
+        raise ValueError(msg)
+    url = source.get("url")
+    # The request line is ASCII; only the host is IDNA-encoded by the fetch.
+    if isinstance(url, str) and not url.isascii() and not "".join(urlsplit(url)[2:]).isascii():
+        msg = (
+            f"{source['id']}: the url in sources.toml holds a character that is not ASCII outside its host; "
+            "percent-encode it as UTF-8, as d%C3%A4.csv for dä.csv"
+        )
         raise ValueError(msg)
 
 

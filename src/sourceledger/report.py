@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 import stat
 from html import escape
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -252,9 +253,13 @@ def status_records(sources: list[Source], *, log: Path = FETCH_LOG) -> list[dict
     ]
 
 
+# Only ASCII whitespace: a no-break space, as in "10 000 €", is part of the publisher's words.
+_MD_SPACE = re.compile(r"[\t\n\v\f\r ]+")
+
+
 def _md_cell(value: object) -> str:
     """A value as one Markdown table cell: on one line, with its pipes escaped."""
-    return " ".join(str(value).split()).replace("|", "\\|")
+    return _MD_SPACE.sub(" ", str(value)).strip(" ").replace("|", "\\|")
 
 
 def attribution(sources: list[Source]) -> list[str]:
@@ -411,11 +416,16 @@ def _allowed(value: object) -> str:
 _UNSTATED = "not stated in sources.toml"
 
 
+# Fields that hold free text from the manifest, which may be right-to-left or hold a bidi control.
+_FREE_TEXT = frozenset({"Vintage", "Licence", "Terms"})
+
+
 def _fields(values: dict[str, object]) -> str:
     return (
         "<dl>"
         + "".join(
-            f"<dt>{escape(key)}</dt><dd>{value if isinstance(value, _Markup) else escape(str(value))}</dd>"
+            f"<dt>{escape(key)}</dt><dd{' dir="auto"' if key in _FREE_TEXT else ''}>"
+            f"{value if isinstance(value, _Markup) else escape(str(value))}</dd>"
             for key, value in values.items()
         )
         + "</dl>"
@@ -489,7 +499,7 @@ def report(sources: list[Source], *, processed: Path = PROCESSED, log: Path = FE
         sections.append(
             f'<section><h3 id="output-{number}">{escape(sid)}</h3>{_fields(file_fields)}'
             f'<p><a href="#source-{number}">Source of this output</a></p>'
-            f'<h4 id="source-{number}">{escape(str(source.get("name", sid)))}</h4>'
+            f'<h4 id="source-{number}" dir="auto">{escape(str(source.get("name", sid)))}</h4>'
             f'{_fields(source_fields)}<p><a href="#outputs">Back to the outputs</a></p></section>'
         )
         index.append(f'<li><a href="#output-{number}">{escape(sid)}</a></li>')

@@ -11,10 +11,11 @@ sourceledger.builder.x__json_text__mutmut_11  None is falsy, as False is
 sourceledger.builder.x__json_text__mutmut_25  None is falsy, as False is
 sourceledger.builder.x__listed__mutmut_3  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.builder.x__listed__mutmut_5  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.builder.x__package_name__mutmut_13  the name is lower-cased first, so there is no X to strip
+sourceledger.builder.x__package_name__mutmut_24  the name is lower-cased first, so there is no X to strip
 sourceledger.builder.x__parquet_batches__mutmut_4  threads change speed, not the batches read
 sourceledger.builder.x__parquet_batches__mutmut_6  threads change speed, not the batches read
 sourceledger.builder.x__parquet_batches__mutmut_7  threads change speed, not the batches read
+sourceledger.builder.x__text__mutmut_3  codec names are case-insensitive
 sourceledger.builder.x__write_cells__mutmut_25  pyarrow reads compression names case-insensitively and reports ZSTD for both
 sourceledger.builder.x__write_cells__mutmut_33  a non-empty list of str infers the string type that the schema names
 sourceledger.builder.x__write_cells__mutmut_35  a non-empty list of str infers the string type that the schema names
@@ -123,6 +124,7 @@ sourceledger.ledger.x_without_query__mutmut_2  urlunsplit treats a None fragment
 sourceledger.ledger.x_without_query__mutmut_4  geturl leaves out a query that is None, as it does an empty one
 sourceledger.ledger.x_without_query__mutmut_5  geturl leaves out a fragment that is None, as it does an empty one
 sourceledger.manifest.x__check_text__mutmut_3  the separator only keeps strings apart; letters added to it are not control characters, so the search finds the same
+sourceledger.manifest.x__check_url__mutmut_32  the separator only keeps the parts apart; ASCII letters added to it leave isascii unchanged
 sourceledger.manifest.x_init__mutmut_2  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.manifest.x_init__mutmut_4  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.manifest.x_init__mutmut_8  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
