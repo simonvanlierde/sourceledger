@@ -47,6 +47,7 @@ from sourceledger.manifest import (
     load_output_format,
     load_release_formats,
     output_name,
+    printable,
     select,
 )
 from sourceledger.releaser import ReleaseError, check_release, release
@@ -440,7 +441,8 @@ def _report_problems(run: _Run, problems: list[str]) -> list[str]:
     """The problems and their count, on stdout: they are the stage's result."""
     run.result["problems"] = problems
     for problem in problems:
-        run.say(problem)
+        # Names from a received folder; --json escapes them itself, and keeps them exact.
+        run.say(printable(problem))
     run.say(_problems(len(problems)))
     return problems
 

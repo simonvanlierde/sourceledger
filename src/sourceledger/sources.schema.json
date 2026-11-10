@@ -39,11 +39,15 @@
         "name": { "type": "string", "description": "A title for people." },
         "url": {
           "type": "string",
-          "not": { "pattern": "^([A-Za-z][A-Za-z0-9+.-]*:)?//[^/?#]*@" },
+          "not": { "pattern": "^[\\u0000- ]*([A-Za-z][A-Za-z0-9+.-]*:)?//[^/?#]*@" },
           "description": "What fetch downloads. No user name or password: send those in headers."
         },
         "terms": { "type": "string", "description": "The publisher's reuse terms, in their words." },
-        "terms_url": { "type": "string", "description": "Where the terms are stated." },
+        "terms_url": {
+          "type": "string",
+          "not": { "pattern": "^[\\u0000- ]*([A-Za-z][A-Za-z0-9+.-]*:)?//[^/?#]*@" },
+          "description": "Where the terms are stated. No user name or password."
+        },
         "license": {
           "type": "string",
           "minLength": 1,

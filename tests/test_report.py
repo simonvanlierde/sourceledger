@@ -837,15 +837,23 @@ def test_verify_shows_a_large_listed_size_with_separators(tmp_path: Path) -> Non
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows file names cannot hold control characters")
-def test_verify_shows_a_control_character_in_a_name_as_an_escape(tmp_path: Path) -> None:
-    """A received folder names its own files; an ESC in one must not reach the terminal raw."""
+def test_verify_shows_a_control_character_in_a_name_as_an_escape(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A received folder names its own files; an ESC in one must not reach the terminal raw, and --json keeps it."""
     name = "a\x1b[2J.csv"
     (tmp_path / name).write_text("x\n", encoding="utf-8", newline="")
     package = {"resources": [{"path": name, "bytes": 3, "hash": _X_HASH}]}
     (tmp_path / "datapackage.json").write_text(json.dumps(package), encoding="utf-8", newline="")
-    assert (
-        report_mod.verify(tmp_path)[0] == f"{tmp_path.as_posix()}/a\\x1b[2J.csv is 2 bytes, not the 3 the package lists"
-    )
+    problem = f"{tmp_path.as_posix()}/{name} is 2 bytes, not the 3 the package lists"
+    assert report_mod.verify(tmp_path)[0] == problem
+    capsys.readouterr()
+    assert main(["verify", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "\x1b" not in out
+    assert f"{tmp_path.as_posix()}/a\\x1b[2J.csv is 2 bytes, not the 3 the package lists\n" in out
+    assert main(["verify", str(tmp_path), "--json"]) == 1
+    assert problem in json.loads(capsys.readouterr().out)["problems"]
 
 
 def test_verify_names_the_hash_it_found(tmp_path: Path) -> None:

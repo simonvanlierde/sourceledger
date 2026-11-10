@@ -243,6 +243,30 @@ def test_a_url_with_a_user_name_or_password_is_refused(tmp_path: Path, url: str)
 
 
 @pytest.mark.usefixtures("upstream")
+def test_a_terms_url_with_a_user_name_or_password_is_refused(tmp_path: Path) -> None:
+    """terms_url is the licence path in datapackage.json, which is published."""
+    _manifest(tmp_path, "https://example.org/x.csv", terms=TERMS.replace("https://", "https://user:pw@"))
+    with pytest.raises(ValueError, match="user name or password") as refused:
+        manifest_mod.load_manifest()
+    assert str(refused.value) == "example: the terms_url in sources.toml holds a user name or password; remove it"
+
+
+@pytest.mark.parametrize(
+    ("text", "shown"),
+    [
+        ("a\rFAKE: ok", "a\\rFAKE: ok"),
+        ("a\nb\tc", "a\\nb\\tc"),
+        ("\u202egnp.exe", "\\u202egnp.exe"),
+        ("\x1b[2J\x9b", "\\x1b[2J\\x9b"),
+        ("résumé, 東京", "résumé, 東京"),
+    ],
+)
+def test_printable_keeps_a_message_on_one_line_in_reading_order(text: str, shown: str) -> None:
+    """A carriage return could overwrite the line, a line break forge another, and a bidi control reorder it."""
+    assert manifest_mod.printable(text) == shown
+
+
+@pytest.mark.usefixtures("upstream")
 def test_an_id_must_be_ascii(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """An id names files, which must mean the same file on every system."""
     manifest = tmp_path / "sources.toml"
@@ -321,6 +345,8 @@ _GOOD = f'[[source]]\nid = "a"\nstatus = "implemented"\nurl = "https://example.o
         _GOOD.replace("https://", "https://user:pw@"),
         _GOOD.replace("https://", "https://token@"),
         _GOOD.replace("a.csv", "a@2x.csv?by=me@host"),
+        _GOOD.replace("https://example.org/terms", "https://user:pw@example.org/terms"),
+        _GOOD.replace('"https://example.org/a.csv"', '" https://user@example.org/a.csv"'),
     ],
 )
 def test_the_schema_and_the_loader_agree(tmp_path: Path, text: str) -> None:

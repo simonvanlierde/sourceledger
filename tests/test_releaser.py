@@ -23,6 +23,7 @@ from sourceledger.cli import main
 from sourceledger.manifest import implemented
 
 releaser = importlib.import_module("sourceledger.releaser")
+report_mod = importlib.import_module("sourceledger.report")
 
 # A column name with a slash, which a Croissant field id must escape.
 TABLE = b"year,ducks/ha\n2020,1.5\n2021,2.5\n"
@@ -304,6 +305,27 @@ def test_a_move_that_fails_part_way_leaves_the_empty_out_dir_empty(monkeypatch: 
     moves.clear()
     sourceledger.release(manifest_mod.load_manifest(), OUT)
     assert moves[-1] == "SHA256SUMS"
+
+
+@pytest.mark.usefixtures("project")
+@pytest.mark.parametrize("copied", [True, False], ids=["part-copied", "nothing-copied"])
+def test_a_copy_that_fails_part_way_is_taken_back_too(monkeypatch: pytest.MonkeyPatch, copied: bool) -> None:  # noqa: FBT001
+    """Across devices, as into a mount point, a folder moves by copy, which can fail with part of it copied, or none."""
+    OUT.mkdir()
+    real = releaser.shutil.move
+
+    def move(src: Path, dst: Path) -> object:
+        if Path(src).is_dir():
+            if copied:
+                Path(dst).mkdir()
+                (Path(dst) / "half").write_bytes(b"x")
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real(src, dst)
+
+    monkeypatch.setattr(releaser.shutil, "move", move)
+    with pytest.raises(OSError, match="No space left"):
+        sourceledger.release(manifest_mod.load_manifest(), OUT)
+    assert list(OUT.iterdir()) == []
 
 
 def test_out_dir_may_be_in_a_new_folder(project: Path) -> None:
@@ -918,13 +940,50 @@ def test_check_reads_sums_only_from_a_regular_file_of_bounded_size(
     sums = released / "SHA256SUMS"
     sums.write_text(sums.read_text(encoding="utf-8").rstrip("\n"), encoding="utf-8")  # every byte counts
     cap = sums.stat().st_size
-    monkeypatch.setattr(releaser, "_SUMS_MAX_BYTES", cap)
+    monkeypatch.setattr(report_mod, "RECEIVED_MAX_BYTES", cap)
     assert releaser._sums_problems(released) == []  # noqa: SLF001
-    monkeypatch.setattr(releaser, "_SUMS_MAX_BYTES", cap - 1)
+    monkeypatch.setattr(report_mod, "RECEIVED_MAX_BYTES", cap - 1)
     assert releaser._sums_problems(released) == [f"release/SHA256SUMS is larger than {cap - 1:,} bytes"]  # noqa: SLF001
     sums.unlink()
     os.mkfifo(sums)
     assert releaser._sums_problems(released) == ["release/SHA256SUMS is not a regular file"]  # noqa: SLF001
+    sums.unlink()
+    sums.symlink_to("/dev/zero")
+    assert releaser._sums_problems(released) == ["release/SHA256SUMS is not a regular file"]  # noqa: SLF001
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
+def test_verify_reads_the_package_only_from_a_regular_file(released: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify is for received folders too, where datapackage.json can be a pipe or a link to /dev/zero."""
+    package = released / "datapackage.json"
+    package.unlink()
+    os.mkfifo(package)
+    assert report_mod.verify(released) == ["release/datapackage.json is not a regular file"]
+    package.unlink()
+    package.symlink_to("/dev/zero")
+    capsys.readouterr()
+    assert main(["verify", str(released)]) == 1
+    assert "release/datapackage.json is not a regular file\n" in capsys.readouterr().out
+
+
+def test_the_received_file_limit_is_the_documented_one() -> None:
+    assert report_mod.RECEIVED_MAX_BYTES == 64 * 1024 * 1024
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows file names cannot hold control characters")
+def test_a_carriage_return_in_a_received_name_is_shown_as_an_escape(
+    released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A raw CR or LF would let a crafted name overwrite a line of the output or forge a new one; --json keeps it."""
+    name = "evil\rSHA256SUMS OK, 0 problems\n"
+    (released / "data" / name).write_bytes(b"x")
+    capsys.readouterr()
+    assert _release("--check", str(released)) == 1
+    out = capsys.readouterr().out
+    assert "\r" not in out
+    assert "release/data/evil\\rSHA256SUMS OK, 0 problems\\n is not listed in SHA256SUMS\n" in out
+    assert _release("--check", str(released), "--json") == 1
+    assert f"release/data/{name} is not listed in SHA256SUMS" in json.loads(capsys.readouterr().out)["problems"]
 
 
 def test_check_reads_text_mode_sums_too(released: Path) -> None:

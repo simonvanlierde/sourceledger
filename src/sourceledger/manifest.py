@@ -70,6 +70,9 @@ _ENV_REF = re.compile(r"env:([A-Za-z_][A-Za-z0-9_]*)")
 # C0 except tab, LF and CR, then DEL and C1.
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _USERINFO_END = "@"  # in a url, ends the user name or password
+# What `printable` escapes: the refused characters, plus the line breaks, tab and bidirectional controls that
+# sources.toml may hold but that a one-line terminal message must not, since they can overwrite or reorder it.
+_UNPRINTABLE = re.compile(r"[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
 
 
 # Headers a manifest may not set: the fetch's own.
@@ -169,18 +172,21 @@ def _texts(value: object) -> Iterator[str]:
 
 
 def printable(text: str) -> str:
-    r"""`text` with each control character `_check_text` refuses shown as an escape, such as `\x1b`."""
-    return _CONTROL.sub(lambda match: match[0].encode("unicode_escape").decode(), text)
+    r"""`text` on one line, with each control character shown as an escape, such as `\x1b` or `\r`."""
+    return _UNPRINTABLE.sub(lambda match: match[0].encode("unicode_escape").decode(), text)
 
 
 def _check_url(source: Source) -> None:
-    """Refuse a user name or password in the url: the url is logged and published with the dataset."""
-    # The "@" first: urlsplit on every url is most of a large manifest's load time.
-    if isinstance(url := source.get("url"), str) and _USERINFO_END in url and urlsplit(url).username is not None:
-        msg = (
-            f"{source['id']}: the url in sources.toml holds a user name or password; "
-            'send it in a header from an environment variable, as headers = { Authorization = "env:NAME" }'
-        )
+    """Refuse a user name or password in a url: url is logged and terms_url published with the dataset."""
+    for key, fix in (
+        ("url", 'send it in a header from an environment variable, as headers = { Authorization = "env:NAME" }'),
+        ("terms_url", "remove it"),
+    ):
+        url = source.get(key)
+        # The "@" first: urlsplit on every url is most of a large manifest's load time.
+        if not isinstance(url, str) or _USERINFO_END not in url or urlsplit(url).username is None:
+            continue
+        msg = f"{source['id']}: the {key} in sources.toml holds a user name or password; {fix}"
         raise ValueError(msg)
 
 

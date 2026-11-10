@@ -7,7 +7,6 @@ import json
 import logging
 import re
 import shutil
-import stat
 import subprocess
 import sys
 from importlib.metadata import PackageNotFoundError, version
@@ -18,7 +17,7 @@ from urllib.parse import quote_plus
 from sourceledger.builder import DATAPACKAGE, PROCESSED, _by_name, json_bytes
 from sourceledger.ledger import RAW, _digest, current_record
 from sourceledger.manifest import RELEASE_FORMATS, Source, implemented, output_name, printable
-from sourceledger.report import leaves_folder, validate
+from sourceledger.report import leaves_folder, read_received, validate
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Iterable
@@ -48,7 +47,6 @@ _FILES = {_FORMAT_ROCRATE: _ROCRATE, _FORMAT_CROISSANT: _CROISSANT}
 
 
 # A SHA256SUMS line is about 100 bytes, so this lists over half a million files.
-_SUMS_MAX_BYTES = 64 * 1024 * 1024
 
 
 # Zenodo takes at most 100 files a record; past that, the project zips the folder itself.
@@ -218,14 +216,15 @@ def _place(folder: Path, out_dir: Path) -> None:
     moved: list[Path] = []
     try:
         for child in sorted(folder.iterdir(), key=lambda child: child.name == SUMS):
-            shutil.move(child, out_dir / child.name)
+            # Listed first: a move across devices copies, and can fail with part of the copy in place.
             moved.append(out_dir / child.name)
+            shutil.move(child, out_dir / child.name)
     except BaseException:
         for path in moved:
             if path.is_dir():
                 shutil.rmtree(path)
             else:
-                path.unlink()
+                path.unlink(missing_ok=True)
         raise
     folder.rmdir()
 
@@ -279,7 +278,8 @@ def _write(
 def check_release(folder: Path) -> tuple[list[str], list[dict[str, str]]]:
     """Check a release folder: SHA256SUMS against the files, then each metadata file with its validator.
 
-    Returns one string per problem, and the `file`, `name` and `version` of each check that ran.
+    Returns one string per problem, with names from the folder as they are (pass each through
+    `printable` before a terminal), and the `file`, `name` and `version` of each check that ran.
     Raises FileNotFoundError when `folder` is not a folder, ValidatorMissing when a metadata
     file is there but its validator is not installed, and ValidatorCouldNotRun when a validator
     stopped without reporting findings or ran past its time limit.
@@ -303,8 +303,7 @@ def check_release(folder: Path) -> tuple[list[str], list[dict[str, str]]]:
             msg = f"{name}: {dist} did not finish in {_TIMEOUT_S} s"
             raise ValidatorCouldNotRun(msg) from None
         ran.append({"file": name, "name": dist, "version": versions[name]})
-    # The names and findings come from someone else's folder; an ESC in one must not reach the terminal.
-    return [printable(problem) for problem in problems], ran
+    return problems, ran
 
 
 def _validator_version(name: str) -> str:
@@ -413,19 +412,13 @@ def _sums_problems(folder: Path) -> list[str]:
     """Whether SHA256SUMS lists every other file in `folder`, each with its current SHA-256."""
     path = folder / SUMS
     try:
-        info = path.lstat()
+        text = read_received(path).decode()
     except FileNotFoundError:
         return [f"{path.as_posix()} is missing"]
-    # The folder is someone else's: a pipe would hang the read, and a link to /dev/zero fill memory.
-    if not stat.S_ISREG(info.st_mode):
-        return [f"{path.as_posix()} is not a regular file"]
-    if info.st_size > _SUMS_MAX_BYTES:
-        return [f"{path.as_posix()} is larger than {_SUMS_MAX_BYTES:,} bytes"]
-    try:
-        with path.open("rb") as fh:
-            text = fh.read(_SUMS_MAX_BYTES + 1).decode()
     except UnicodeDecodeError:
         return [f"{path.as_posix()} is not UTF-8 text"]
+    except ValueError as refused:
+        return [str(refused)]
     problems, listed = [], set()
     for number, line in enumerate(text.splitlines(), 1):
         match = re.fullmatch(r"([0-9a-f]{64}) [ *](.+)", line)

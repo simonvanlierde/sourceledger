@@ -72,12 +72,12 @@ recorded file needs 0.5.0 to build. Details under Changed.
 
 - `release` never ships the data of a source with `redistribute = false`: it takes the file list from `sources.toml`, not from `data/processed/`, and after writing it hashes every file in the folder and refuses one that has the bytes of a restricted raw file or output, whatever its name. Before, `build` copied such files into `data/processed/` and only the docs said to leave them out of a release.
 - The release workflow publishes only a tag signed with a key listed in `.github/allowed_signers` on `main`. Before, it published from any pushed `v*` tag, signed or not. See [checking a release](docs/secure-use.md#check-a-sourceledger-release).
-- `fetch` keeps a redirect's final URL without its query and fragment, which can hold a signature, as signed download links from cloud storage do. Before, the full URL went into `fetches.jsonl`, the fetch record and `datapackage.json`.
+- `fetch` keeps a redirect's final URL without its query, fragment and any user name or password, which can hold a signature or key, as signed download links from cloud storage do. Before, the full URL went into `fetches.jsonl`, the fetch record and `datapackage.json`.
 - A redirect from a public host to a non-HTTP URL, such as `ftp://` on an internal address, is refused. Before, urllib followed it past the check that refuses inward redirects.
 - `sources.toml` text with a control character other than a tab or line break, such as the ESC that starts a terminal escape sequence, is refused. Before, an ESC in a `url` reached the terminal raw in `fetch` and could recolour or rewrite the screen. The check covers nested tables, arrays and keys too, such as a `[source.headers]` name.
-- A `url` in `sources.toml` that holds a user name or password is refused. Before, it was copied into `fetches.jsonl`, the fetch record, `datapackage.json` and `ro-crate-metadata.json`, which go out with the dataset.
-- `release --check` and `verify` show a control character in a received folder's file names, its `SHA256SUMS` or a validator's output as an escape such as `\x1b`, so a crafted name cannot recolour or rewrite the terminal.
-- `release --check` reads `SHA256SUMS` only when it is a regular file of at most 64 MiB. Before, a named pipe there made the check hang, and a link to `/dev/zero` filled memory.
+- A `url` or `terms_url` in `sources.toml` that holds a user name or password is refused. Before, it was copied into `fetches.jsonl`, the fetch record, `datapackage.json` and `ro-crate-metadata.json`, which go out with the dataset.
+- `release --check` and `verify` show a control character in a received folder's file names, its `SHA256SUMS` or a validator's output as an escape such as `\x1b` or `\r`, and so do bidirectional controls such as U+202E, so a crafted name cannot recolour, overwrite or reorder a line of the output. `--json` keeps the names exact.
+- `release --check` reads `SHA256SUMS`, and `verify` reads `datapackage.json`, only when it is a regular file of at most 64 MiB. Before, a named pipe there made the check hang, and a link to `/dev/zero` filled memory.
 
 ## [0.4.0] - 2026-11-01
 

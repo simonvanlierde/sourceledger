@@ -340,8 +340,9 @@ def revision_records(before: Path, *, log: Path = FETCH_LOG) -> list[dict[str, A
 
 
 def without_query(url: str) -> str:
-    """`url` without its query and fragment, which can hold a signature."""
-    return urlsplit(url)._replace(query="", fragment="").geturl()
+    """`url` without its query, fragment and user name or password, which can hold a signature or key."""
+    parts = urlsplit(url)
+    return parts._replace(netloc=parts.netloc.rpartition("@")[2], query="", fragment="").geturl()
 
 
 def _served_from(source: Source, url: str) -> str:

@@ -757,3 +757,16 @@ def test_a_log_line_with_empty_parameters_reads_as_having_none(upstream: Path) -
     LOG.write_text(json.dumps({**line, "parameters": {}}) + "\n", encoding="utf-8", newline="")
     ledger.record(_source(), upstream)
     assert len(LOG.read_text(encoding="utf-8").splitlines()) == 1
+
+
+@pytest.mark.parametrize(
+    ("url", "kept"),
+    [
+        ("https://u:pw@cdn.example/x.csv?sig=1#f", "https://cdn.example/x.csv"),
+        ("https://token@cdn.example:8443/x.csv", "https://cdn.example:8443/x.csv"),
+        ("https://cdn.example/a@2x.csv", "https://cdn.example/a@2x.csv"),
+    ],
+)
+def test_a_served_url_is_logged_without_its_query_or_user_name(url: str, kept: str) -> None:
+    """A redirect target or another tool's url goes into the published log; its user name or password must not."""
+    assert ledger.without_query(url) == kept

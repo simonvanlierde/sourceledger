@@ -369,7 +369,9 @@ def fetch(
 
     A source the server reports unchanged since its last intact fetch keeps that raw file
     and record, and its old record is returned. A record whose bytes differ from the last
-    ones logged for its source is appended to `log`.
+    ones logged for its source is appended to `log`. Bytes the log already has keep its
+    `retrieved_at` and `final_url` in the record on disk, while the returned record says when
+    and where this run downloaded them.
 
     Every source is tried. Raises FetchError after the loop when any failed, listing each
     with its reason; nothing is written for those. A source fails for a download over its

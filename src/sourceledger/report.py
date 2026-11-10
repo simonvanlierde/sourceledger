@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import stat
 from html import escape
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
@@ -31,7 +32,6 @@ from sourceledger.manifest import (
     _vintage,
     implemented,
     output_name,
-    printable,
     raw_name,
     select,
 )
@@ -277,22 +277,48 @@ def attribution(sources: list[Source]) -> list[str]:
     return lines
 
 
+# A received folder's SHA256SUMS or datapackage.json is read whole; a larger one is refused, not loaded.
+RECEIVED_MAX_BYTES = 64 * 1024 * 1024
+
+
+def read_received(path: Path) -> bytes:
+    """The bytes of a metadata file in someone else's folder; ValueError when it is not a regular file of bounded size.
+
+    Checked on the open file, not the name, so a pipe swapped in after a check cannot hang the read,
+    and a link to /dev/zero cannot fill memory. FileNotFoundError when it is missing.
+    """
+    # O_NONBLOCK: opening a pipe would otherwise wait for a writer, before the check could refuse it.
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
+    with os.fdopen(fd, "rb") as fh:
+        info = os.fstat(fh.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            msg = f"{path.as_posix()} is not a regular file"
+            raise ValueError(msg)
+        data = fh.read(RECEIVED_MAX_BYTES + 1)
+    if len(data) > RECEIVED_MAX_BYTES:
+        msg = f"{path.as_posix()} is larger than {RECEIVED_MAX_BYTES:,} bytes"
+        raise ValueError(msg)
+    return data
+
+
 def verify(folder: Path) -> list[str]:
     """Check a published dataset against its datapackage.json, offline, and return one string per problem.
 
     Each resource's file must be inside `folder` and match the `bytes` (when given) and the
     `hash` (`sha256:<hex>`) the package lists. Raises OSError when the package is missing,
-    and ValueError when it is not JSON.
+    and ValueError when it is not JSON. The problems hold names from the folder as they are:
+    pass each through `printable` before it goes to a terminal.
     """
     path = folder / DATAPACKAGE
-    package = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = read_received(path)
+    except ValueError as refused:
+        return [str(refused)]
+    package = json.loads(data.decode("utf-8"))
     resources = package.get("resources") if isinstance(package, dict) else None
     if not isinstance(resources, list):
         return [f"{path.as_posix()} has no list of resources"]
-    # The names come from someone else's folder; an ESC in one must not reach the terminal.
-    return [
-        printable(problem) for r in resources for problem in _file_problems(folder, r if isinstance(r, dict) else {})
-    ]
+    return [problem for r in resources for problem in _file_problems(folder, r if isinstance(r, dict) else {})]
 
 
 def leaves_folder(name: str) -> bool:
