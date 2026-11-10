@@ -724,6 +724,9 @@ def test_the_croissant_findings_are_its_errors_without_its_warnings() -> None:
     assert _could_not_run("mlcroissant", _done(3, "\n", " \n")) == "x.json: mlcroissant exited 3: with no output"
     last = "Found the following 1 error(s) during the validation:\n  -  no url"
     assert releaser._findings("x.json", "mlcroissant", _done(1, "", last)) == ["no url"]  # noqa: SLF001
+    # On Windows mlcroissant reported a broken licence only as a warning, still exiting 1.
+    warned = '-  [Metadata(x)] Property "https://schema.org/license" is recommended, but does not exist.'
+    assert releaser._findings("x.json", "mlcroissant", _done(1, "", warned)) == [warned]  # noqa: SLF001
 
 
 @pytest.fixture

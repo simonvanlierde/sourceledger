@@ -306,20 +306,27 @@ def _croissant_findings(_stdout: str, stderr: str) -> list[str]:
 def _findings(name: str, dist: str, failed: subprocess.CalledProcessError) -> list[str]:
     """What a validator of `name` reported, one line per finding; ValidatorCouldNotRun when it reported none.
 
-    Both validators exit 1 for findings. Any other exit, or exit 1 without findings (a crash),
-    means the check did not happen; the error then carries the last line that says something,
-    from stderr first.
+    Both validators exit 1 for findings. An mlcroissant finding in a form the parser does not
+    know (it words some differently on Windows) is kept as the last line that says something.
+    Any other exit, exit 1 with a traceback (a crash), or exit 1 with nothing parsed from
+    rocrate-validator means the check did not happen.
     """
     # Decoded here, not by subprocess: a validator writes in its own locale, and a stray byte must not hide a finding.
     stdout, stderr = failed.stdout.decode(errors="replace"), failed.stderr.decode(errors="replace")
     if failed.returncode == 1 and (findings := _FINDINGS[dist](stdout, stderr)):
         return findings
     said = [line.strip() for line in (stdout + "\n" + stderr).splitlines() if not _DIVIDER.fullmatch(line)]
-    msg = f"{name}: {dist} exited {failed.returncode}: {said[-1] if said else 'with no output'}"
+    last = said[-1] if said else "with no output"
+    crashed = any(line.startswith("Traceback") for line in stderr.splitlines())
+    if dist in _EXIT_1_IS_FINDINGS and failed.returncode == 1 and said and not crashed:
+        return [last]
+    msg = f"{name}: {dist} exited {failed.returncode}: {last}"
     raise ValidatorCouldNotRun(msg)
 
 
 _FINDINGS = {"roc-validator": _rocrate_findings, "mlcroissant": _croissant_findings}
+# mlcroissant exits 1 only on a ValidationError (a crash prints a traceback first).
+_EXIT_1_IS_FINDINGS = {"mlcroissant"}
 
 
 def _described(codemeta: Path, formats: Collection[str]) -> dict[str, Any]:
