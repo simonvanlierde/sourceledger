@@ -266,7 +266,8 @@ def check_release(folder: Path) -> tuple[list[str], list[dict[str, str]]]:
     for name in present:
         dist, args = _VALIDATORS[name]
         # -I: the folder is someone else's, and a module planted in it must not shadow the validator.
-        command = [sys.executable, "-I", *args]
+        # -X utf8: -I ignores PYTHONIOENCODING, and Windows would read the JSON and pipe the output as cp1252.
+        command = [sys.executable, "-I", "-X", "utf8", *args]
         try:
             subprocess.run(command, cwd=folder, capture_output=True, check=True, timeout=_TIMEOUT_S)  # noqa: S603  # a fixed command line, with this interpreter
         except subprocess.CalledProcessError as failed:

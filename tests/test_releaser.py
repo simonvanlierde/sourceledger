@@ -8,6 +8,7 @@ import importlib.util
 import json
 import logging
 import subprocess
+import sys
 from collections.abc import Callable
 from importlib.metadata import version
 from pathlib import Path
@@ -915,3 +916,18 @@ def test_check_runs_no_code_planted_in_the_folder(tmp_path: Path, name: str, tex
     with contextlib.suppress(OSError):  # the stand-in folder need not pass
         releaser.check_release(folder)
     assert not marker.exists()
+
+
+def test_validators_run_isolated_in_utf_8_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """-I ignores PYTHONIOENCODING, so UTF-8 mode is what keeps Windows from reading and piping cp1252."""
+    commands: list[list[str]] = []
+
+    def run(command: list[str], **_: object) -> None:
+        commands.append(command)
+
+    monkeypatch.setattr(releaser.subprocess, "run", run)
+    (tmp_path / "croissant.json").write_text("{}", encoding="utf-8")
+    with contextlib.suppress(Exception):  # only the command line matters here
+        releaser.check_release(tmp_path)
+    assert commands
+    assert commands[0][:4] == [sys.executable, "-I", "-X", "utf8"]
