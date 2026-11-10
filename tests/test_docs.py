@@ -12,8 +12,10 @@ from importlib.metadata import version
 from pathlib import Path
 
 import pytest
+from support import builder_mod, fetcher_mod, report_mod
 
 from sourceledger import cli, ledger
+from sourceledger import manifest as manifest_mod
 from sourceledger.cli import main
 
 ROOT = Path(__file__).parents[1]
@@ -52,7 +54,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def test_the_quick_start_runs() -> None:
     """The manifest the README starts with fetches, builds and validates."""
     assert [main([stage]) for stage in ("fetch", "build", "validate")] == [0, 0, 0]
-    assert [row["mean"] for row in ledger.read_output(Path("data/processed/co2.csv"))] == ["418.53", "421.08"]
+    assert [row["mean"] for row in builder_mod.read_output(Path("data/processed/co2.csv"))] == ["418.53", "421.08"]
 
 
 def test_the_own_reader_example_runs(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,7 +82,7 @@ def test_every_schema_line_names_the_published_schema() -> None:
 
 def test_the_starter_example_is_the_quick_start_one() -> None:
     """`init` writes the README's example, commented out, so running the quick start covers both."""
-    example = ledger._STARTER[ledger._STARTER.index("# [[source]]") :]  # noqa: SLF001
+    example = manifest_mod._STARTER[manifest_mod._STARTER.index("# [[source]]") :]  # noqa: SLF001
     assert "".join(line.removeprefix("# ") + "\n" for line in example.splitlines()) == _block(
         README, "## Quick start", "toml"
     )
@@ -99,19 +101,19 @@ def test_the_website_revision_example_matches_the_pipeline(project: Path) -> Non
     assert example["before_sha256"][:12] in guide
     assert example["after_sha256"] in guide
     upstream = project / "upstream" / "co2-annmean-mlo.csv"
-    sources = ledger.load_manifest()
+    sources = manifest_mod.load_manifest()
     upstream.write_text(example["before"], encoding="utf-8", newline="")
-    (before,) = ledger.fetch(sources)
-    ledger.build(sources)
-    assert ledger.validate(sources) == []
+    (before,) = fetcher_mod.fetch(sources)
+    builder_mod.build(sources)
+    assert report_mod.validate(sources) == []
     assert before.sha256 == example["before_sha256"]
     upstream.write_text(example["after"], encoding="utf-8", newline="")
-    (after,) = ledger.fetch(sources)
+    (after,) = fetcher_mod.fetch(sources)
     assert after.sha256 == example["after_sha256"]
     assert before.sha256 != after.sha256
-    assert ledger.validate(sources) == [example["problem"]]
-    ledger.build(sources)
-    assert ledger.validate(sources) == []
+    assert report_mod.validate(sources) == [example["problem"]]
+    builder_mod.build(sources)
+    assert report_mod.validate(sources) == []
 
 
 def test_the_publisher_revision_tutorial_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -130,9 +132,9 @@ def test_the_publisher_revision_tutorial_runs(tmp_path: Path, monkeypatch: pytes
             assert [main([stage]) for stage in ("fetch", "validate")] == [0, 1]
             assert main(["revisions", "before.jsonl"]) == 0
             assert [main([stage]) for stage in ("build", "validate")] == [0, 0]
-    assert list(ledger.read_output(Path("data/processed/co2.csv")))[-1]["co2_ppm"] == "419.32"
+    assert list(builder_mod.read_output(Path("data/processed/co2.csv")))[-1]["co2_ppm"] == "419.32"
     assert _shell(_block(guide, "## Record a file another tool downloaded", "sh")) == [0] * 5
-    rows = list(ledger.read_output(Path("data/processed/co2.csv")))
+    rows = list(builder_mod.read_output(Path("data/processed/co2.csv")))
     assert {row["retrieved_at"] for row in rows} == {"2026-11-05T09:30:00Z"}
 
 
@@ -185,4 +187,4 @@ def test_the_own_fetcher_recipe_records_each_file(tmp_path: Path, monkeypatch: p
         "population-be.csv",
         "population-nl.csv",
     ]
-    assert ledger.verify(Path("data/published")) == []
+    assert report_mod.verify(Path("data/published")) == []

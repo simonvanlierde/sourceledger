@@ -23,41 +23,32 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
+from sourceledger.builder import DATAPACKAGE, PROCESSED, Parser, build_sources, parse_source
+from sourceledger.fetcher import USER_AGENT, fetch_sources
 from sourceledger.ledger import (
-    DATAPACKAGE,
     FETCH_LOG,
-    MANIFEST,
-    PROCESSED,
     RAW,
-    USER_AGENT,
     FetchError,
     FetchRecord,
-    Parser,
+    current_record,
+    log_fields,
+    log_version,
+    record_file,
+    revision_records,
+    revisions,
+    without_query,
+)
+from sourceledger.manifest import (
+    MANIFEST,
     Source,
-    _build,
-    _current,
-    _fetch,
-    _fields,
-    _output_name,
-    _record_file,
-    _revision_records,
-    _select,
-    _status_records,
-    _version,
-    _without_query,
-    attribution,
     implemented,
     init,
     load_manifest,
     load_output_format,
-    one_line,
-    parse_source,
-    revisions,
-    status,
-    validate,
-    verify,
+    output_name,
+    select,
 )
-from sourceledger.report import report
+from sourceledger.report import attribution, one_line, report, status, status_records, validate, verify
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -304,7 +295,7 @@ def _main(run: _Run) -> int:
         # A fetch moves each file into place whole, so what finished is kept and logged.
         url = getattr(run.args, "url", None)
         # record logs the URL without its query and fragment, which can hold a signature; so does the rerun.
-        argv = [a.replace(url, _without_query(url)) for a in run.argv] if url else run.argv
+        argv = [a.replace(url, without_query(url)) for a in run.argv] if url else run.argv
         rerun = shlex.join([run.prog, *argv])
         errors = [(f"{run.args.stage} was interrupted", f"what finished before is kept; run `{rerun}` to finish")]
         code = EXIT_INTERRUPTED
@@ -361,7 +352,7 @@ def _sources(run: _Run, ids: list[str] | None = None) -> list[Source]:
     """The manifest's sources; a usage error for an id in `ids` (or --only) it does not have."""
     sources = load_manifest(run.args.manifest)
     try:
-        _select(sources, ids or run.args.only)
+        select(sources, ids or run.args.only)
     except ValueError as error:
         raise _UsageError(str(error)) from error
     return sources
@@ -375,7 +366,7 @@ def _new(record: FetchRecord, before: dict[str, dict[str, Any]]) -> bool:
 def _relogged(record: FetchRecord, before: dict[str, dict[str, Any]]) -> bool:
     """Same bytes, logged again because they came in another way, such as fetched after a record."""
     last = before.get(record.source_id)
-    return last is not None and not _new(record, before) and _version(last) != _version(_fields(record))
+    return last is not None and not _new(record, before) and log_version(last) != log_version(log_fields(record))
 
 
 def _fetch_line(record: FetchRecord, before: dict[str, dict[str, Any]]) -> str:
@@ -387,7 +378,9 @@ def _fetch_line(record: FetchRecord, before: dict[str, dict[str, Any]]) -> str:
 
 
 def _report_records(run: _Run, records: list[FetchRecord], before: dict[str, dict[str, Any]]) -> None:
-    run.result["records"] = [{**_fields(r), "new": _new(r, before), "relogged": _relogged(r, before)} for r in records]
+    run.result["records"] = [
+        {**log_fields(r), "new": _new(r, before), "relogged": _relogged(r, before)} for r in records
+    ]
     for record in records:
         run.say(_fetch_line(record, before))
     if relogged := [r.source_id for r in records if _relogged(r, before)]:
@@ -423,7 +416,7 @@ def _init_stage(run: _Run) -> list[str]:
 def _fetch_stage(run: _Run) -> list[str]:
     sources = _sources(run)
     if run.args.dry_run:
-        todo = implemented(_select(sources, run.args.only))
+        todo = implemented(select(sources, run.args.only))
         run.result["dry_run"] = True
         run.result["would_fetch"] = [{"source_id": s["id"], "url": s["url"]} for s in todo]
         for source in todo:
@@ -432,7 +425,7 @@ def _fetch_stage(run: _Run) -> list[str]:
     before: dict[str, dict[str, Any]] = {}
     done: list[FetchRecord] = []
     try:
-        _fetch(
+        fetch_sources(
             sources, user_agent=run.user_agent, only=run.args.only, before=before, progress=_progress(run), done=done
         )
     finally:  # on a failure or Ctrl-C too: the sources that did fetch
@@ -442,9 +435,9 @@ def _fetch_stage(run: _Run) -> list[str]:
 
 def _record_stage(run: _Run) -> list[str]:
     args = run.args
-    (source,) = _select(_sources(run, [args.id]), [args.id])
+    (source,) = select(_sources(run, [args.id]), [args.id])
     before: dict[str, dict[str, Any]] = {}
-    result = _record_file(
+    result = record_file(
         source,
         args.path,
         retrieved_at=args.retrieved_at,
@@ -460,7 +453,7 @@ def _record_stage(run: _Run) -> list[str]:
     if args.dry_run:
         run.result["dry_run"] = True
         run.result["records"] = [
-            {**_fields(result), "new": _new(result, before), "relogged": _relogged(result, before)}
+            {**log_fields(result), "new": _new(result, before), "relogged": _relogged(result, before)}
         ]
         state = "new" if _new(result, before) else "unchanged"
         what = f"{state}, {result.bytes:,} B, sha256 {result.sha256}"
@@ -474,12 +467,12 @@ def _build_stage(run: _Run) -> list[str]:
     sources = _sources(run)
     output_format = load_output_format(run.args.manifest)
     if run.args.dry_run:
-        for source in implemented(_select(sources, run.args.only)):
-            _current(source, RAW)  # the same refusal build gives for a missing or changed raw file
-            run.say(f"would write {(PROCESSED / _output_name(source, output_format)).as_posix()}")
+        for source in implemented(select(sources, run.args.only)):
+            current_record(source, RAW)  # the same refusal build gives for a missing or changed raw file
+            run.say(f"would write {(PROCESSED / output_name(source, output_format)).as_posix()}")
         run.say(f"would write {(PROCESSED / DATAPACKAGE).as_posix()}")
         return []
-    for out, count in _build(sources, parse=run.parse, only=run.args.only, output_format=output_format):
+    for out, count in build_sources(sources, parse=run.parse, only=run.args.only, output_format=output_format):
         size = f"{out.stat().st_size} bytes" if count is None else f"{count} row{'' if count == 1 else 's'}"
         run.say(f"{size} -> {out.as_posix()}")
     run.say(f"package -> {(PROCESSED / DATAPACKAGE).as_posix()}")
@@ -495,7 +488,7 @@ def _validate_stage(run: _Run) -> list[str]:
 def _status_stage(run: _Run) -> list[str]:
     sources = load_manifest(run.args.manifest)
     if run.args.json:
-        run.result["sources"] = _status_records(sources)
+        run.result["sources"] = status_records(sources)
     else:
         for line in status(sources):
             print(line)
@@ -511,7 +504,7 @@ def _attribution_stage(run: _Run) -> list[str]:
 def _revisions_stage(run: _Run) -> list[str]:
     # Not a problem: a revised source is news, and the tripwire test decides whether it breaks anything.
     if run.args.json:
-        run.result["revisions"] = _revision_records(run.args.path)
+        run.result["revisions"] = revision_records(run.args.path)
     else:
         for line in revisions(run.args.path) or ["no revisions"]:
             print(line)

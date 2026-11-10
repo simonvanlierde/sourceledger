@@ -117,6 +117,8 @@ error-on-warning = false
 addopts = ["-ra", "--strict-config", "--strict-markers", "--import-mode=importlib", "-m", "not live"]
 markers = ["live: calls a real external service; deselected unless run with -m live"]
 testpaths = ["tests"]
+# The test modules import their shared helpers from tests/support.py.
+pythonpath = ["tests"]
 
 # Coverage is opt-in via `pytest --cov` (`just py-cov`), not addopts, because it
 # slows every plain test run. CI's run fails under the fail_under below.

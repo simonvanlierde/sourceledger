@@ -14,8 +14,10 @@ from email.message import Message
 from pathlib import Path
 
 import pytest
+from support import builder_mod, fetcher_mod, report_mod
 
 from sourceledger import ledger
+from sourceledger import manifest as manifest_mod
 from sourceledger.cli import main
 from sourceledger.report import report
 
@@ -58,7 +60,7 @@ def _tables(publisher: str) -> list[tuple[tuple[int, str], tuple[int, str]]]:
     return tables
 
 
-def _report(sources: list[ledger.Source], publisher: str) -> str:
+def _report(sources: list[manifest_mod.Source], publisher: str) -> str:
     """The HTML report, with the fixed port and each table's size and hash as `_tables` gives them."""
     html = report(sources).replace(publisher, FIXED)
     for (size, digest), (fixed_size, fixed_digest) in _tables(publisher):
@@ -124,8 +126,8 @@ vintage = 2024-06-01
 {TERMS}
 """,
     )
-    sources = ledger.load_manifest()
-    ledger.fetch(sources, only=["table", "document"])
+    sources = manifest_mod.load_manifest()
+    fetcher_mod.fetch(sources, only=["table", "document"])
     ledger.record(
         sources[2],
         download,
@@ -133,8 +135,8 @@ vintage = 2024-06-01
         url="https://mirror.example.org/mirror.csv?country=NL",
         parameters={"country": "NL", "year": 2024},
     )
-    ledger.build(sources)
-    assert ledger.validate(sources) == []
+    builder_mod.build(sources)
+    assert report_mod.validate(sources) == []
     golden("full/fetches.jsonl", _text("data/fetches.jsonl", publisher))
     golden("full/table.csv.fetch.json", _text("data/raw/table.csv.fetch.json", publisher))
     golden("full/document.bin.fetch.json", _text("data/raw/document.bin.fetch.json", publisher))
@@ -151,9 +153,9 @@ def test_a_minimal_dataset_matches_its_goldens(
 ) -> None:
     """One source with only the keys a fetch needs: the report says what is not stated."""
     _project(tmp_path, monkeypatch, f'[[source]]\nid = "only"\nstatus = "implemented"\nurl = "{publisher}/data.csv"\n')
-    sources = ledger.load_manifest()
-    ledger.fetch(sources)
-    ledger.build(sources)
+    sources = manifest_mod.load_manifest()
+    fetcher_mod.fetch(sources)
+    builder_mod.build(sources)
     golden("minimal/datapackage.json", _package(publisher))
     golden("minimal/report.html", _report(sources, publisher))
 
@@ -168,9 +170,9 @@ def test_the_parquet_schema_matches_its_golden(
         f'output_format = "parquet"\n\n[[source]]\nid = "table"\nstatus = "implemented"\nurl = "{publisher}/data.csv"\n'
     )
     _project(tmp_path, monkeypatch, manifest)
-    sources = ledger.load_manifest()
-    ledger.fetch(sources)
-    ledger.build(sources, output_format="parquet")
+    sources = manifest_mod.load_manifest()
+    fetcher_mod.fetch(sources)
+    builder_mod.build(sources, output_format="parquet")
     metadata = pq.ParquetFile("data/processed/table.parquet").metadata
     codecs = {metadata.row_group(0).column(i).compression for i in range(metadata.num_columns)}
     golden("parquet/schema.txt", f"{pq.read_schema('data/processed/table.parquet')}\ncompression: {sorted(codecs)}\n")
@@ -204,13 +206,13 @@ def v040(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.mark.usefixtures("v040")
 def test_a_0_4_0_project_validates_and_rebuilds_unchanged() -> None:
     """Records, log and outputs from 0.4.0 read as they are; a rebuild writes the same bytes."""
-    sources = ledger.load_manifest()
-    assert ledger.validate(sources) == []
-    assert ledger.verify(Path("data/processed")) == []
+    sources = manifest_mod.load_manifest()
+    assert report_mod.validate(sources) == []
+    assert report_mod.verify(Path("data/processed")) == []
     assert "Integrity checks passed" in report(sources)
     assert main(["status"]) == 0
     before = {p: p.read_bytes() for p in Path("data/processed").iterdir()}
-    ledger.build(sources)
+    builder_mod.build(sources)
     assert {p: p.read_bytes() for p in Path("data/processed").iterdir()} == before
 
 
@@ -226,8 +228,8 @@ def test_a_fetch_over_a_0_4_0_project_writes_the_0_4_0_format(monkeypatch: pytes
         assert request.get_header("If-none-match") == old["etag"]
         return _Response(body, old["url"], **{"ETag": old["etag"], "Last-Modified": old["last_modified"]})
 
-    monkeypatch.setattr(ledger, "_open", open_)
-    (record,) = ledger.fetch(ledger.load_manifest())
+    monkeypatch.setattr(fetcher_mod, "_open", open_)
+    (record,) = fetcher_mod.fetch(manifest_mod.load_manifest())
     assert record.retrieved_at == "2026-11-05T09:30:00Z"
     new = json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
     assert list(new) == list(old)

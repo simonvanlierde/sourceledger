@@ -1,9 +1,12 @@
 """The command line's contract: per-stage help, error shape, exit codes, JSON, dry runs and progress."""
 
+import gzip
 import hashlib
 import io
 import json
+import logging
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -12,8 +15,24 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from support import (
+    FIXTURE,
+    OUT,
+    RAW,
+    WHEN,
+    _http_error,
+    _manifest,
+    _Response,
+    _run,
+    _serve,
+    _two_sources,
+    builder_mod,
+    fetcher_mod,
+    report_mod,
+)
 
 from sourceledger import cli, ledger
+from sourceledger import manifest as manifest_mod
 from sourceledger.cli import main
 
 TERMS = 'terms = "CC0-1.0"\nterms_url = "https://example.org/terms"\nlicense = "CC0-1.0"\nredistribute = true'
@@ -158,7 +177,7 @@ def test_verify_json_lists_its_problems(tmp_path: Path, capsys: pytest.CaptureFi
     )
     assert main(["verify", str(tmp_path), "--json"]) == 1
     report = json.loads(capsys.readouterr().out)
-    assert report["problems"] == ledger.verify(tmp_path)
+    assert report["problems"] == report_mod.verify(tmp_path)
     assert report["problems"]
 
 
@@ -244,7 +263,7 @@ def test_ctrl_c_exits_130_with_one_error(monkeypatch: pytest.MonkeyPatch, capsys
     def interrupted(*_: object, **__: object) -> list[ledger.FetchRecord]:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(cli, "_fetch", interrupted)
+    monkeypatch.setattr(cli, "fetch_sources", interrupted)
     assert main(["fetch"]) == 130
     assert capsys.readouterr().err == (
         "error: fetch was interrupted\nhelp: what finished before is kept; run `sourceledger fetch` to finish\n"
@@ -263,7 +282,7 @@ def test_an_interrupted_record_prints_no_signed_url(
     def interrupted(*_: object, **__: object) -> None:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(cli, "_record_file", interrupted)
+    monkeypatch.setattr(cli, "record_file", interrupted)
     assert main(["record", "example", str(project), *(part.format(url) for part in form), "--json"]) == 130
     out, err = capsys.readouterr()
     assert "SECRET" not in out + err
@@ -278,16 +297,16 @@ def test_ctrl_c_under_json_prints_the_report_so_far(
     manifest = Path("sources.toml")
     text = manifest.read_text(encoding="utf-8")
     manifest.write_text(text + text.replace('"example"', '"other"'), encoding="utf-8")
-    fetch_one = ledger._fetch_one  # noqa: SLF001
+    fetch_one = fetcher_mod._fetch_one  # noqa: SLF001
     done: list[str] = []
 
-    def once(source: ledger.Source, *args: object) -> ledger.FetchRecord:
+    def once(source: manifest_mod.Source, *args: object) -> ledger.FetchRecord:
         if done:
             raise KeyboardInterrupt
         done.append(source["id"])
         return fetch_one(source, *args)  # ty: ignore[invalid-argument-type]
 
-    monkeypatch.setattr(ledger, "_fetch_one", once)
+    monkeypatch.setattr(fetcher_mod, "_fetch_one", once)
     argv = ["fetch", "--json", "--manifest", "sources.toml", "--only", "example", "--only", "other"]
     assert main(argv) == 130
     captured = capsys.readouterr()
@@ -323,7 +342,7 @@ def test_a_held_lock_has_help_whatever_the_cause(
             msg = "another fetch is already running in data/raw"
             raise OSError(msg) from cause()
 
-        monkeypatch.setattr(cli, "_fetch", locked)
+        monkeypatch.setattr(cli, "fetch_sources", locked)
         assert main(["fetch"]) == 3
         assert capsys.readouterr().err.endswith(
             "help: wait for the other fetch or record to finish, then run this again\n"
@@ -343,7 +362,7 @@ def test_a_toml_syntax_error_names_the_manifest_and_line(capsys: pytest.CaptureF
 @pytest.mark.usefixtures("project")
 @pytest.mark.parametrize(
     ("argv", "error"),
-    [
+    [  # openssl from PATH
         (
             ["verify", "."],
             "error: datapackage.json is missing\nhelp: pass the folder that holds the dataset's datapackage.json\n",
@@ -404,13 +423,13 @@ def test_output_is_utf8_with_lf_in_any_locale(tmp_path: Path) -> None:
     env |= {"PYTHONUTF8": "0", "LC_ALL": "C", "PYTHONCOERCECLOCALE": "0"}
     out = tmp_path / "provenance.html"
     with out.open("wb") as fh:
-        subprocess.run(
+        subprocess.run(  # fixed arguments
             [sys.executable, "-c", "import sys; from sourceledger.cli import main; sys.exit(main())", "report"],
             stdout=fh,
             env=env,
             check=True,
         )
-    html = cli.report(ledger.load_manifest(manifest))
+    html = cli.report(manifest_mod.load_manifest(manifest))
     assert "Łódź ☃ data" in html
     assert out.read_bytes() == html.encode("utf-8")
 
@@ -487,7 +506,7 @@ def test_main_reads_sys_argv_by_default(monkeypatch: pytest.MonkeyPatch, capsys:
     def interrupted(*_: object, **__: object) -> None:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(cli, "_fetch", interrupted)
+    monkeypatch.setattr(cli, "fetch_sources", interrupted)
     monkeypatch.setattr(sys, "argv", ["sourceledger", "fetch"])
     assert main() == 130
     assert "run `sourceledger fetch` to finish" in capsys.readouterr().err
@@ -542,7 +561,7 @@ def test_entry_passes_a_projects_arguments_to_main(monkeypatch: pytest.MonkeyPat
         cli.entry(prog="my-dataset", user_agent="my-dataset/1", manifest=tmp_path / "s.toml")
     assert exit_.value.code == 0
     assert seen == {
-        "parse": ledger.parse_source,
+        "parse": builder_mod.parse_source,
         "prog": "my-dataset",
         "user_agent": "my-dataset/1",
         "manifest": tmp_path / "s.toml",
@@ -558,3 +577,388 @@ def test_a_closed_pipe_ends_the_command_quietly() -> None:
     result = subprocess.run([sys.executable, "-c", code], stdout=write, stderr=subprocess.PIPE, check=False)  # noqa: S603
     os.close(write)
     assert (result.returncode, result.stderr) == (-signal.SIGPIPE, b"")
+
+
+@pytest.mark.parametrize(
+    ("stage", "path", "text", "expected"),
+    [
+        ("fetch", "sources.toml", '[[source]]\nid = "x"\nstatus = "implemented"\n', "no url"),
+        ("fetch", "sources.toml", "[[source]]\nid = 1\n", "needs a string id"),
+        ("build", "data/raw/example.csv.fetch.json", "{}", "not a fetch record"),
+    ],
+)
+@pytest.mark.usefixtures("upstream")
+def test_a_hand_edited_file_is_one_line_and_a_failed_exit(
+    stage: str, path: str, text: str, expected: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Expected mistakes in the manifest or a fetch record are reported, not raised as a traceback."""
+    _run("fetch")
+    Path(path).write_text(text, encoding="utf-8", newline="")
+    capsys.readouterr()
+    assert _run(stage) == [3]
+    err = capsys.readouterr().err
+    assert expected in err
+    assert len(err.strip().splitlines()) == 1
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_missing_input_is_one_line_and_a_failed_exit(capsys: pytest.CaptureFixture[str]) -> None:
+    """Building before fetching names the missing file instead of printing a traceback."""
+    assert _run("build") == [3]
+    err = capsys.readouterr().err
+    assert "example.csv.fetch.json is missing" in err
+    assert len(err.strip().splitlines()) == 1
+
+
+def test_a_failed_download_is_one_line_and_a_failed_exit(
+    upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dead URL is reported like any other expected failure, not as a traceback."""
+    _manifest(tmp_path, upstream.with_name("gone.csv").as_uri())
+    assert _run("fetch") == [3]
+    err = capsys.readouterr().err
+    assert err.startswith("error: example: fetching ")
+    assert len(err.strip().splitlines()) == 1  # no help: nothing else was fetched
+
+
+def test_only_fetches_builds_and_validates_the_named_sources(
+    upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The other sources are left alone, and the package keeps their entries from the last build."""
+    other = upstream.with_name("b.csv")
+    other.write_text(FIXTURE, encoding="utf-8", newline="")
+    _two_sources(tmp_path, upstream.as_uri(), other.as_uri())
+    assert main(["fetch", "--only", "a"]) == 0
+    assert Path("data/raw/a.csv").exists()
+    assert not Path("data/raw/b.csv").exists()
+    assert main(["build", "--only", "a"]) == 0
+    assert main(["validate", "--only", "a"]) == 0
+    capsys.readouterr()
+    assert main(["validate"]) == 1
+    out, err = capsys.readouterr()
+    assert "not the implemented sources" in out
+    assert err == ""
+
+    assert _run("fetch", "build") == [0, 0]
+    package = Path("data/processed/datapackage.json")
+    b_entry = json.loads(package.read_text(encoding="utf-8"))["resources"][1]
+    upstream.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8", newline="")
+    assert main(["fetch", "--only", "a", "--only", "a"]) == 0
+    assert main(["build", "--only", "a"]) == 0
+    assert json.loads(package.read_text(encoding="utf-8"))["resources"][1] == b_entry
+    assert _run("validate") == [0]
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["fetch", "--only", "zz"], "error: ids ['zz'] are not in sources.toml"),
+        (["build", "--only", "zz"], "error: ids ['zz'] are not in sources.toml"),
+        (["validate", "--only", "zz"], "error: ids ['zz'] are not in sources.toml"),
+    ],
+)
+@pytest.mark.usefixtures("upstream")
+def test_only_refuses_an_unknown_id(argv: list[str], expected: str, capsys: pytest.CaptureFixture[str]) -> None:
+    """A mistyped id is a usage error before anything is written, instead of quietly doing nothing."""
+    assert main(argv) == 2
+    assert capsys.readouterr().err == expected + "\nhelp: run `sourceledger status` to list the source ids\n"
+    assert not Path("data").exists()
+
+
+@pytest.mark.usefixtures("upstream")
+def test_only_and_paths_go_with_their_stages(capsys: pytest.CaptureFixture[str]) -> None:
+    """--only is for fetch, build and validate; verify, like revisions, needs its path."""
+    with pytest.raises(SystemExit):
+        main(["status", "--only", "example"])
+    assert "error: unrecognized arguments: --only example" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        main(["verify"])
+    assert "error: the following arguments are required: DIR" in capsys.readouterr().err
+
+
+def test_an_unknown_stage_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
+    """Not a silent validate: argparse names the program and the choices."""
+    with pytest.raises(SystemExit) as exit_:
+        main(["publish"])
+    assert exit_.value.code == 2
+    assert capsys.readouterr().err.startswith("usage: sourceledger ")
+
+
+def test_a_cut_off_gzip_fails_build_with_one_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A truncated download that still starts like a gzip is a source error, not a traceback."""
+    upstream = tmp_path / "upstream" / "example.csv.gz"
+    upstream.parent.mkdir()
+    upstream.write_bytes(gzip.compress(FIXTURE.encode() * 50)[:40])
+    _manifest(tmp_path, upstream.as_uri())
+    monkeypatch.chdir(tmp_path)
+    assert _run("fetch") == [0]
+    capsys.readouterr()
+    assert _run("build") == [3]
+    err = capsys.readouterr().err
+    assert err.startswith("error: example: not a readable gzip file (")
+    assert err.count("\n") == 1
+
+
+@pytest.mark.usefixtures("upstream")
+def test_warnings_name_the_program(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """A retry warning on stderr starts with the program's name, as the CLI's other messages do."""
+    monkeypatch.setattr(logging.root, "handlers", [])
+    _serve(monkeypatch, _http_error(503), _Response(FIXTURE.encode()))
+    try:
+        assert main(["fetch"], prog="my-dataset") == 0
+    finally:
+        for handler in logging.root.handlers:
+            handler.close()
+    assert capsys.readouterr().err.startswith("my-dataset: example: attempt 1 of 4 failed")
+
+
+@pytest.mark.usefixtures("upstream")
+def test_json_status_keeps_types_and_full_hashes(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["status", "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report == {
+        "schema_version": 1,
+        "stage": "status",
+        "errors": [],
+        "sources": [
+            {
+                "source_id": "example",
+                "status": "implemented",
+                "vintage": "not stated",
+                "retrieved_at": None,
+                "recorded_at": None,
+                "sha256": None,
+                "license": "CC0-1.0",
+                "redistribute": True,
+            },
+            {
+                "source_id": "later",
+                "status": "unimplemented",
+                "vintage": "not stated",
+                "retrieved_at": None,
+                "recorded_at": None,
+                "sha256": None,
+                "license": None,
+                "redistribute": None,
+            },
+        ],
+    }
+    assert _run("fetch") == [0]
+    capsys.readouterr()
+    assert main(["status", "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    record = json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
+    assert report["sources"][0]["sha256"] == record["sha256"]
+    assert report["sources"][0]["retrieved_at"] == record["retrieved_at"]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["revisions", "before.jsonl", "--json"],
+        ["revisions", "--json", "before.jsonl"],
+    ],
+)
+def test_json_revisions_describes_changed_bytes(
+    upstream: Path, capsys: pytest.CaptureFixture[str], args: list[str]
+) -> None:
+    assert _run("fetch") == [0]
+    before = Path("before.jsonl")
+    shutil.copyfile(LOG, before)
+    old = json.loads(before.read_text(encoding="utf-8"))
+    upstream.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8")
+    assert _run("fetch") == [0]
+    new = json.loads(LOG.read_text(encoding="utf-8").splitlines()[-1])
+    capsys.readouterr()
+    assert main(args) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "schema_version": 1,
+        "stage": "revisions",
+        "errors": [],
+        "revisions": [{"source_id": "example", "before_sha256": old["sha256"], "after": new}],
+    }
+    assert main(["revisions", str(LOG), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["revisions"] == []
+
+
+@pytest.mark.parametrize("stage", ["status", "validate", "revisions"])
+def test_json_runtime_errors_are_one_document(
+    stage: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    args = [stage, "--json"] + (["missing.jsonl"] if stage == "revisions" else [])
+    assert main(args) == 3
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    message, help_ = (
+        ("missing.jsonl is missing", "pass an earlier copy of data/fetches.jsonl")
+        if stage == "revisions"
+        else ("sources.toml is missing", "run `sourceledger init` to write one, or pass --manifest PATH")
+    )
+    assert json.loads(captured.out) == {
+        "schema_version": 1,
+        "stage": stage,
+        "errors": [{"message": message, "help": help_}],
+    }
+
+
+@pytest.mark.parametrize("stage", ["init", "build", "attribution", "report"])
+def test_json_is_rejected_for_unsupported_stages(stage: str, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit, match="2"):
+        main([stage, "--json"])
+    assert "error: unrecognized arguments: --json" in capsys.readouterr().err
+
+
+@pytest.mark.usefixtures("upstream")
+def test_json_reports_honor_manifest_and_report_bad_input(capsys: pytest.CaptureFixture[str]) -> None:
+    Path("sources.toml").rename("alternate.toml")
+    assert main(["status", "--json", "--manifest", "alternate.toml"]) == 0
+    assert json.loads(capsys.readouterr().out)["sources"][0]["source_id"] == "example"
+    assert main(["validate", "--json", "--manifest", "alternate.toml", "--only", "missing"]) == 2
+    assert "not in sources.toml" in json.loads(capsys.readouterr().out)["errors"][0]["message"]
+    Path("alternate.toml").write_text("bad toml [", encoding="utf-8")
+    assert main(["status", "--json", "--manifest", "alternate.toml"]) == 3
+    assert json.loads(capsys.readouterr().out)["errors"]
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("name", [[], {}, None])
+def test_json_validate_reports_a_malformed_resource_name(capsys: pytest.CaptureFixture[str], name: object) -> None:
+    """A damaged package remains a validation report, without an uncaught TypeError."""
+    assert main(["fetch"]) == 0
+    assert main(["build"]) == 0
+    path = Path("data/processed/datapackage.json")
+    package = json.loads(path.read_text(encoding="utf-8"))
+    package["resources"][0]["name"] = name
+    path.write_text(json.dumps(package), encoding="utf-8")
+    capsys.readouterr()
+    assert main(["validate", "--json"]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["problems"]
+
+
+@pytest.mark.parametrize("count", [0, 10, 100])
+def test_cli_build_does_not_reopen_outputs_to_count_rows(
+    count: int, upstream: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    upstream.write_text("value,note\n" + '1,"two\nlines"\n' * count, encoding="utf-8", newline="")
+    assert main(["fetch"]) == 0
+    capsys.readouterr()
+    opened: list[str] = []
+    original_open = Path.open
+
+    def tracking_open(path: Path, mode: str = "r", *args: object, **kwargs: object):  # noqa: ANN202
+        # Keep the probe on the real writer and descriptor paths.
+        if path == OUT:
+            opened.append(mode)
+        return original_open(path, mode, *args, **kwargs)  # ty: ignore[no-matching-overload]
+
+    monkeypatch.setattr(Path, "open", tracking_open)
+    assert main(["build"]) == 0
+    assert f"{count} rows -> {OUT.as_posix()}" in capsys.readouterr().out
+    assert opened == ["rb"]  # the descriptor hashes the completed output once
+
+
+def test_the_record_stage_records_one_file(upstream: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """`record ID PATH` prints a fetch-style line and passes every option on."""
+    argv = [
+        "record", "example", str(upstream), "--retrieved-at", WHEN,
+        "--parameter", "country=NL", "--parameter", "query=a=b", "--last-modified", "x",
+    ]  # fmt: skip
+    assert main(argv) == 0
+    assert capsys.readouterr().out.startswith("example  new")
+    line = json.loads(LOG.read_text(encoding="utf-8"))
+    assert (line["parameters"], line["last_modified"]) == ({"country": "NL", "query": "a=b"}, "x")
+    assert line["retrieved_at"] == "2026-11-05T09:30:00Z"
+    assert main(["record", "example", str(upstream)]) == 0
+    assert capsys.readouterr().out.startswith("example  relogged")
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["record", "example"], "error: the following arguments are required: PATH"),
+        (["fetch", "extra"], "error: unrecognized arguments: extra"),
+        (["fetch", "--url", "x"], "error: unrecognized arguments: --url x"),
+        (["status", "--parameter", "a=b"], "error: unrecognized arguments: --parameter a=b"),
+        (["record", "example", "f", "--parameter", "novalue"], "--parameter takes NAME=VALUE, not 'novalue'"),
+        (["record", "example", "f", "--parameter", "=v"], "--parameter takes NAME=VALUE, not '=v'"),
+        (["record", "example", "f", "--parameter", "=a=b"], "--parameter takes NAME=VALUE, not '=a=b'"),
+        (["record", "example", "f", "--parameter", "q=a=b", "--parameter", "q=c"], "--parameter names ['q']"),
+        (
+            ["record", "example", "f", "--parameter", "a=1", "--parameter", "a=2"],
+            "--parameter names ['a'] more than once",
+        ),
+    ],
+)
+@pytest.mark.usefixtures("upstream")
+def test_the_record_options_are_checked(argv: list[str], message: str, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exit_:
+        main(argv)
+    assert exit_.value.code == 2
+    assert message in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("argv", "code", "message"),
+    [
+        (
+            ["record", "missing", "f"],
+            2,
+            "error: ids ['missing'] are not in sources.toml\nhelp: run `sourceledger status` to list the source ids",
+        ),
+        (["record", "later", "f"], 3, "error: later: only an implemented source can be recorded"),
+    ],
+)
+@pytest.mark.usefixtures("upstream")
+def test_the_record_stage_reports_a_failure_in_one_line(
+    argv: list[str], code: int, message: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(argv) == code
+    assert capsys.readouterr().err == message + "\n"
+
+
+def test_the_record_stage_passes_url_and_validators_on(upstream: Path) -> None:
+    """--etag, --last-modified and --url reach the record; left out, they stay empty strings."""
+    assert main(["record", "example", str(upstream)]) == 0
+    line = json.loads(LOG.read_text(encoding="utf-8"))
+    assert (line["etag"], line["last_modified"]) == ("", "")
+    assert main(["record", "example", str(upstream), "--etag", '"e1"', "--last-modified", "lm"]) == 0
+    assert json.loads(Path(f"{RAW}.fetch.json").read_text(encoding="utf-8"))["etag"] == '"e1"'
+    assert main(["record", "example", str(upstream), "--url", "https://mirror.example.org/x.csv"]) == 0
+    assert json.loads(Path(f"{RAW}.fetch.json").read_text(encoding="utf-8"))["final_url"] == (
+        "https://mirror.example.org/x.csv"
+    )
+
+
+def test_version_names_the_package(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exit_:
+        main(["--version"])
+    assert exit_.value.code == 0
+    assert capsys.readouterr().out.startswith("sourceledger ")
+
+
+@pytest.mark.parametrize(("count", "text"), [(0, "0 problems"), (1, "1 problem"), (2, "2 problems")])
+def test_a_problem_count_reads_as_english(count: int, text: str) -> None:
+    from sourceledger.cli import _problems  # noqa: PLC0415  # private, tested alone
+
+    assert _problems(count) == text
+
+
+def test_a_fetch_after_a_record_of_the_same_bytes_says_to_rebuild(
+    upstream: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The fetch replaces the record in the log, so the outputs built from the record are stale."""
+    assert main(["record", "example", str(upstream)]) == 0
+    assert _run("build", "validate") == [0, 0]
+    capsys.readouterr()
+    assert main(["fetch"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("example  relogged")
+    assert "run build: the outputs of example name the earlier log line" in out
+    assert main(["fetch", "--json"]) == 0
+    (fetched,) = json.loads(capsys.readouterr().out)["records"]
+    assert (fetched["new"], fetched["relogged"]) == (False, False)
+    assert _run("validate", "build", "validate") == [1, 0, 0]

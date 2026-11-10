@@ -12,8 +12,11 @@ import pyarrow.parquet as pq
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from support import builder_mod, report_mod
 
+import sourceledger
 from sourceledger import ledger
+from sourceledger import manifest as manifest_mod
 from sourceledger.cli import main
 
 
@@ -48,7 +51,7 @@ def test_parquet_build_and_validate(project: Path, capsys: pytest.CaptureFixture
     assert table.schema == dict.fromkeys(
         ["source_id", "source_url", "retrieved_at", "vintage", "raw_sha256", "code", "value"], pl.String
     )
-    rows = list(ledger.read_output(out))
+    rows = list(builder_mod.read_output(out))
     assert [(row["code"], row["value"]) for row in rows] == [("001", "1.10"), ("002", "")]
     assert {row["source_id"] for row in rows} == {"example"}
     package_path = Path("data/processed/datapackage.json")
@@ -81,7 +84,7 @@ def test_parquet_damage_is_a_validation_problem(damage: bytes | None) -> None:
     else:
         out.write_bytes(damage)
         with pytest.raises(ValueError, match=r"data/processed/example.parquet: not a readable Parquet table"):
-            list(ledger.read_output(out))
+            list(builder_mod.read_output(out))
     assert main(["validate", "--json"]) == 1
 
 
@@ -91,18 +94,18 @@ def test_unknown_output_format_fails(value: str) -> None:
     manifest = Path("sources.toml")
     manifest.write_text(manifest.read_text(encoding="utf-8").replace('"parquet"', value), encoding="utf-8", newline="")
     with pytest.raises(ValueError, match=r"^output_format must be 'csv' or 'parquet'$"):
-        ledger.load_manifest()
+        manifest_mod.load_manifest()
 
 
 @pytest.mark.usefixtures("project")
 def test_the_library_reads_the_projects_output_format() -> None:
     """The publish-when-valid recipe builds and validates in the project's format, not CSV."""
     assert main(["fetch"]) == 0
-    sources, output_format = ledger.load_manifest(), ledger.load_output_format()
+    sources, output_format = sourceledger.load_manifest(), sourceledger.load_output_format()
     assert output_format == "parquet"
-    assert all(p.suffix in {".parquet", ".json"} for p in ledger.build(sources, output_format=output_format))
-    assert ledger.validate(sources, output_format=output_format) == []
-    problems = ledger.validate(sources)
+    assert all(p.suffix in {".parquet", ".json"} for p in sourceledger.build(sources, output_format=output_format))
+    assert sourceledger.validate(sources, output_format=output_format) == []
+    problems = sourceledger.validate(sources)
     assert problems
     assert all("output_format is 'csv'; build again" in p for p in problems if ".parquet:" in p)
     assert not any("delete it" in p for p in problems)
@@ -117,7 +120,7 @@ def test_missing_extra_has_an_install_hint(monkeypatch: pytest.MonkeyPatch) -> N
         "or uv add 'sourceledger[parquet]' (project)"
     )
     with pytest.raises(ValueError, match="Parquet needs the parquet extra") as caught:
-        ledger.build(ledger.load_manifest(), output_format="parquet")
+        builder_mod.build(manifest_mod.load_manifest(), output_format="parquet")
     assert str(caught.value) == hint
     assert not Path("data/processed/example.parquet").exists()
 
@@ -130,8 +133,8 @@ def test_parquet_checks_the_package_hash_even_when_provenance_is_current() -> No
     expected = (
         "data/processed/datapackage.json describes an earlier build of data/processed/example.parquet; re-run build"
     )
-    assert ledger.validate(ledger.load_manifest(), output_format="parquet") == [expected]
-    assert ledger.validate(ledger.load_manifest(), output_format="parquet", only=["example"]) == [expected]
+    assert report_mod.validate(manifest_mod.load_manifest(), output_format="parquet") == [expected]
+    assert report_mod.validate(manifest_mod.load_manifest(), output_format="parquet", only=["example"]) == [expected]
 
 
 def test_core_import_keeps_parquet_backends_unloaded() -> None:
@@ -144,16 +147,16 @@ def test_core_import_keeps_parquet_backends_unloaded() -> None:
 @pytest.mark.usefixtures("project")
 def test_parquet_partial_build_and_file_sources() -> None:
     assert main(["fetch"]) == main(["build"]) == 0
-    sources = ledger.load_manifest()
+    sources = manifest_mod.load_manifest()
     package = Path("data/processed/datapackage.json")
     before = package.read_bytes()
-    assert ledger.build(sources, only=[], output_format="parquet") == []
+    assert builder_mod.build(sources, only=[], output_format="parquet") == []
     assert package.read_bytes() == before
-    assert ledger.validate(sources, output_format="parquet") == []
+    assert report_mod.validate(sources, output_format="parquet") == []
     sources[0]["format"] = "file"
-    ledger.build(sources, processed=Path("files"), output_format="parquet")
+    builder_mod.build(sources, processed=Path("files"), output_format="parquet")
     assert Path("files/example.csv").read_bytes() == Path("input.csv").read_bytes()
-    assert ledger.validate(sources, processed=Path("files"), output_format="parquet") == []
+    assert report_mod.validate(sources, processed=Path("files"), output_format="parquet") == []
 
 
 @pytest.mark.usefixtures("project")
@@ -162,7 +165,7 @@ def test_parquet_empty_table_has_an_explicit_schema() -> None:
     assert main(["fetch"]) == main(["build"]) == 0
     frame = pl.read_parquet("data/processed/example.parquet")
     assert frame.height == 0
-    assert ledger._scan(Path("data/processed/example.parquet"), {"source_id": "example"}) == (False, False)  # noqa: SLF001
+    assert report_mod._scan(Path("data/processed/example.parquet"), {"source_id": "example"}) == (False, False)  # noqa: SLF001
     assert frame.schema == dict.fromkeys(
         ["source_id", "source_url", "retrieved_at", "vintage", "raw_sha256", "code", "value"], pl.String
     )
@@ -173,16 +176,16 @@ def test_parquet_refuses_extra_row_fields_without_overwriting(tmp_path: Path) ->
     out = tmp_path / "table.parquet"
     out.write_bytes(b"previous build")
     with pytest.raises(ValueError, match="not in the header"):
-        ledger._write_rows({"id": "test"}, out, {}, ["x"], [{"x": "1", "extra": "2"}])  # noqa: SLF001
+        builder_mod._write_rows({"id": "test"}, out, {}, ["x"], [{"x": "1", "extra": "2"}])  # noqa: SLF001
     assert out.read_bytes() == b"previous build"
 
 
 def test_parquet_fills_missing_cells_and_protects_the_stamp(tmp_path: Path) -> None:
     out = tmp_path / "table.parquet"
-    ledger._write_rows(  # noqa: SLF001
+    builder_mod._write_rows(  # noqa: SLF001
         {"id": "test"}, out, {"source_id": "test"}, ["x"], [{}, {"x": "1", "source_id": "wrong"}]
     )
-    assert list(ledger.read_output(out)) == [{"source_id": "test", "x": ""}, {"source_id": "test", "x": "1"}]
+    assert list(builder_mod.read_output(out)) == [{"source_id": "test", "x": ""}, {"source_id": "test", "x": "1"}]
 
 
 def test_parquet_does_not_keep_all_python_rows_beside_the_frame(tmp_path: Path) -> None:
@@ -190,7 +193,7 @@ def test_parquet_does_not_keep_all_python_rows_beside_the_frame(tmp_path: Path) 
     rows = ({"code": str(i), "value": "001.2300", "description": "test", "category": "group"} for i in range(300_000))
     tracemalloc.start()
     try:
-        ledger._write_rows(  # noqa: SLF001
+        builder_mod._write_rows(  # noqa: SLF001
             {"id": "test"}, tmp_path / "table.parquet", stamp, ["code", "value", "description", "category"], rows
         )
         peak = tracemalloc.get_traced_memory()[1]
@@ -209,7 +212,7 @@ def test_output_format_schema_matches_manifest(tmp_path: Path, output_format: ob
     schema = json.loads(Path(ledger.__file__).with_name("sources.schema.json").read_text())
     accepted = jsonschema.Draft202012Validator(schema).is_valid({"output_format": output_format})
     try:
-        ledger.load_manifest(manifest)
+        manifest_mod.load_manifest(manifest)
     except ValueError:
         assert not accepted
     else:
@@ -221,8 +224,8 @@ def test_output_format_schema_matches_manifest(tmp_path: Path, output_format: ob
 def test_parquet_round_trips_text(values: list[str], tmp_path_factory: pytest.TempPathFactory) -> None:
     out = tmp_path_factory.mktemp("parquet") / "table.parquet"
     rows = [{"value": value} for value in values]
-    ledger._write_rows({"id": "test"}, out, {"source_id": "test"}, ["value"], rows)  # noqa: SLF001
-    assert list(ledger.read_output(out)) == [{"source_id": "test", **row} for row in rows]
+    builder_mod._write_rows({"id": "test"}, out, {"source_id": "test"}, ["value"], rows)  # noqa: SLF001
+    assert list(builder_mod.read_output(out)) == [{"source_id": "test", **row} for row in rows]
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="VmHWM is a Linux process counter")
@@ -234,14 +237,17 @@ def test_parquet_native_memory_is_batched(tmp_path: Path, operation: str) -> Non
         code = """
 import sys
 from pathlib import Path
-from sourceledger import ledger
+import importlib
+builder_mod = importlib.import_module("sourceledger.builder")
+report_mod = importlib.import_module("sourceledger.report")
 size, out, operation = int(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
 stamp = dict.fromkeys(["source_id", "source_url", "retrieved_at", "vintage", "raw_sha256"], "test")
 if operation == "write":
     rows = (dict(code=str(i), value="001.2300", description="test description", category="group") for i in range(size))
-    assert ledger._write_rows({"id": "test"}, out, stamp, ["code", "value", "description", "category"], rows) == size
+    written = builder_mod._write_rows({"id": "test"}, out, stamp, ["code", "value", "description", "category"], rows)
+    assert written == size
 else:
-    assert ledger._scan(out, stamp) == (True, False)
+    assert report_mod._scan(out, stamp) == (True, False)
 print(next(line.split()[1] for line in Path("/proc/self/status").read_text().splitlines() if line.startswith("VmHWM:")))
 """
         command = [sys.executable, "-c", code, str(size), str(out)]
@@ -262,13 +268,13 @@ def test_parquet_batches_preserve_order_values_and_determinism(tmp_path: Path) -
     expected = [{"source_id": "test", "value": values[i % len(values)]} for i in range(20_001)]
     snapshots = []
     for _ in range(2):
-        count = ledger._write_rows({"id": "test"}, out, {"source_id": "test"}, ["value"], iter(expected))  # noqa: SLF001
+        count = builder_mod._write_rows({"id": "test"}, out, {"source_id": "test"}, ["value"], iter(expected))  # noqa: SLF001
         assert count == len(expected)
-        assert list(ledger.read_output(out)) == expected
+        assert list(builder_mod.read_output(out)) == expected
         assert pl.read_parquet(out).to_dicts() == expected
         metadata = pq.read_metadata(out)
         assert [metadata.row_group(i).num_rows for i in range(metadata.num_row_groups)] == [10_000, 10_000, 1]
-        assert [batch.num_rows for batch in ledger._parquet_batches(out)] == [10_000, 10_000, 1]  # noqa: SLF001
+        assert [batch.num_rows for batch in builder_mod._parquet_batches(out)] == [10_000, 10_000, 1]  # noqa: SLF001
         snapshots.append(out.read_bytes())
     assert snapshots[0] == snapshots[1]
 
@@ -278,7 +284,7 @@ def test_parquet_late_row_error_cleans_temporary_output(tmp_path: Path) -> None:
     out.write_bytes(b"previous build")
     rows = ({"x": "1"} if i < 10_000 else {"extra": "2"} for i in range(10_001))
     with pytest.raises(ValueError, match="not in the header"):
-        ledger._write_rows({"id": "test"}, out, {}, ["x"], rows)  # noqa: SLF001
+        builder_mod._write_rows({"id": "test"}, out, {}, ["x"], rows)  # noqa: SLF001
     assert out.read_bytes() == b"previous build"
     assert list(tmp_path.iterdir()) == [out]
 
@@ -297,14 +303,14 @@ def test_parquet_validation_reads_damaged_non_provenance_pages(tmp_path: Path, p
         target.write(b"\xff" * column.total_compressed_size)
     # Even when provenance is already stale, later ordinary columns must still decode.
     with pytest.raises(ValueError, match="not a readable Parquet table"):
-        ledger._scan(out, {"source_id": "test"})  # noqa: SLF001
+        report_mod._scan(out, {"source_id": "test"})  # noqa: SLF001
 
 
 @pytest.mark.parametrize("columns", [{"value": ["1"]}, {"source_id": [None], "value": ["1"]}])
 def test_parquet_missing_or_null_provenance_is_stale(tmp_path: Path, columns: dict[str, list[str | None]]) -> None:
     out = tmp_path / "table.parquet"
     pl.DataFrame(columns).write_parquet(out)
-    assert ledger._scan(out, {"source_id": "test"}) == (True, True)  # noqa: SLF001
+    assert report_mod._scan(out, {"source_id": "test"}) == (True, True)  # noqa: SLF001
 
 
 def test_parquet_validation_rejects_invalid_utf8_after_stale_batch(tmp_path: Path) -> None:
@@ -317,7 +323,7 @@ def test_parquet_validation_rejects_invalid_utf8_after_stale_batch(tmp_path: Pat
         invalid = pa.array([b"\xff"]).cast(pa.string(), safe=False)
         writer.write_table(pa.Table.from_arrays([pa.array(["test"]), invalid], schema=schema))
     with pytest.raises(ValueError, match="not a readable Parquet table"):
-        ledger._scan(out, {"source_id": "test"})  # noqa: SLF001
+        report_mod._scan(out, {"source_id": "test"})  # noqa: SLF001
 
 
 @pytest.mark.usefixtures("project")
@@ -326,16 +332,16 @@ def test_parquet_writes_parser_cells_as_csv_does(output_format: str) -> None:
     """A parser returning None or numbers gets the same cells whichever format is written."""
     assert main(["fetch"]) == 0
 
-    def loose(_source: ledger.Source, _data: bytes) -> tuple[list[str], list[dict]]:
+    def loose(_source: manifest_mod.Source, _data: bytes) -> tuple[list[str], list[dict]]:
         return ["code", "value"], [{"code": 7, "value": None}]
 
-    sources = ledger.load_manifest()
-    ledger.build(sources, parse=loose, output_format=output_format)
-    row = next(ledger.read_output(Path(f"data/processed/example.{output_format}")))
+    sources = manifest_mod.load_manifest()
+    builder_mod.build(sources, parse=loose, output_format=output_format)
+    row = next(builder_mod.read_output(Path(f"data/processed/example.{output_format}")))
     assert (row["code"], row["value"]) == ("7", "")
 
 
 def test_parquet_refuses_rows_of_unequal_width(tmp_path: Path) -> None:
     """A row longer than the others is an error, not cells dropped silently."""
     with pytest.raises(ValueError, match="zip"):
-        ledger._write_cells({"id": "x"}, tmp_path / "x.parquet", {}, ["a"], [["1"], ["2", "3"]])  # noqa: SLF001
+        builder_mod._write_cells({"id": "x"}, tmp_path / "x.parquet", {}, ["a"], [["1"], ["2", "3"]])  # noqa: SLF001

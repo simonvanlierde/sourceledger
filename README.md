@@ -110,8 +110,8 @@ cheap. Older fetch logs stay readable. A record written by `record()`, or with
 
 ### Roadmap
 
-- A `release` stage that writes the metadata for a dataset release (RO-Crate, Croissant,
-  CodeMeta, Zenodo and a `SHA256SUMS` file), checks each with its official validator, and
+- A `release` stage that writes the metadata for a dataset release (RO-Crate and Croissant
+  when asked for, and a `SHA256SUMS` file), checks each with its official validator, and
   keeps the data of `redistribute = false` sources out of the release.
 - An error class per kind of failure, under `ValueError` and `OSError`, once the release
   stage needs to tell them apart. This will not break code that catches the base classes.
