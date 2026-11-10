@@ -69,6 +69,7 @@ _SHA256 = re.compile(r"[0-9a-f]{64}")
 _ENV_REF = re.compile(r"env:([A-Za-z_][A-Za-z0-9_]*)")
 # C0 except tab, LF and CR, then DEL and C1.
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+_USERINFO_END = "@"  # in a url, ends the user name or password
 
 
 # Headers a manifest may not set: the fetch's own.
@@ -149,7 +150,7 @@ def _check_placement(source: Source) -> None:
 
 def _check_text(source: Source) -> None:
     """Refuse a control character: manifest text reaches the terminal, where an ESC could rewrite the screen."""
-    if any(_CONTROL.search(text) for text in _texts(source)):
+    if _CONTROL.search("\n".join(_texts(source))):  # one search: a line break is allowed text
         msg = f"{source['id']}: sources.toml text may not hold a control character other than a tab or line break"
         raise ValueError(msg)
 
@@ -174,7 +175,8 @@ def printable(text: str) -> str:
 
 def _check_url(source: Source) -> None:
     """Refuse a user name or password in the url: the url is logged and published with the dataset."""
-    if isinstance(url := source.get("url"), str) and urlsplit(url).username is not None:
+    # The "@" first: urlsplit on every url is most of a large manifest's load time.
+    if isinstance(url := source.get("url"), str) and _USERINFO_END in url and urlsplit(url).username is not None:
         msg = (
             f"{source['id']}: the url in sources.toml holds a user name or password; "
             'send it in a header from an environment variable, as headers = { Authorization = "env:NAME" }'
