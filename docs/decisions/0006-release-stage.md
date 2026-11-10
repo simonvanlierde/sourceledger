@@ -88,7 +88,9 @@ against a version that copies everything.
 
 **Error classes.** `ReleaseError(ValueError)` for refused input and findings, with
 `RestrictedSourceError` (a restricted file reached the folder) and `ValidatorFailed` (a validator
-reported findings), and `ValidatorMissing(OSError)` (the extra is not installed, exit 3). Code
+reported findings), and `ValidatorMissing(OSError)` (the extra is not installed, exit 3), and `ValidatorCouldNotRun(OSError)`
+(a validator stopped without findings, such as offline or past its 600 s limit, exit 3), so a
+validator that never checked is not reported as a problem with the data. Code
 that catches the base classes still works. Other kinds wait until a second caller needs them.
 
 ## Out of scope
