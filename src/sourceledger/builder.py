@@ -435,8 +435,8 @@ def _build_one(source: Source, raw: Path, out: Path, parse: Parser) -> tuple[Fet
                 if compressed:
                     stream.close()
         else:
-            # NOTE: other formats and custom parsers hold the whole file and its rows
-            # in memory, as a Parser returns lists; stream them too once such sources outgrow memory.
+            # NOTE: other formats and custom parsers hold the whole file in memory, and the
+            # built-in ones their rows too; stream them once such sources outgrow memory.
             fh.seek(0)
             columns, rows = parse(source, fh.read())
             count = _write_rows(source, out, stamp, columns, rows)
@@ -531,7 +531,7 @@ def _package_name() -> str:
             project = tomllib.load(fh).get("project")
     except FileNotFoundError:
         project = None
-    except tomllib.TOMLDecodeError as error:
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
         msg = f"pyproject.toml: {error}; fix it, or set name in sources.toml"
         raise ValueError(msg) from None
     named = project.get("name") if isinstance(project, dict) else None

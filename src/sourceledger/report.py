@@ -61,6 +61,7 @@ def validate(
     processed: Path = PROCESSED,
     only: Collection[str] | None = None,
     output_format: str = "csv",
+    name: str | None = None,
 ) -> list[str]:
     """Check the published output against the manifest and the fetch records, and return one string per problem.
 
@@ -68,6 +69,8 @@ def validate(
     output: files no source owns, and the package's list of sources. Raises ValueError for an
     id the manifest does not have.
     `output_format` must match the build: CSV by default, or Parquet (needs the parquet extra).
+    `name`, the package name sources.toml sets, must be the one datapackage.json has; None skips
+    that check, since the fallback names differ between checkouts.
     """
     _check_output_format(output_format)
     selected = select(sources, only)
@@ -99,7 +102,7 @@ def validate(
             continue
         problems += _terms_problems(source)
         problems += _output_problems(source, raw, out, listed.get(sid))
-    return problems + _package_problems(sources, processed, only, output_format)
+    return problems + _package_problems(sources, processed, only, output_format, name)
 
 
 def _built_from(stamp: dict[str, Any], fields: dict[str, Any]) -> bool:
@@ -171,7 +174,7 @@ def _scan(out: Path, stamp: dict[str, str]) -> tuple[bool, bool]:
 
 
 def _package_problems(
-    sources: list[Source], processed: Path, only: Collection[str] | None, output_format: str
+    sources: list[Source], processed: Path, only: Collection[str] | None, output_format: str, name: str | None
 ) -> list[str]:
     """Whether datapackage.json lists exactly the implemented sources, each with its output's current hash.
 
@@ -187,6 +190,8 @@ def _package_problems(
     except ValueError as error:
         return [f"{path.as_posix()} is not JSON ({error}); re-run build"]
     listed = _by_name(package)
+    if name is not None and isinstance(package, dict) and package.get("name") != name:
+        return [f"{path.as_posix()} names the package {package.get('name')!r}, not {name!r}; re-run build"]
     if only is None and listed.keys() != expected.keys():
         names = sorted(map(str, listed))
         return [f"{path.as_posix()} lists {names}, not the implemented sources {sorted(expected)}; re-run build"]

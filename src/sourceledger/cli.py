@@ -205,7 +205,6 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
     sub["release"].add_argument(
         "--codemeta",
         type=Path,
-        default=CODEMETA,
         metavar="PATH",
         help="read the dataset's name, licence and authors from this CodeMeta file (default: ./codemeta.json)",
     )
@@ -236,7 +235,7 @@ def _check_release_args(args: argparse.Namespace) -> None:
         args.parser.error("--check writes nothing; drop --dry-run")
     if args.check is not None and args.manifest != args.parser.get_default("manifest"):
         args.parser.error("--check reads no manifest; drop --manifest")
-    if args.check is not None and args.codemeta != CODEMETA:
+    if args.check is not None and args.codemeta is not None:
         args.parser.error("--check reads no codemeta.json; drop --codemeta")
 
 
@@ -544,7 +543,8 @@ def _build_stage(run: _Run) -> list[str]:
 def _validate_stage(run: _Run) -> list[str]:
     sources = _sources(run)
     output_format = load_output_format(run.args.manifest)
-    return _report_problems(run, validate(sources, only=run.args.only, output_format=output_format))
+    name = load_package_name(run.args.manifest)
+    return _report_problems(run, validate(sources, only=run.args.only, output_format=output_format, name=name))
 
 
 def _status_stage(run: _Run) -> list[str]:
@@ -592,7 +592,8 @@ def _release_stage(run: _Run) -> list[str]:
             run.args.path,
             formats=load_release_formats(run.args.manifest),
             output_format=load_output_format(run.args.manifest),
-            codemeta=run.args.codemeta,
+            codemeta=run.args.codemeta or CODEMETA,
+            name=load_package_name(run.args.manifest),
             dry_run=run.args.dry_run,
         )
     except ReleaseError as error:  # refused input or findings: the stage's result, as for --check
