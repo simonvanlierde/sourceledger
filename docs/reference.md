@@ -289,10 +289,11 @@ new or empty. The folder holds:
 - `SHA256SUMS`: every other file, written last, in the format of `sha256sum -b`, so
   `sha256sum -c SHA256SUMS` checks the folder without sourceledger.
 
-The dataset's name, description, authors, licence, version, identifier, `datePublished` and
-`url` come from `codemeta.json` in the current directory, the project's CodeMeta file, or
+The dataset's name, description, authors, contributors, publisher, keywords, licence, version,
+identifier, `datePublished` and `url` come from `codemeta.json` in the current directory, the project's CodeMeta file, or
 from the file `--codemeta PATH` names (`codemeta=` in the library).
-Its `license` becomes the dataset's licence. When the data has another licence than the code,
+Its `license` becomes the dataset's licence. A publisher given as text is written as an
+Organization of that name, as both formats require. When the data has another licence than the code,
 as when the code is MIT and the data CC-BY-4.0, keep a CodeMeta file for the dataset and pass
 it with `--codemeta`.
 `release` does not write it, and reads it only when `release_formats` asks for a format.

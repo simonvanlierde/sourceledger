@@ -55,7 +55,9 @@ _ZENODO_FILES = 100
 
 # The codemeta.json terms each format copies, and those it cannot do without. All are
 # schema.org terms, so they keep their names. Croissant names the authors `creator`.
-_TERMS = ("name", "description", "license", "version", "identifier", "datePublished", "url")
+_TERMS = ("name", "description", "license", "version", "identifier", "datePublished", "url", "keywords", "publisher")
+# People, each given an @id: authors, and contributors who are not authors.
+_ROLES = ("author", "contributor")
 _REQUIRED = {
     _FORMAT_ROCRATE: ("name", "description", "license", "datePublished"),
     _FORMAT_CROISSANT: ("name", "description", "license", "url"),
@@ -383,9 +385,18 @@ def _described(codemeta: Path, formats: Collection[str]) -> dict[str, Any]:
     ]:
         raise ReleaseError(missing)
     described = {term: _keywords(meta[term]) for term in _TERMS if meta.get(term)}
-    if authors := _keywords(meta.get("author")):
-        described["author"] = authors if isinstance(authors, list) else [authors]
+    # Both validators want the publisher as an Organization or Person, not text.
+    if publishers := described.get("publisher"):
+        named = [{"@type": "Organization", "name": p} if isinstance(p, str) else p for p in _as_list(publishers)]
+        described["publisher"] = named if isinstance(publishers, list) else named[0]
+    for role in _ROLES:
+        if people := _keywords(meta.get(role)):
+            described[role] = people if isinstance(people, list) else [people]
     return described
+
+
+def _as_list(value: object) -> list[Any]:
+    return value if isinstance(value, list) else [value]
 
 
 # CodeMeta 3's context makes these aliases of the JSON-LD keywords; RO-Crate's and Croissant's do not.
@@ -495,13 +506,13 @@ def _media_type(resource: dict[str, Any]) -> str:
     return resource.get("mediatype", "application/octet-stream")
 
 
-def _people(authors: list[Any]) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
-    """References to the authors, and the authors as entities, each with an @id (`#author-<n>` without one)."""
+def _people(people: list[Any], role: str = "author") -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
+    """References to the people, and the people as entities, each with an @id (`#<role>-<n>` without one)."""
     entities = [
-        {**author, "@id": author.get("@id") or f"#author-{n}"}
-        if isinstance(author, dict)
-        else {"@id": f"#author-{n}", "name": str(author)}
-        for n, author in enumerate(authors, 1)
+        {**person, "@id": person.get("@id") or f"#{role}-{n}"}
+        if isinstance(person, dict)
+        else {"@id": f"#{role}-{n}", "name": str(person)}
+        for n, person in enumerate(people, 1)
     ]
     for entity in entities:
         entity.setdefault("@type", "Person")
@@ -520,9 +531,13 @@ def _ro_crate(
     """An RO-Crate 1.3 description: the root dataset, a File per shipped output, and every source with its fetch."""
     root: dict[str, Any] = {"@id": "./", "@type": "Dataset"}
     root.update(described)
-    authors, people = _people(described.get("author", []))
-    if authors:
-        root["author"] = authors
+    people: list[dict[str, Any]] = []
+    for role in _ROLES:
+        refs, entities = _people(described.get(role, []), role)
+        if refs:
+            root[role] = refs
+        # A contributor who is also an author, by @id, is one entity.
+        people += [e for e in entities if e["@id"] not in {p["@id"] for p in people}]
     resources = _by_name(package)
     files = []
     for source in shipped:
@@ -655,6 +670,8 @@ def _croissant(described: dict[str, Any], package: dict[str, Any]) -> dict[str, 
     document.update(described)
     if authors := document.pop("author", None):
         document["creator"] = _people(authors)[1]
+    if contributors := document.get("contributor"):
+        document["contributor"] = _people(contributors, "contributor")[1]
     resources = package["resources"]
     document["distribution"] = [
         {

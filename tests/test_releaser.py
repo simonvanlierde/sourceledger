@@ -648,6 +648,54 @@ def test_release_refuses_a_package_built_under_another_name(project: Path, capsy
 
 
 @pytest.mark.usefixtures("stand_ins")
+def test_release_copies_keywords_publisher_and_contributors(project: Path) -> None:
+    """A contributor who is also an author stays one entity; a new one is numbered as a contributor."""
+    publisher = {"@type": "Organization", "@id": "https://ror.org/05xg72x27", "name": "Duck Society"}
+    meta = {
+        **CODEMETA,
+        "keywords": ["ducks", "dunes"],
+        "publisher": publisher,
+        "contributor": [AUTHOR, {"@type": "Person", "givenName": "Bea", "familyName": "Duck"}],
+    }
+    (project / "codemeta.json").write_text(json.dumps(meta), encoding="utf-8")
+    sourceledger.release(manifest_mod.load_manifest(), OUT, formats=["ro-crate", "croissant"])
+    graph = json.loads((OUT / "ro-crate-metadata.json").read_text(encoding="utf-8"))["@graph"]
+    by_id = {e["@id"]: e for e in graph}
+    root = by_id["./"]
+    assert root["keywords"] == ["ducks", "dunes"]
+    assert root["publisher"] == {"@id": publisher["@id"]}
+    assert by_id[publisher["@id"]] == publisher
+    assert root["contributor"] == [{"@id": AUTHOR["@id"]}, {"@id": "#contributor-2"}]
+    assert root["author"] == [{"@id": AUTHOR["@id"]}]
+    assert [e["@id"] for e in graph].count(AUTHOR["@id"]) == 1
+    assert by_id["#contributor-2"]["name"] == "Bea Duck"
+    croissant = json.loads((OUT / "croissant.json").read_text(encoding="utf-8"))
+    assert croissant["keywords"] == ["ducks", "dunes"]
+    assert croissant["publisher"] == publisher
+    assert [c["@id"] for c in croissant["contributor"]] == [AUTHOR["@id"], "#contributor-2"]
+
+
+@pytest.mark.usefixtures("stand_ins")
+def test_release_writes_a_publisher_given_as_text_as_an_organization(project: Path) -> None:
+    """RO-Crate and Croissant refuse a text publisher, which CodeMeta allows."""
+    (project / "codemeta.json").write_text(json.dumps({**CODEMETA, "publisher": "Duck Society"}), encoding="utf-8")
+    sourceledger.release(manifest_mod.load_manifest(), OUT, formats=["ro-crate", "croissant"])
+    graph = json.loads((OUT / "ro-crate-metadata.json").read_text(encoding="utf-8"))["@graph"]
+    by_id = {e["@id"]: e for e in graph}
+    assert by_id[by_id["./"]["publisher"]["@id"]] | {"@id": ""} == {
+        "@type": "Organization",
+        "name": "Duck Society",
+        "@id": "",
+    }
+    croissant = json.loads((OUT / "croissant.json").read_text(encoding="utf-8"))
+    assert croissant["publisher"] == {"@type": "Organization", "name": "Duck Society"}
+    (project / "codemeta.json").write_text(json.dumps({**CODEMETA, "publisher": ["A", {"@id": "#b"}]}), "utf-8")
+    sourceledger.release(manifest_mod.load_manifest(), Path("again"), formats=["croissant"])
+    croissant = json.loads(Path("again/croissant.json").read_text(encoding="utf-8"))
+    assert croissant["publisher"] == [{"@type": "Organization", "name": "A"}, {"@id": "#b"}]
+
+
+@pytest.mark.usefixtures("stand_ins")
 def test_codemeta_3_id_and_type_aliases_become_json_ld_keywords(project: Path) -> None:
     """CodeMeta 3's context makes `id` and `type` aliases of `@id` and `@type`; RO-Crate's context has no such terms."""
     orcid = "https://orcid.org/0000-0002-1825-0097"
