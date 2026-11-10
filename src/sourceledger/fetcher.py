@@ -9,6 +9,7 @@ import ipaddress
 import logging
 import os
 import socket
+import ssl
 import tempfile
 import time
 import urllib.error
@@ -42,7 +43,6 @@ from sourceledger.ledger import (
 from sourceledger.manifest import _BUDGET_S, Source, _vintage, implemented, select
 
 if TYPE_CHECKING:
-    import ssl
     from collections.abc import Callable, Collection
     from email.message import Message
 
@@ -293,7 +293,8 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
             failure: Exception = error
             wait = max(wait, _retry_after(error.headers))
         except _TRANSIENT as error:
-            if attempt == _ATTEMPTS:
+            # A certificate that does not verify now will not on the next attempt either.
+            if attempt == _ATTEMPTS or isinstance(getattr(error, "reason", None), ssl.SSLCertVerificationError):
                 raise
             failure = error
         if time.monotonic() + wait >= deadline:

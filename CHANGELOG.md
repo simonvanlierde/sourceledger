@@ -63,6 +63,7 @@ recorded file needs 0.5.0 to build. Details under Changed.
 - `fetch` and `record` take the `data/raw/.lock` lock on Windows too, so a second run is refused there as on Linux and macOS. The test suite and CI now run on Windows.
 - The HTML report said "Local or non-HTTP URL omitted" for an empty final or terms URL, and "None" for an unknown redistribution flag. It now says "the URL above", "not stated in sources.toml", and "yes" or "no".
 - HTTPS downloads keep the SSL context on their own handler instead of reading a private standard-library attribute.
+- `fetch` fails at once on a TLS certificate that does not verify. Before, it retried it three times, waiting 35 s in all, before the same error.
 - A `fetch` that downloads the same bytes again in full, as from a `file://` URL or a server that sends no ETag, keeps the logged download time and final URL in the fetch record. Before, the record took the new time, the next `build` stamped it, and the HTML report said the outputs were built from an earlier fetch while `validate` passed.
 - A changed `url` or `vintage` that brings the same bytes adds a log line and prints `relogged`. Before, the log kept the old line while the fetch record took the new values, so the log disagreed with the record that `build` and `validate` read. 0.4.0 did the same.
 

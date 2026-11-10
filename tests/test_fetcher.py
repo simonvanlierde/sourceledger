@@ -119,6 +119,18 @@ def test_fetch_does_not_retry_a_client_error(monkeypatch: pytest.MonkeyPatch, sl
 
 
 @pytest.mark.usefixtures("upstream")
+def test_fetch_does_not_retry_a_certificate_it_cannot_verify(
+    monkeypatch: pytest.MonkeyPatch, sleeps: list[float], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A certificate that fails to verify fails the same way in 35 s, so it fails at once."""
+    refused = ssl.SSLCertVerificationError(1, "certificate verify failed: self-signed certificate")
+    calls = _serve(monkeypatch, urllib.error.URLError(refused), _Response(FIXTURE.encode()))
+    assert _run("fetch") == [3]
+    assert (len(calls), sleeps) == (1, [])
+    assert "certificate verify failed" in capsys.readouterr().err
+
+
+@pytest.mark.usefixtures("upstream")
 def test_fetch_rejects_a_body_shorter_than_its_content_length(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

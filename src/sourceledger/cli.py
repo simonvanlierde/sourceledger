@@ -129,11 +129,14 @@ class _Run:
 
 def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
     """The top-level parser, with one subparser per stage taking only that stage's options."""
+    # No abbreviated options, here and in each stage: `--j` for `--json` would break once
+    # another option starts with j.
     parser = _ArgumentParser(
         prog=prog,
         description="Fetch, build and validate the sources in sources.toml.",
         epilog=_EPILOG.format(prog=prog),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        allow_abbrev=False,
     )
     release = f"sourceledger {version('sourceledger')}"
     parser.add_argument(
@@ -168,7 +171,9 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
         "release": [manifest_option, dry_run_option, json_option],
     }
     sub = {
-        name: stages.add_parser(name, help=text, description=text[0].upper() + text[1:] + ".", parents=parents[name])
+        name: stages.add_parser(
+            name, help=text, description=text[0].upper() + text[1:] + ".", parents=parents[name], allow_abbrev=False
+        )
         for name, text in _STAGES.items()
     }
     sub["record"].add_argument("id", metavar="ID", help="the source in sources.toml")
@@ -247,9 +252,14 @@ def entry(
     A shell loop stops on Ctrl-C only when the command was killed by the signal; an exit code of
     130 alone does not stop it, so after Ctrl-C this dies of SIGINT. `main` itself returns 130.
     A reader that closes the pipe early, such as `head`, ends the command quietly by SIGPIPE.
+    Output is UTF-8, stdout with LF line ends, on every system; `main` leaves the streams as they are.
     """
     if hasattr(signal, "SIGPIPE"):  # not on Windows
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    # Windows writes redirected output in the locale's code page with CRLF; the HTML report says UTF-8.
+    for stream, newline in ((sys.stdout, {"newline": "\n"}), (sys.stderr, {})):
+        if reconfigure := getattr(stream, "reconfigure", None):
+            reconfigure(encoding="utf-8", **newline)
     code = main(parse=parse, prog=prog, user_agent=user_agent, manifest=manifest)
     if code == EXIT_INTERRUPTED and sys.platform != "win32":  # noqa: PLR2004
         sys.stdout.flush()
@@ -277,10 +287,6 @@ def main(  # the entry point: parse, run one stage, report it
     Returns the exit code the module docstring lists. A usage error exits through SystemExit
     with code 2, as argparse does.
     """
-    # Windows writes redirected output in the locale's code page with CRLF; the HTML report says UTF-8.
-    for stream, newline in ((sys.stdout, {"newline": "\n"}), (sys.stderr, {})):
-        if reconfigure := getattr(stream, "reconfigure", None):
-            reconfigure(encoding="utf-8", **newline)
     argv = sys.argv[1:] if argv is None else argv
     args, extra = _parser(prog, manifest).parse_known_args(argv)
     if extra:  # reported by the stage's parser, so the usage and help name the stage
