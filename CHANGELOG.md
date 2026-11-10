@@ -31,6 +31,7 @@ recorded file needs 0.5.0 to build. Details under Changed.
   Writing and validation use batches of at most 10,000 rows through PyArrow, including full-column decoding to detect corruption.
 - `load_output_format()` reads the project's `output_format`, for library callers to pass to `build` and `validate`. `validate` in the wrong format names the setting instead of asking you to delete the outputs.
 - `entry()` runs the command for a project with its own reader, as `sourceledger` does: point the console script at a function that calls it with your `parse` and `prog` ([recipe](docs/recipes.md#write-a-custom-reader)). After Ctrl-C it ends by SIGINT, so a shell loop around it stops.
+- A [recipe](docs/recipes.md#follow-a-publishers-revision-across-two-releases) follows a publisher's revision across two PUDL releases: `revisions` flags the new file and `vintage` names the release and DOI, then [`compare.py`](docs/examples/pudl-revisions/compare.py) diffs the rows and carries the change into a direct operational CO2 estimate.
 
 ### Changed
 
