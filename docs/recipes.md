@@ -190,3 +190,94 @@ sourceledger revisions before.jsonl
 
 `revisions` exits 0 when sources changed; your own tests decide whether a revision breaks
 the dataset. Commit the new log so the next run compares against it.
+
+## Follow a publisher's revision across two releases
+
+A publisher that issues numbered releases changes the file and the URL together. The
+[Public Utility Data Liberation Project](https://github.com/catalyst-cooperative/pudl)
+(PUDL) publishes its tables under CC-BY-4.0. This recipe fetches one table from the
+v2026.9.0 and v2026.10.0 releases, lets sourceledger report that the file changed and
+which release each version came from, and then uses a short script to find what changed.
+It downloads about 23 MB.
+
+Save this as `sources.toml`. The Parquet file is kept as it is, so the source needs
+`format = "file"`:
+
+```toml
+[[source]]
+id = "pudl-generators"
+name = "PUDL yearly generators"
+status = "implemented"
+format = "file"
+url = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/v2026.9.0/out_eia__yearly_generators.parquet"
+vintage = "PUDL v2026.9.0, DOI 10.5281/zenodo.22720286"
+terms = "The PUDL data and documentation are published under the Creative Commons Attribution License v4.0 (CC-BY-4.0)."
+terms_url = "https://github.com/catalyst-cooperative/pudl#licensing"
+license = "CC-BY-4.0"
+redistribute = true
+```
+
+Fetch the first release. `data/raw/` holds only the newest file, so keep a copy of this
+one, and copy the log as well:
+
+```sh
+sourceledger fetch
+cp data/raw/pudl-generators.parquet v2026.9.0.parquet
+cp data/fetches.jsonl before.jsonl
+```
+
+```text
+pudl-generators  new        12,979,286 B  048faf5314ba  PUDL v2026.9.0, DOI 10.5281/zenodo.22720286  https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/v2026.9.0/out_eia__yearly_generators.parquet
+```
+
+In `sources.toml`, change the version in `url` to `v2026.10.0` and `vintage` to
+`"PUDL v2026.10.0, DOI 10.5281/zenodo.23375698"`. Fetch again and compare:
+
+```sh
+sourceledger fetch
+cp data/raw/pudl-generators.parquet v2026.10.0.parquet
+sourceledger revisions before.jsonl
+```
+
+```text
+pudl-generators  new        10,643,130 B  30160046dfa2  PUDL v2026.10.0, DOI 10.5281/zenodo.23375698  https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/v2026.10.0/out_eia__yearly_generators.parquet
+- `pudl-generators`: 048faf5314ba -> 30160046dfa2, 10,643,130 bytes, fetched 2026-11-10T17:06:49Z from <https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/v2026.10.0/out_eia__yearly_generators.parquet>
+```
+
+That is what sourceledger knows: the bytes differ, and the log ties each version to a
+release and its DOI. It does not read rows. [`compare.py`](https://github.com/simonvanlierde/sourceledger/blob/main/docs/examples/pudl-revisions/compare.py)
+is a plain script, outside sourceledger, that diffs the two files and carries the change
+into one number:
+
+```sh
+uv run --no-project --with pyarrow python compare.py v2026.9.0.parquet v2026.10.0.parquet
+```
+
+```text
+columns 112 -> 114 | added: ['county_id_fips', 'state_id_fips']
+keys added 534 | removed 30
+net_generation_mwh: 2897 changed, in report years 2001-2025
+total_mmbtu: 137 changed, in report years 2008-2025
+old 2025 data_maturity: {'provisional': 36118, None: 1}
+new 2025 data_maturity: {'final': 36585}
+
+year  old kt      new kt      change
+2023   1,323,691   1,323,691  +0.00%
+2024   1,322,734   1,322,734  +0.00%
+2025   1,352,820   1,364,631  +0.87%
+```
+
+Rows are matched on `plant_id_eia`, `generator_id` and `report_date`, which are unique in
+both files. `plant_id_pudl` is not a stable key: it differs on most overlapping rows.
+
+The last table is the direct operational CO2 of US plants, in kilotonnes: fuel burned
+(`total_mmbtu`) times a fixed emission factor per fuel, from 40 CFR 98 Table C-1, rounded.
+It counts coal, gas and oil only. It is not a life-cycle figure: it leaves out fuel
+supply, construction and any other fuel. Report years 2023 and 2024 are identical in both
+releases, and the 2025 estimate rises by 0.87%.
+
+This recipe does not say why. The 2025 rows moved from `provisional` to `final` data, and
+the [release notes](https://github.com/catalyst-cooperative/pudl/releases/tag/v2026.10.0)
+also name a fix to PUDL's generator fuel allocation, so the two releases differ in
+more than one way. Separating those causes takes the release notes and the
+upstream code, not this comparison.

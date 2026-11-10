@@ -189,7 +189,7 @@ still appear on stderr. `init`, `build`, `attribution` and `report` do not accep
 
 | Command | Result field | Meaning |
 | --- | --- | --- |
-| `fetch` | `records` | One fetch record per source fetched, with the fields of a line in `data/fetches.jsonl` and `new`: `true` when its bytes differ from the last ones logged, and `relogged`: `true` when the same bytes were logged again because they came in another way (fetched after a record, or recorded with other details), so the outputs need a `build`. A run where some sources failed lists the ones that worked. |
+| `fetch` | `records` | One fetch record per source fetched, with the fields of a line in `data/fetches.jsonl` and `new`: `true` when its bytes differ from the last ones logged, and `relogged`: `true` when the same bytes were logged again because they came in another way (fetched after a record or under a new `url` or `vintage`, or recorded with other details), so the outputs need a `build`. A run where some sources failed lists the ones that worked. |
 | `record` | `records` | The one record, as for `fetch`. |
 | `status` | `sources` | One object per source, in manifest order. |
 | `validate` | `problems` | The same list of problem messages the Python function returns. |
