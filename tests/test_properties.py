@@ -40,7 +40,7 @@ _records = st.builds(
 
 
 def _last_by_id(written: list[ledger.FetchRecord]) -> dict[str, dict[str, object]]:
-    return {record.source_id: ledger._fields(record) for record in written}
+    return {record.source_id: ledger.log_fields(record) for record in written}
 
 
 # No deadline where an example writes and fsyncs files: a slow CI disk is not a failure.
@@ -250,7 +250,7 @@ def test_streamed_history_preserves_splitlines_records(
 ) -> None:
     with tempfile.TemporaryDirectory() as folder:
         log = Path(folder) / "history.jsonl"
-        text = separator.join(json.dumps(ledger._fields(record)) for record in written)
+        text = separator.join(json.dumps(ledger.log_fields(record)) for record in written)
         log.write_bytes((text + (separator if terminated else "")).encode())
         assert ledger._last_records(log) == _last_by_id(written)  # noqa: SLF001
 
@@ -289,7 +289,7 @@ def test_a_recorded_file_verifies_and_reads_back(
         raw, processed, log = root / "raw", root / "processed", root / "fetches.jsonl"
         result = ledger.record(source, file, retrieved_at=retrieved_at, parameters=parameters, raw=raw, log=log)  # ty: ignore[invalid-argument-type]
         assert ledger._record(source, raw) == result  # noqa: SLF001
-        assert ledger._last_records(log)["s"] == ledger._fields(result)  # noqa: SLF001
+        assert ledger._last_records(log)["s"] == ledger.log_fields(result)  # noqa: SLF001
         assert ledger.verified(source, raw=raw) == (result, payload)
         builder_mod.build([source], raw=raw, processed=processed)
         assert report_mod.verify(processed) == []

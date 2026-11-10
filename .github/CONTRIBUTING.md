@@ -128,7 +128,8 @@ and remove it a week later ([how](https://github.com/simonvanlierde/project-temp
 ## Make a release
 
 The maintainer first sets `version` and `date-released` in `CITATION.cff`, runs
-`uv version X.Y.Z` for `pyproject.toml` and `uv.lock`, and `just citation` for `codemeta.json`.
+`uv version X.Y.Z` for `pyproject.toml` and `uv.lock`, `just citation` for `codemeta.json`, and
+puts the new tag in the `#:schema` line of `docs/reference.md`.
 Then `just release X.Y.Z` cuts the changelog, and a second run tags the merged release commit. [Publishing](https://github.com/simonvanlierde/project-templates/blob/main/docs/usage.md#publishing) has the steps and the one-time setup.
 
 ## Sign off your commits

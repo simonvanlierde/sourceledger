@@ -21,7 +21,7 @@ import tomllib
 from datetime import datetime
 from importlib.metadata import version
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from sourceledger.builder import DATAPACKAGE, PROCESSED, Parser, build_sources, parse_source
 from sourceledger.fetcher import USER_AGENT, fetch_sources
@@ -31,6 +31,8 @@ from sourceledger.ledger import (
     FetchError,
     FetchRecord,
     current_record,
+    log_fields,
+    log_version,
     record_file,
     revision_records,
     revisions,
@@ -191,12 +193,15 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
 
 
 def _time(text: str) -> str:
-    """`text` as given, once it reads as an ISO 8601 time; the library checks its zone and that it is past."""
+    """`text` as given, once it reads as an ISO 8601 time with a zone; the library checks that it is past."""
     try:
-        datetime.fromisoformat(text)
+        when = datetime.fromisoformat(text)
     except ValueError:
         msg = f"{text!r} is not an ISO 8601 time, such as 2026-11-05T09:30:00Z"
         raise argparse.ArgumentTypeError(msg) from None
+    if when.tzinfo is None:
+        msg = f"{text!r} needs a time zone, such as 2026-11-05T09:30:00Z"
+        raise argparse.ArgumentTypeError(msg)
     return text
 
 
@@ -209,13 +214,24 @@ def _check_parameters(args: argparse.Namespace) -> None:
         args.parser.error(f"--parameter names {dupes} more than once")
 
 
-def entry() -> NoReturn:
-    """The `sourceledger` command: run `main`, and after Ctrl-C die of SIGINT, as the shell expects.
+def entry(
+    *,
+    parse: Parser = parse_source,
+    prog: str = "sourceledger",
+    user_agent: str = USER_AGENT,
+    manifest: Path = MANIFEST,
+) -> NoReturn:
+    """The `sourceledger` command: run `main` with these arguments, and exit as the shell expects.
 
+    A project's own command points its console script at a function that calls this with its
+    `parse`, `prog`, `user_agent` and `manifest`, as for `main`.
     A shell loop stops on Ctrl-C only when the command was killed by the signal; an exit code of
-    130 alone does not stop it. `main` itself returns 130, for projects that call it.
+    130 alone does not stop it, so after Ctrl-C this dies of SIGINT. `main` itself returns 130.
+    A reader that closes the pipe early, such as `head`, ends the command quietly by SIGPIPE.
     """
-    code = main()
+    if hasattr(signal, "SIGPIPE"):  # not on Windows
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    code = main(parse=parse, prog=prog, user_agent=user_agent, manifest=manifest)
     if code == EXIT_INTERRUPTED and sys.platform != "win32":  # noqa: PLR2004
         sys.stdout.flush()
         sys.stderr.flush()
@@ -345,23 +361,41 @@ def _sources(run: _Run, ids: list[str] | None = None) -> list[Source]:
     return sources
 
 
-def _new(record: FetchRecord, before: dict[str, str]) -> bool:
+def _new(record: FetchRecord, before: dict[str, dict[str, Any]]) -> bool:
     """Whether the record's bytes differ from the last ones `before` logged for its source."""
-    return before.get(record.source_id) != record.sha256
+    return before.get(record.source_id, {}).get("sha256") != record.sha256
 
 
-def _fetch_line(record: FetchRecord, before: dict[str, str]) -> str:
-    """One line per fetched source; `new` when its bytes differ from the last ones `before` logged."""
-    marker = "new" if _new(record, before) else "unchanged"
+def _relogged(record: FetchRecord, before: dict[str, dict[str, Any]]) -> bool:
+    """Same bytes, logged again because they came in another way, such as fetched after a record."""
+    last = before.get(record.source_id)
+    return last is not None and not _new(record, before) and log_version(last) != log_version(log_fields(record))
+
+
+def _json_record(record: FetchRecord, before: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """A record under --json: the log line's fields, `new` and `relogged`."""
+    return {**log_fields(record), "new": _new(record, before), "relogged": _relogged(record, before)}
+
+
+def _marker(record: FetchRecord, before: dict[str, dict[str, Any]]) -> str:
+    """`new` bytes, the same bytes `relogged` another way, or `unchanged`."""
+    return "new" if _new(record, before) else "relogged" if _relogged(record, before) else "unchanged"
+
+
+def _fetch_line(record: FetchRecord, before: dict[str, dict[str, Any]]) -> str:
+    """One line per source, with its `_marker`."""
+    marker = _marker(record, before)
     return (
         f"{record.source_id}  {marker:<9}  {record.bytes:>9,} B  {record.sha256[:12]}  {record.vintage}  {record.url}"
     )
 
 
-def _report_records(run: _Run, records: list[FetchRecord], before: dict[str, str]) -> None:
-    run.result["records"] = [{**dataclasses.asdict(r), "new": _new(r, before)} for r in records]
+def _report_records(run: _Run, records: list[FetchRecord], before: dict[str, dict[str, Any]]) -> None:
+    run.result["records"] = [_json_record(r, before) for r in records]
     for record in records:
         run.say(_fetch_line(record, before))
+    if relogged := [r.source_id for r in records if _relogged(r, before)]:
+        run.say(f"run build: the outputs of {', '.join(relogged)} name the earlier log line")
 
 
 def _problems(count: int) -> str:
@@ -399,7 +433,7 @@ def _fetch_stage(run: _Run) -> list[str]:
         for source in todo:
             run.say(f"would fetch {source['id']} from {source['url']}")
         return []
-    before: dict[str, str] = {}
+    before: dict[str, dict[str, Any]] = {}
     done: list[FetchRecord] = []
     try:
         fetch_sources(
@@ -413,7 +447,7 @@ def _fetch_stage(run: _Run) -> list[str]:
 def _record_stage(run: _Run) -> list[str]:
     args = run.args
     (source,) = select(_sources(run, [args.id]), [args.id])
-    before: dict[str, str] = {}
+    before: dict[str, dict[str, Any]] = {}
     result = record_file(
         source,
         args.path,
@@ -429,9 +463,8 @@ def _record_stage(run: _Run) -> list[str]:
     )
     if args.dry_run:
         run.result["dry_run"] = True
-        run.result["records"] = [{**dataclasses.asdict(result), "new": _new(result, before)}]
-        state = "new" if _new(result, before) else "unchanged"
-        what = f"{state}, {result.bytes:,} B, sha256 {result.sha256}"
+        run.result["records"] = [_json_record(result, before)]
+        what = f"{_marker(result, before)}, {result.bytes:,} B, sha256 {result.sha256}"
         run.say(f"would record {source['id']} from {args.path.as_posix()}: {what}")
     else:
         _report_records(run, [result], before)

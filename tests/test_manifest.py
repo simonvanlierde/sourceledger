@@ -108,6 +108,15 @@ def test_a_misspelt_top_level_key_is_refused_before_any_write(
     assert not (tmp_path / "data").exists()
 
 
+def test_output_format_inside_a_source_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Appended below the sources, the line belongs to the last [[source]] and would build CSV."""
+    text = '[[source]]\nid = "a"\nstatus = "unimplemented"\noutput_format = "parquet"\n'
+    (tmp_path / "sources.toml").write_text(text, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match=r"^source 'a' in sources.toml sets output_format; put it above"):
+        manifest_mod.load_manifest()
+
+
 def test_an_unknown_top_level_key_with_no_close_match_gets_no_hint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

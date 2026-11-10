@@ -30,7 +30,7 @@ _SCHEMA_URL = (
 _STARTER = f"""#:schema {_SCHEMA_URL}
 
 # One [[source]] table per input. Uncomment the example and point it at your own source.
-# Every key: https://github.com/simonvanlierde/sourceledger#sourcestoml
+# Every key: https://simonvanlierde.com/sourceledger/reference.html#sourcestoml
 
 # [[source]]
 # id = "co2"
@@ -124,11 +124,19 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
         msg = f"sources {bad_timeout} in sources.toml need timeout_s to be a positive finite number"
         raise ValueError(msg)
     for source in sources:
+        _check_placement(source)
         _check_pin(source)
         _check_vintage(source)
         _check_format(source)
         _check_headers(source)
     return sources
+
+
+def _check_placement(source: Source) -> None:
+    """Refuse a project-wide key that an appended line put in the last [[source]] table, where it does nothing."""
+    if "output_format" in source:  # noqa: PLR2004
+        msg = f"source {source['id']!r} in sources.toml sets output_format; put it above the first [[source]]"
+        raise ValueError(msg)
 
 
 def _check_output_format(output_format: str) -> None:
@@ -138,8 +146,8 @@ def _check_output_format(output_format: str) -> None:
         raise ValueError(msg)
 
 
-def load_output_format(path: Path) -> str:
-    """The project's table format; library callers pass it to build and validate directly."""
+def load_output_format(path: Path = MANIFEST) -> str:
+    """The project's `output_format` from sources.toml, "csv" when unset: pass it to `build` and `validate`."""
     with path.open("rb") as fh:
         output_format = tomllib.load(fh).get("output_format", "csv")
     _check_output_format(output_format)

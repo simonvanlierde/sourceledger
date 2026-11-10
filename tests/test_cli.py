@@ -26,10 +26,12 @@ from support import (
     _run,
     _serve,
     _two_sources,
+    builder_mod,
     fetcher_mod,
     report_mod,
 )
 
+import sourceledger
 from sourceledger import cli, ledger
 from sourceledger import manifest as manifest_mod
 from sourceledger.cli import main
@@ -233,13 +235,21 @@ def test_dry_runs_write_nothing_after_a_full_run(project: Path, tmp_path: Path) 
     assert _files(tmp_path) == before
 
 
-def test_a_bad_retrieved_at_is_a_usage_error(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("yesterday", "'yesterday' is not an ISO 8601 time, such as 2026-11-05T09:30:00Z"),
+        ("2026-11-05", "'2026-11-05' needs a time zone, such as 2026-11-05T09:30:00Z"),
+    ],
+)
+def test_a_bad_retrieved_at_is_a_usage_error(
+    project: Path, capsys: pytest.CaptureFixture[str], value: str, message: str
+) -> None:
     with pytest.raises(SystemExit) as exit_:
-        main(["record", "example", str(project), "--retrieved-at", "yesterday"])
+        main(["record", "example", str(project), "--retrieved-at", value])
     assert exit_.value.code == 2
     assert capsys.readouterr().err.endswith(
-        "error: argument --retrieved-at: 'yesterday' is not an ISO 8601 time, such as 2026-11-05T09:30:00Z\n"
-        "help: run `sourceledger record --help` for its options\n"
+        f"error: argument --retrieved-at: {message}\nhelp: run `sourceledger record --help` for its options\n"
     )
 
 
@@ -437,14 +447,14 @@ def test_output_is_utf8_with_lf_in_any_locale(tmp_path: Path) -> None:
 def test_the_command_dies_of_sigint_after_ctrl_c() -> None:
     """A shell loop stops on Ctrl-C only when the command died of SIGINT, not when it exited 130."""
     result = subprocess.run(
-        [sys.executable, "-c", "from sourceledger import cli; cli.main = lambda: 130; cli.entry()"], check=False
+        [sys.executable, "-c", "from sourceledger import cli; cli.main = lambda **_: 130; cli.entry()"], check=False
     )
     assert result.returncode == -2  # SIGINT
 
 
 def test_the_command_exits_with_mains_code() -> None:
     result = subprocess.run(
-        [sys.executable, "-c", "from sourceledger import cli; cli.main = lambda: 3; cli.entry()"], check=False
+        [sys.executable, "-c", "from sourceledger import cli; cli.main = lambda **_: 3; cli.entry()"], check=False
     )
     assert result.returncode == 3
 
@@ -475,11 +485,14 @@ def test_build_dry_run_honours_only(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 @pytest.mark.usefixtures("project")
-def test_record_dry_run_says_unchanged_for_a_logged_file(capsys: pytest.CaptureFixture[str]) -> None:
+def test_record_dry_run_names_the_marker_the_record_prints(capsys: pytest.CaptureFixture[str]) -> None:
+    """Recording fetched bytes logs them again, as recorded, so both say `relogged`."""
     assert main(["fetch"]) == 0
     capsys.readouterr()
     assert main(["record", "example", "data/raw/example.csv", "--dry-run"]) == 0
-    assert capsys.readouterr().out.startswith("would record example from data/raw/example.csv: unchanged, 20 B, ")
+    assert capsys.readouterr().out.startswith("would record example from data/raw/example.csv: relogged, 20 B, ")
+    assert main(["record", "example", "data/raw/example.csv"]) == 0
+    assert capsys.readouterr().out.startswith("example  relogged")
 
 
 def test_a_missing_stage_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
@@ -540,15 +553,56 @@ def test_entry_re_raises_sigint_only_after_ctrl_c_off_windows(
 ) -> None:
     """In process, so mutmut sees it: the signal calls are recorded, not sent."""
     calls: list[tuple[object, ...]] = []
-    monkeypatch.setattr(cli, "main", lambda: code)
+    monkeypatch.setattr(cli, "main", lambda **_: code)
     monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setattr(signal, "signal", lambda *args: calls.append(("signal", *args)))
     monkeypatch.setattr(os, "kill", lambda *args: calls.append(("kill", *args)))
     with pytest.raises(SystemExit) as exit_:
         cli.entry()
     assert exit_.value.code == code
-    expected = [("signal", signal.SIGINT, signal.SIG_DFL), ("kill", os.getpid(), signal.SIGINT)] if kills else []
-    assert calls == expected
+    pipe = [("signal", signal.SIGPIPE, signal.SIG_DFL)] if hasattr(signal, "SIGPIPE") else []
+    kill = [("signal", signal.SIGINT, signal.SIG_DFL), ("kill", os.getpid(), signal.SIGINT)] if kills else []
+    assert calls == pipe + kill
+
+
+def test_entry_runs_the_sourceledger_command_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(cli, "main", lambda **kwargs: seen.update(kwargs) or 0)
+    monkeypatch.setattr(signal, "signal", lambda *_: None)
+    with pytest.raises(SystemExit):
+        cli.entry()
+    assert seen == {
+        "parse": builder_mod.parse_source,
+        "prog": "sourceledger",
+        "user_agent": sourceledger.USER_AGENT,
+        "manifest": Path("sources.toml"),
+    }
+
+
+def test_entry_passes_a_projects_arguments_to_main(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(cli, "main", lambda **kwargs: seen.update(kwargs) or 0)
+    monkeypatch.setattr(signal, "signal", lambda *_: None)
+    with pytest.raises(SystemExit) as exit_:
+        cli.entry(prog="my-dataset", user_agent="my-dataset/1", manifest=tmp_path / "s.toml")
+    assert exit_.value.code == 0
+    assert seen == {
+        "parse": builder_mod.parse_source,
+        "prog": "my-dataset",
+        "user_agent": "my-dataset/1",
+        "manifest": tmp_path / "s.toml",
+    }
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no SIGPIPE")
+def test_a_closed_pipe_ends_the_command_quietly() -> None:
+    """`sourceledger status | head -1`: no BrokenPipeError traceback, death by SIGPIPE as for other tools."""
+    read, write = os.pipe()
+    os.close(read)
+    code = "from sourceledger import cli; cli.main = lambda **_: print('x' * 1_000_000) or 0; cli.entry()"
+    result = subprocess.run([sys.executable, "-c", code], stdout=write, stderr=subprocess.PIPE, check=False)  # noqa: S603
+    os.close(write)
+    assert (result.returncode, result.stderr) == (-signal.SIGPIPE, b"")
 
 
 @pytest.mark.parametrize(
@@ -845,7 +899,15 @@ def test_the_record_stage_records_one_file(upstream: Path, capsys: pytest.Captur
     assert (line["parameters"], line["last_modified"]) == ({"country": "NL", "query": "a=b"}, "x")
     assert line["retrieved_at"] == "2026-11-05T09:30:00Z"
     assert main(["record", "example", str(upstream)]) == 0
-    assert capsys.readouterr().out.startswith("example  unchanged")
+    assert capsys.readouterr().out.startswith("example  relogged")
+    assert main(["record", "example", str(upstream), "--retrieved-at", WHEN, "--json"]) == 0
+    (recorded,) = json.loads(capsys.readouterr().out)["records"]
+    assert (recorded["new"], recorded["relogged"]) == (False, True)
+    assert main(["record", "example", str(upstream), "--dry-run"]) == 0
+    assert capsys.readouterr().out.startswith(f"would record example from {upstream.as_posix()}: relogged, ")
+    assert main(["record", "example", str(upstream), "--dry-run", "--json"]) == 0
+    (would,) = json.loads(capsys.readouterr().out)["records"]
+    assert (would["new"], would["relogged"]) == (False, True)
 
 
 @pytest.mark.parametrize(
@@ -917,3 +979,52 @@ def test_a_problem_count_reads_as_english(count: int, text: str) -> None:
     from sourceledger.cli import _problems  # noqa: PLC0415  # private, tested alone
 
     assert _problems(count) == text
+
+
+def test_a_fetch_after_a_record_of_the_same_bytes_says_to_rebuild(
+    upstream: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The fetch replaces the record in the log, so the outputs built from the record are stale."""
+    assert main(["record", "example", str(upstream)]) == 0
+    assert _run("build", "validate") == [0, 0]
+    capsys.readouterr()
+    assert main(["fetch"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("example  relogged")
+    assert "run build: the outputs of example name the earlier log line" in out
+    assert main(["fetch", "--json"]) == 0
+    (fetched,) = json.loads(capsys.readouterr().out)["records"]
+    assert (fetched["new"], fetched["relogged"]) == (False, False)
+    assert _run("validate", "build", "validate") == [1, 0, 0]
+
+
+def test_the_rebuild_hint_names_every_relogged_source(
+    upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    other = upstream.with_name("b.csv")
+    other.write_text(FIXTURE, encoding="utf-8", newline="")
+    _two_sources(tmp_path, upstream.as_uri(), other.as_uri())
+    assert main(["record", "a", str(upstream)]) == 0
+    assert main(["record", "b", str(other)]) == 0
+    capsys.readouterr()
+    assert main(["fetch"]) == 0
+    assert "run build: the outputs of a, b name the earlier log line" in capsys.readouterr().out
+
+
+def test_recording_the_same_file_again_returns_the_kept_log_line(
+    upstream: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The log and sidecar keep the first record, so `--json` must show its `recorded_at`, not a new one."""
+    assert main(["record", "example", str(upstream)]) == 0
+    sidecar = Path("data/raw/example.csv.fetch.json")
+    for path in (LOG, sidecar):
+        text = path.read_text(encoding="utf-8")
+        stamp = json.loads(text.splitlines()[-1] if path == LOG else text)["recorded_at"]
+        path.write_text(text.replace(stamp, "2026-01-01T00:00:00Z"), encoding="utf-8")
+    capsys.readouterr()
+    assert main(["record", "example", str(upstream), "--json"]) == 0
+    (recorded,) = json.loads(capsys.readouterr().out)["records"]
+    assert recorded["recorded_at"] == "2026-01-01T00:00:00Z"
+    assert json.loads(sidecar.read_text(encoding="utf-8")) == {
+        k: v for k, v in recorded.items() if k not in ("new", "relogged")
+    }

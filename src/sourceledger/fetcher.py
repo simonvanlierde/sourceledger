@@ -389,7 +389,7 @@ def fetch_sources(
     log: Path = FETCH_LOG,
     user_agent: str = USER_AGENT,
     only: Collection[str] | None = None,
-    before: dict[str, str] | None = None,
+    before: dict[str, dict[str, Any]] | None = None,
     progress: Callable[[str], None] | None = None,
     done: list[FetchRecord] | None = None,
 ) -> list[FetchRecord]:
@@ -406,7 +406,7 @@ def fetch_sources(
     with _lock(raw):
         logged = _last_records(log)
         if before is not None:
-            before.update((sid, record["sha256"]) for sid, record in logged.items())
+            before.update(logged)
         todo = implemented(sources)
         for number, source in enumerate(todo, 1):
             if progress:

@@ -19,7 +19,8 @@ title: Download limits and retries
   exits 3 with one `error:` line per failed source.
 - A second fetch in the same project, while one runs, exits at once (a lock on
   `data/raw/.lock`).
-- Each line it prints says `new` or `unchanged`, against the last version in the log.
+- Each line it prints says `new` or `unchanged` against the last version in the log, or `relogged` for the same bytes
+  that came in another way, such as fetched after a `record`; then run `build`.
 - For a source with `archive = true`, the Internet Archive request times out after 120 s
   per connect and read. When it fails, fetch prints a warning, leaves `archive_url` empty,
   and still succeeds. Save Page Now answers once the snapshot is taken.

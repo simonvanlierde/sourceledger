@@ -8,6 +8,8 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-10
+
 Upgrade note for scripts that call the CLI: exit code 3 now means a stage could not run
 (it was 1), errors on stderr read `error: ...` and `help: ...` instead of `STAGE: ...`,
 `validate` and `verify` print their problems on stdout, and `--json` reports have a
@@ -16,18 +18,27 @@ Upgrade note for scripts that call the CLI: exit code 3 now means a stage could 
 3 and 130, where 0.4.0 returned only 0 or 1. See
 [options, output and exit codes](docs/reference.md#options-output-and-exit-codes).
 
+Upgrade note for Python callers and manifests: `read_output()` now yields rows instead of
+returning a list, so wrap it in `list()` where the code indexes or counts them. `sources.toml`
+refuses top-level keys other than `output_format` and `[[source]]`. A dataset with a
+recorded file needs 0.5.0 to build. Details under Changed.
+
 ### Added
 
 - [`record`](docs/reference.md#other-commands), and `record()` in the library, take in a file that another tool such as pooch, DVC or your own script downloaded. It copies the file into `data/raw/`, checks the `sha256` pin, and writes the same log line and fetch record as `fetch`, with a `recorded_at` time and optional request `parameters`, stored as text in name order. The download time is the one the other tool reports, or empty. `datapackage.json` and the HTML report show these outputs as recorded, not fetched, and `status` shows the record time when there is no download time. A recorded URL other than the source's loses its query, and a parameter named like a credential (`api_key`, `apiKey`, `authKey`, `sessionid`, `sig`) is refused, since both are published with the dataset. Recording the same bytes again leaves the fetch record as logged; from another URL or download time it adds a log line, and `validate` reports a `datapackage.json` built before such a record. For a source with `archive = true`, `record` keeps the snapshot a fetch logged for the same bytes and asks for no new one. A dataset with a recorded file needs this version to build: 0.4.0 refuses its fetch records.
 - `sourceledger STAGE --help` lists only that stage's options. `--dry-run` on `fetch`, `record` and `build` says what they would do and writes nothing. `fetch`, `record` and `verify` accept `--json`. On a terminal, `fetch` shows which source it is fetching.
 - [Parquet outputs](docs/reference.md#sourcestoml) through `sourceledger[parquet]` and the project-wide `output_format = "parquet"` setting. Tables use zstd compression and an explicit string schema, with the same provenance columns and validation as CSV. `build` and `validate` accept `output_format=` in the library, and `read_output` reads either format.
   Writing and validation use batches of at most 10,000 rows through PyArrow, including full-column decoding to detect corruption.
+- `load_output_format()` reads the project's `output_format`, for library callers to pass to `build` and `validate`. `validate` in the wrong format names the setting instead of asking you to delete the outputs.
+- `entry()` runs the command for a project with its own reader, as `sourceledger` does: point the console script at a function that calls it with your `parse` and `prog` ([recipe](docs/recipes.md#write-a-custom-reader)). After Ctrl-C it ends by SIGINT, so a shell loop around it stops.
 
 ### Changed
 
 - **Breaking:** `sources.toml` accepts only `output_format` and `[[source]]` at the top level. A misspelt key such as `[[sources]]` is refused, with the intended key when one is close; it used to read as a manifest with no sources, so `build` wrote an empty `datapackage.json` over a good one. A project that kept its own table there, for its reader's settings, moves it into its own file or into each `[[source]]`, whose other keys stay allowed.
 - **Breaking:** `read_output()` is a generator that yields one row at a time, CSV row by row and Parquet in batches of at most 10,000 rows, so reading a table of 1.5 million rows no longer holds them all in one list. Wrap the call in `list()` where the code indexes the rows, takes their length, or reads them twice. Every error, a missing file included, now raises on the first `next()`, and an unfinished iterator keeps the file open, which on Windows blocks replacing the output.
 - Windows is supported and tested in CI. 0.4.0 said it was not.
+- The code behind the public names moved from `sourceledger.ledger` into `manifest`, `ledger`, `fetcher`, `builder` and `report` modules. Import from `sourceledger` itself: the submodules may change in any release, as the [stability policy](README.md#stability) says.
+- The CLI's stages, options, exit codes and `--json` reports are part of the public API in the [stability policy](README.md#stability).
 - The HTML report puts the integrity result in a box at the top, lists the outputs with links under one heading, and names hashes and times in plain words ("SHA-256 of the downloaded file", "Served from"). It follows the reader's dark mode, prints without the in-page links, wraps long ids, and shows a recorded file's request parameters. A script that reads the report's HTML needs updating.
 - The CLI help ends with a first run, the exit codes and a link to the docs, and `--version` prints the installed version, after the project's name when a project calls `main(prog=...)`. Ctrl-C ends a stage with an error, the command to finish it and exit code 130 instead of a traceback, and the command ends by SIGINT so a shell loop around it stops (on Windows it exits 130); under `--json` the report still prints, with the sources fetched so far. `init` says what to do next, and a count of one reads "1 problem" or "1 row".
 - An unexpected error, such as a project's parser raising `KeyError`, prints one `error:` line with its type and exits 3 instead of a traceback. A TOML syntax error names the manifest and the line to fix. A missing `record`, `revisions` or `verify` path says what to pass. A `--retrieved-at` that is not ISO 8601 is a usage error (exit 2).
@@ -42,6 +53,10 @@ Upgrade note for scripts that call the CLI: exit code 3 now means a stage could 
 
 ### Fixed
 
+- `output_format` inside a `[[source]]` table, where a line appended to `sources.toml` lands, is refused. Before, it was ignored and `build` wrote CSV.
+- `sourceledger status | head` and other early-closing readers end the command quietly instead of with a `BrokenPipeError` traceback.
+- `fetch` and `record` print `relogged`, and `relogged: true` under `--json`, when the same bytes come in another way, such as a fetch after a `record`, and say to run `build`. Before, they printed `unchanged` while the outputs went stale, and `validate` then failed.
+- `fetch --json` and `record --json` give the fields of the log line, as the reference says, without an empty `recorded_at` and `parameters` for a fetched file.
 - `fetch` and `record` remove the `.part` temp files that a killed run left in `data/raw/`. Before, each download or record cut short by a kill stayed on disk.
 - `fetch` and `record` take the `data/raw/.lock` lock on Windows too, so a second run is refused there as on Linux and macOS. The test suite and CI now run on Windows.
 - The HTML report said "Local or non-HTTP URL omitted" for an empty final or terms URL, and "None" for an unknown redistribution flag. It now says "the URL above", "not stated in sources.toml", and "yes" or "no".
@@ -303,7 +318,8 @@ Upgrade steps:
   vintage or pin.
 - Manifest key `vintage`. The key `release` is still read, with a warning.
 
-[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/simonvanlierde/sourceledger/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.2.0...v0.3.0

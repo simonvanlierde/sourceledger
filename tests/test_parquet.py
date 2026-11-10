@@ -14,6 +14,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from support import builder_mod, report_mod
 
+import sourceledger
 from sourceledger import ledger
 from sourceledger import manifest as manifest_mod
 from sourceledger.cli import main
@@ -94,6 +95,25 @@ def test_unknown_output_format_fails(value: str) -> None:
     manifest.write_text(manifest.read_text(encoding="utf-8").replace('"parquet"', value), encoding="utf-8", newline="")
     with pytest.raises(ValueError, match=r"^output_format must be 'csv' or 'parquet'$"):
         manifest_mod.load_manifest()
+
+
+@pytest.mark.usefixtures("project")
+def test_the_library_reads_the_projects_output_format() -> None:
+    """The publish-when-valid recipe builds and validates in the project's format, not CSV."""
+    assert main(["fetch"]) == 0
+    sources, output_format = sourceledger.load_manifest(), sourceledger.load_output_format()
+    assert output_format == "parquet"
+    assert all(p.suffix in {".parquet", ".json"} for p in sourceledger.build(sources, output_format=output_format))
+    assert sourceledger.validate(sources, output_format=output_format) == []
+    problems = sourceledger.validate(sources)
+    assert problems
+    assert all("output_format is 'csv'; build again" in p for p in problems if ".parquet:" in p)
+    assert not any("delete it" in p for p in problems)
+    sourceledger.build(sources)
+    problems = sourceledger.validate(sources, output_format=output_format)
+    assert problems
+    assert all("output_format is 'parquet'; build again" in p for p in problems if ".csv:" in p)
+    assert any(".csv:" in p for p in problems)
 
 
 @pytest.mark.usefixtures("project")

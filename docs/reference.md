@@ -80,10 +80,10 @@ keys are checked when the manifest loads. Keys not listed here are kept for your
 
 For checks in an editor with a TOML language server (Tombi, Taplo), put this line at the
 top of `sources.toml`. `init` writes it, with the version you have installed in place of
-`v0.4.0`:
+`v0.5.0`:
 
 ```toml
-#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.4.0/src/sourceledger/sources.schema.json
+#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.5.0/src/sourceledger/sources.schema.json
 ```
 
 The schema accepts exactly what sourceledger accepts. A test keeps the two in step.
@@ -106,7 +106,9 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   `sig` is refused ([safe use](secure-use.md) lists the rule). The file must be a regular
   file within the source's `max_bytes`. The library function is `record()`. The report and
   `datapackage.json` show the output as recorded, not fetched, and `status` shows the record
-  time when there is no download time. `--dry-run` makes every check and hashes the file,
+  time when there is no download time. A later `fetch` of the same bytes logs a fetch over
+  the record and prints `relogged` with a reminder to run `build`, since the outputs still
+  name the record. `--dry-run` makes every check and hashes the file,
   then prints what it would record and writes nothing.
 - `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
   log. Copy the log before you fetch (`cp data/fetches.jsonl before.jsonl`), then run
@@ -157,7 +159,7 @@ every system, also when redirected to a file on Windows.
 | 1 | Problems found: `validate` or `verify` found at least one. |
 | 2 | Usage error: an unknown stage or option, a missing argument, or an `--only` or `record` id that is not in `sources.toml`, or a `--retrieved-at` that is not an ISO 8601 time. Nothing is written. |
 | 3 | Could not run: a missing or invalid file, a failed download, another fetch holding the lock, or an unexpected error such as a project's parser failing, printed as one `error:` line with its type. When some sources fail to fetch, the others are still written and logged. |
-| 130 | Interrupted with Ctrl-C. What finished before is kept, and the `help:` line repeats the command to finish. With `--json` the report still prints, and `fetch` lists the sources fetched before. The command then ends by SIGINT, as Ctrl-C does, so a shell loop around it stops too; on Windows it exits 130. `main()` returns 130: a project's own entry point that calls it should do what `sourceledger.cli.entry()` does, or the shell sees 130 without the signal. |
+| 130 | Interrupted with Ctrl-C. What finished before is kept, and the `help:` line repeats the command to finish. With `--json` the report still prints, and `fetch` lists the sources fetched before. The command then ends by SIGINT, as Ctrl-C does, so a shell loop around it stops too; on Windows it exits 130. `main()` returns 130, so a project's own command calls `sourceledger.entry()` instead, which ends by SIGINT ([custom readers](recipes.md#write-a-custom-reader)). |
 
 ## JSON reports
 
@@ -179,7 +181,7 @@ still appear on stderr. `init`, `build`, `attribution` and `report` do not accep
 
 | Command | Result field | Meaning |
 | --- | --- | --- |
-| `fetch` | `records` | One fetch record per source fetched, with the fields of a line in `data/fetches.jsonl` and `new`: `true` when its bytes differ from the last ones logged. A run where some sources failed lists the ones that worked. |
+| `fetch` | `records` | One fetch record per source fetched, with the fields of a line in `data/fetches.jsonl` and `new`: `true` when its bytes differ from the last ones logged, and `relogged`: `true` when the same bytes were logged again because they came in another way (fetched after a record, or recorded with other details), so the outputs need a `build`. A run where some sources failed lists the ones that worked. |
 | `record` | `records` | The one record, as for `fetch`. |
 | `status` | `sources` | One object per source, in manifest order. |
 | `validate` | `problems` | The same list of problem messages the Python function returns. |
@@ -256,7 +258,7 @@ stated", and the time it was recorded, instead of a fetch time.
 Source details come from the current manifest; the fetch stamps describe the last build.
 If a file or its provenance is stale, the report lists the problem. The command returns 0
 when it produces a report, including one with integrity problems. A fatal input error
-returns 1 and writes no HTML. A missing fetch log produces a provenance problem in the report. Run `validate` to gate a pipeline on those problems.
+exits 3 and writes no HTML. A missing fetch log produces a provenance problem in the report. Run `validate` to gate a pipeline on those problems.
 
 The report includes no raw values or header names and values. Displayed HTTP URLs omit
 user information, query parameters and fragments. URLs that are not HTTP or HTTPS are omitted.

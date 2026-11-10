@@ -89,7 +89,7 @@ class FetchRecord:
     parameters: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
-def _fields(record: FetchRecord) -> dict[str, Any]:
+def log_fields(record: FetchRecord) -> dict[str, Any]:
     """The record as written to the log and sidecar."""
     fields = dataclasses.asdict(record)
     for key in ("recorded_at", "parameters"):
@@ -254,7 +254,7 @@ def _append(log: Path, record: FetchRecord) -> None:
                 fh.truncate(start)
             else:
                 lead = b"\n"
-        fh.write(lead + json.dumps(_fields(record)).encode() + b"\n")
+        fh.write(lead + json.dumps(log_fields(record)).encode() + b"\n")
         fh.flush()
         os.fsync(fh.fileno())
 
@@ -269,11 +269,6 @@ def _last_line_start(fh: IO[bytes], end: int) -> int:
             return pos - step + newline + 1
         pos -= step
     return 0
-
-
-def logged_versions(log: Path = FETCH_LOG) -> dict[str, str]:
-    """The SHA-256 most recently logged for each source id."""
-    return {sid: r["sha256"] for sid, r in _last_records(log).items()}
 
 
 @contextlib.contextmanager
@@ -360,14 +355,18 @@ def _served_from(source: Source, url: str) -> str:
 
 def _commit(
     source: Source, temp: Path, record: FetchRecord, raw: Path, log: Path, logged: dict[str, dict[str, Any]]
-) -> None:
-    """Move `temp`, whose bytes `record` describes, into place as the raw file, and log and record it."""
+) -> dict[str, Any]:
+    """Move `temp`, whose bytes `record` describes, into place as the raw file, and log and record it.
+
+    Returns the fields the sidecar now holds: an earlier log line's when it was the same version.
+    """
     name = raw_name(source)
     temp.replace(raw / name)
     # Logged before the record is written: until the record matches the raw file, the next
     # run fetches in full, so a crash in between loses nothing.
     fields = _log_new_version(log, logged, record)
     _write_atomic(raw / f"{name}.fetch.json", (json.dumps(fields, indent=2) + "\n").encode())
+    return fields
 
 
 def record(
@@ -434,10 +433,10 @@ def record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before 
     parameters: dict[str, str | int] | None,
     raw: Path,
     log: Path,
-    before: dict[str, str] | None = None,
+    before: dict[str, dict[str, Any]] | None = None,
     dry_run: bool = False,
 ) -> FetchRecord:
-    """`record()`, filling `before` with the hashes logged before it, read under the lock as `fetch_sources` does.
+    """`record()`, filling `before` with the log lines logged before it, read under the lock as `fetch_sources` does.
 
     `dry_run` makes every check and returns the record without writing anything or taking the lock.
     """
@@ -459,7 +458,7 @@ def record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before 
     with contextlib.nullcontext() if dry_run else _lock(raw):
         logged = _last_records(log)
         if before is not None:
-            before.update((key, fields["sha256"]) for key, fields in logged.items())
+            before.update(logged)
         temp = None
         try:
             digest, size, temp = _take_in(source, path, None if dry_run else raw)
@@ -484,7 +483,7 @@ def record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before 
                 archive_url=archived,
             )
             if temp:
-                _commit(source, temp, result, raw, log, logged)
+                result = FetchRecord(**_commit(source, temp, result, raw, log, logged))
         finally:
             if temp:
                 temp.unlink(missing_ok=True)  # gone already once moved into place
@@ -598,16 +597,16 @@ def _log_new_version(log: Path, logged: dict[str, dict[str, Any]], record: Fetch
     # but the same bytes fetched after being recorded, or recorded for another request, do: the
     # log's last line and the sidecar must agree on how the bytes came in.
     last = logged.get(record.source_id, {})
-    if _version(last) == _version(_fields(record)):
+    if log_version(last) == log_version(log_fields(record)):
         # A recorded file keeps its logged fields, so recording it again changes no byte of the
         # sidecar and the package built from it stays current.
-        return last if last.get("recorded_at") else _fields(record)
+        return last if last.get("recorded_at") else log_fields(record)
     _append(log, record)
-    logged[record.source_id] = _fields(record)
-    return _fields(record)
+    logged[record.source_id] = log_fields(record)
+    return log_fields(record)
 
 
-def _version(fields: dict[str, Any]) -> tuple[object, ...]:
+def log_version(fields: dict[str, Any]) -> tuple[object, ...]:
     """What makes a log line new: the bytes and how they came in; for a recorded file, also where, when, validators."""
     keys = ("final_url", "retrieved_at", "etag", "last_modified")
     stated = tuple(fields.get(k) for k in keys) if fields.get("recorded_at") else ()

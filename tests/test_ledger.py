@@ -245,6 +245,10 @@ def test_a_cut_off_line_after_several_records_drops_only_itself(caplog: pytest.L
     assert "dropping a last line" in caplog.text
 
 
+def _hashes(log: Path) -> dict[str, str]:
+    return {sid: r["sha256"] for sid, r in ledger._last_records(log).items()}  # noqa: SLF001
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
@@ -262,10 +266,10 @@ def test_the_log_reader_skips_blank_lines_and_forgives_only_a_cut_off_end(
     log = tmp_path / "log.jsonl"
     log.write_text(text, encoding="utf-8", newline="")
     if isinstance(expected, dict):
-        assert ledger.logged_versions(log) == expected
+        assert _hashes(log) == expected
     else:
         with pytest.raises(ValueError, match=expected):
-            ledger.logged_versions(log)
+            _hashes(log)
 
 
 @pytest.mark.usefixtures("upstream")
@@ -343,8 +347,8 @@ def test_history_memory_tracks_sources_instead_of_versions(count: int, tmp_path:
     log = tmp_path / "history.jsonl"
     line = _record("example", "0") + "\n"
     log.write_text(line * count, encoding="utf-8", newline="")
-    assert _peak(lambda: ledger.logged_versions(log)) < 256 * 1024
-    assert ledger.logged_versions(log) == {"example": "0" * 64}
+    assert _peak(lambda: _hashes(log)) < 256 * 1024
+    assert _hashes(log) == {"example": "0" * 64}
 
 
 def test_a_bad_cr_terminated_history_batch_is_not_an_interrupted_tail(
@@ -394,7 +398,7 @@ def test_the_last_log_line_and_the_sidecar_agree_on_how_the_bytes_came_in(upstre
     assert len(_lines()) == 1
     (fetched,) = fetcher_mod.fetch(manifest_mod.load_manifest())
     assert "recorded_at" not in _lines()[-1]
-    assert json.loads(sidecar.read_text(encoding="utf-8")) == ledger._fields(fetched)
+    assert json.loads(sidecar.read_text(encoding="utf-8")) == ledger.log_fields(fetched)
     fetcher_mod.fetch(manifest_mod.load_manifest())
     assert len(_lines()) == 2
     ledger.record(_source(), upstream, parameters={"country": "NL"})
@@ -503,7 +507,6 @@ def test_record_waits_for_no_fetch(upstream: Path) -> None:
         ledger.record(_source(), upstream, retrieved_at=WHEN)
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="no raw lock on Windows")
 def test_the_record_stage_reads_the_log_under_the_lock(
     upstream: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
