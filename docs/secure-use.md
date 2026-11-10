@@ -34,7 +34,7 @@ These checks apply to every fetch:
   An API key meant for one host never goes to another, and never goes out over http after
   a redirect from https.
 - Redirects discard their unused response bodies, so a redirect cannot make urllib
-  buffer an unlimited body before following the destination URL.
+  buffer an unlimited body before it follows the next URL.
 - The URL a redirect ends at is logged as `final_url` without its query and fragment, so
   the signature of a signed download link is not published with the dataset.
 - The file is requested and stored uncompressed, so the SHA-256 is always that of the file
@@ -77,21 +77,26 @@ shown by `revisions`, but not refused.
   workbook is also refused when it unpacks past the cap, so a small file cannot expand
   without limit.
 - `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
-- The download budget is checked before attempts and after body reads. DNS lookup and HTTP
-  header parsing can exceed it. See [download limits and retries](fetching.md).
+- `timeout_s` caps the time for one source. It is not a hard limit; see
+  [download limits and retries](fetching.md).
 
 ## Record files from other tools with care
 
 `record` takes the file at the path you give it, so treat that path like a manifest URL.
-It applies the same checks as a fetch to the bytes: the `sha256` pin and `max_bytes`, and
-only a regular file, never a pipe or device. The log, the record and `datapackage.json`
-go out with your dataset, so `record` keeps nothing it can recognize as a secret: a URL
-with a user name or password is refused, another URL loses its query and fragment, and a
-parameter whose name looks like a credential is refused. That covers, for example, a name
-that holds `token`, `secret`, `passw` or `credential`, or has `key`, `auth`, `sig`,
-`session` or `cookie` as a part (`x-api-key`, `apiKey`, `sig`). Values are published
-as given, and a secret under another name gets through, so pass only what describes the
-request.
+It applies the same checks as a fetch to the bytes: the `sha256` pin and `max_bytes`. It
+takes only a regular file, never a pipe or device.
+
+The log, the record and `datapackage.json` go out with your dataset, so `record` keeps
+nothing it can recognize as a secret:
+
+- A URL with a user name or password is refused.
+- Any other URL loses its query and fragment.
+- A parameter whose name looks like a credential is refused. That covers a name that holds
+  `token`, `secret`, `passw` or `credential`, or has `key`, `auth`, `sig`, `session` or
+  `cookie` as a part (`x-api-key`, `apiKey`, `sig`).
+
+Values are published as given, and a secret under another name gets through. Pass only what
+describes the request.
 
 ## Check redistribute before you publish raw files
 
@@ -117,11 +122,16 @@ from several sources can still hold their values, so check the terms for those t
 the size and SHA-256 it gives. It needs no network, no manifest and no log. It refuses a
 path that leads out of the folder, including through a symlink.
 
+`sourceledger release --check DIR` also checks a received folder, but it is not offline. The
+RO-Crate validator fetches the `@context` that `ro-crate-metadata.json` names, so the
+folder's author chooses which addresses it requests. Run it on a folder you do not trust only
+where that is acceptable.
+
 ## Check a sourceledger release
 
 Each release is built and published by the
-[release workflow](https://github.com/simonvanlierde/sourceledger/blob/main/.github/workflows/python-release.yml), with no API token. PyPI keeps a
-signed record of the workflow run that built each file. To check a wheel you downloaded,
+[release workflow](https://github.com/simonvanlierde/sourceledger/blob/main/.github/workflows/python-release.yml),
+with no API token. PyPI keeps a signed record of the workflow run that built each file. To check a wheel you downloaded,
 pass its path:
 
 ```sh
@@ -136,8 +146,25 @@ gh attestation verify sourceledger-0.3.1-py3-none-any.whl --repo simonvanlierde/
 ```
 
 Both fail unless the file is byte for byte the one this repository's workflow built.
-From 0.3.1, the same provenance is also attached to each GitHub release as
-`sourceledger-<version>.sigstore.json`.
+From 0.5.0, each GitHub release asset has its provenance beside it as `<asset>.intoto.jsonl`,
+so you can check a downloaded file without asking GitHub:
+
+```sh
+gh attestation verify sourceledger-0.5.0-py3-none-any.whl --repo simonvanlierde/sourceledger \
+  --bundle sourceledger-0.5.0-py3-none-any.whl.intoto.jsonl
+```
+
+0.3.1 to 0.4.0 attached one bundle for all files, `sourceledger-<version>.sigstore.json`.
+
+From 0.5.0, a release also carries a CycloneDX SBOM, `sourceledger-<version>.tar.gz.cdx.json`.
+It lists only the package itself, because sourceledger has no required dependencies. The
+optional extras are not in it. Its attestation,
+`sourceledger-<version>.tar.gz.sbom.intoto.jsonl`, ties it to the sdist:
+
+```sh
+gh attestation verify sourceledger-0.5.0.tar.gz --repo simonvanlierde/sourceledger \
+  --bundle sourceledger-0.5.0.tar.gz.sbom.intoto.jsonl --predicate-type https://cyclonedx.org/bom
+```
 
 Release tags from 0.3.0 on are signed with the SSH key in
 [`.github/allowed_signers`](https://github.com/simonvanlierde/sourceledger/blob/main/.github/allowed_signers),
@@ -164,7 +191,9 @@ Compare the hashes with the ones under "Download files" on PyPI.
 ## How dependencies are chosen
 
 sourceledger has no runtime dependencies, so installing it pulls in no other code. The
-optional `xlsx` extra adds openpyxl, and `parquet` adds PyArrow. [CONTRIBUTING.md](https://github.com/simonvanlierde/sourceledger/blob/main/.github/CONTRIBUTING.md#dependencies)
+optional `xlsx` extra adds openpyxl, `parquet` adds PyArrow, and `release` adds the RO-Crate
+and Croissant validators.
+[CONTRIBUTING.md](https://github.com/simonvanlierde/sourceledger/blob/main/.github/CONTRIBUTING.md#dependencies)
 explains how the development tools are locked and audited.
 
 [What the checks establish](assurance-case.md) explains their trust assumptions, evidence and limits.

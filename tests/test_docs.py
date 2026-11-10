@@ -8,6 +8,7 @@ import shlex
 import shutil
 import signal
 import sys
+from datetime import date
 from importlib.metadata import version
 from pathlib import Path
 
@@ -90,8 +91,38 @@ def test_the_starter_example_is_the_quick_start_one() -> None:
 
 def test_the_reference_names_every_stage_and_key() -> None:
     """A stage or manifest key added without docs fails here."""
-    names = [*cli._STAGES, *SCHEMA["$defs"]["source"]["properties"]]  # noqa: SLF001
-    assert [name for name in names if not re.search(rf"`{name}[` ]", REFERENCE)] == []
+    names = [*cli._STAGES, *SCHEMA["properties"], *SCHEMA["$defs"]["source"]["properties"]]  # noqa: SLF001
+    # A table key is named as a table: `[[source]]`.
+    assert [name for name in names if not re.search(rf"`(\[\[)?{name}[`\] ]", REFERENCE)] == []
+
+
+def test_the_pudl_comparison_runs_on_two_small_releases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """compare.py, from the PUDL recipe, on two made-up tables with the PUDL column names."""
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    dates = [date(year, 1, 1) for year in (2023, 2024, 2025)] * 2
+    old = {
+        "plant_id_eia": [1, 1, 1, 2, 2, 2],
+        "generator_id": ["a"] * 3 + ["b"] * 3,
+        "report_date": dates,
+        "net_generation_mwh": [10.0, 11.0, 12.0, 20.0, 21.0, 22.0],
+        "total_mmbtu": [100.0, 110.0, 120.0, 200.0, 210.0, 220.0],
+        "data_maturity": ["final", "final", "provisional"] * 2,
+        "fuel_type_code_pudl": ["coal"] * 3 + ["gas"] * 3,
+    }
+    new = {**old, "total_mmbtu": [100.0, 110.0, 130.0, 200.0, 210.0, 220.0], "data_maturity": ["final"] * 6}
+    for name, columns in (("old", old), ("new", new)):
+        pq.write_table(pa.table(columns), tmp_path / f"{name}.parquet")
+    monkeypatch.setattr(sys, "argv", ["compare.py", str(tmp_path / "old.parquet"), str(tmp_path / "new.parquet")])
+    runpy.run_path(str(ROOT / "docs" / "examples" / "pudl-revisions" / "compare.py"))
+    out = capsys.readouterr().out
+    assert "keys added 0 | removed 0" in out
+    assert "total_mmbtu: 1 changed, in report years 2025-2025" in out
+    assert "new 2025 data_maturity: {'final': 2}" in out
+    # Coal at 95 and gas at 53.06 kg/MMBtu: 2025 goes from 23,073 to 24,023 kg, under one kt.
+    assert out.endswith("\n2025           0           0  +4.12%\n")
 
 
 def test_the_website_revision_example_matches_the_pipeline(project: Path) -> None:

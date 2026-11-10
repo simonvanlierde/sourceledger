@@ -3,8 +3,12 @@
 import gzip
 import hashlib
 import json
+import sys
+import time
+from datetime import datetime, tzinfo
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Self
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -21,6 +25,7 @@ from support import (
     _peak,
     _run,
     _serve,
+    _symlink,
     _two_sources,
     builder_mod,
     fetcher_mod,
@@ -213,7 +218,8 @@ def test_report_displays_the_built_metadata_and_security_policy(dataset: list[ma
         "Raw redistribution allowed": "no",
     }
     for key, value in expected.items():
-        assert f"<dt>{key}</dt><dd>{value}</dd>" in page
+        direction = ' dir="auto"' if key in {"Vintage", "Licence", "Terms"} else ""
+        assert f"<dt>{key}</dt><dd{direction}>{value}</dd>" in page
     assert "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'" in page
 
 
@@ -234,8 +240,9 @@ def test_report_says_not_stated_for_what_a_damaged_package_leaves_out(dataset: l
         del package["resources"][0]["sourceledger"][key]
     path.write_text(json.dumps(package), encoding="utf-8")
     page = report(dataset)
-    for label in ("Size in bytes", "SHA-256 of the output", "SHA-256 of the downloaded file", "Vintage"):
+    for label in ("Size in bytes", "SHA-256 of the output", "SHA-256 of the downloaded file"):
         assert f"<dt>{label}</dt><dd>not stated</dd>" in page
+    assert '<dt>Vintage</dt><dd dir="auto">not stated</dd>' in page
 
 
 @pytest.mark.parametrize("value", [["yes"], {"a": 1}, 1])
@@ -288,10 +295,21 @@ def test_report_keeps_source_urls_and_names(dataset: list[manifest_mod.Source]) 
     package["resources"][0]["sourceledger"]["final_url"] = "https://example.org/final?token=secret"
     path.write_text(json.dumps(package), encoding="utf-8")
     page = report(dataset)
-    assert '<h4 id="source-0">Example observations</h4>' in page
-    assert '<h4 id="source-1">document</h4>' in page
+    assert '<h4 id="source-0" dir="auto">Example observations</h4>' in page
+    assert '<h4 id="source-1" dir="auto">document</h4>' in page
     assert "<dt>URL</dt><dd>https://example.org/data</dd>" in page
     assert "<dt>Served from</dt><dd>https://example.org/final</dd>" in page
+
+
+def test_report_lets_free_text_from_the_manifest_set_its_own_direction(dataset: list[manifest_mod.Source]) -> None:
+    """An Arabic name or a U+202E in the terms must not reorder the text around it."""
+    dataset[0].update(name="بيانات", terms="\u202eterms", license="LicenseRef-عام")
+    page = report(dataset)
+    assert '<h4 id="source-0" dir="auto">بيانات</h4>' in page
+    assert '<dt>Terms</dt><dd dir="auto">\u202eterms</dd>' in page
+    assert '<dt>Licence</dt><dd dir="auto">LicenseRef-عام</dd>' in page
+    assert '<dt>Vintage</dt><dd dir="auto">' in page
+    assert "<dt>URL</dt><dd>" in page
 
 
 def test_report_accepts_a_source_without_a_declared_vintage(dataset: list[manifest_mod.Source]) -> None:
@@ -625,6 +643,14 @@ def test_validate_only_skips_the_check_for_files_no_source_owns(capsys: pytest.C
     assert main(["validate", "--only", "example"]) == 0
 
 
+@pytest.mark.usefixtures("upstream")
+def test_validate_passes_the_temp_file_of_a_killed_build() -> None:
+    """A killed build leaves `.NAME.<random>.part`: not published data, and build takes no lock to sweep it."""
+    _run("fetch", "build")
+    Path("data/processed/.example.csv.k3x9.part").write_text("year,va", encoding="utf-8", newline="")
+    assert report_mod.validate(manifest_mod.load_manifest()) == []
+
+
 def test_only_runs_in_manifest_order(upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """The order of --only flags does not reorder the sources; a lone string is refused, not split into letters."""
     _two_sources(tmp_path, upstream.as_uri(), upstream.as_uri())
@@ -753,7 +779,7 @@ def test_verify_reports_a_package_it_cannot_check(
     Path("d").mkdir()
     Path("d/a.csv").write_text("x\n", encoding="utf-8", newline="")
     Path("outside.csv").write_text("x\n", encoding="utf-8", newline="")
-    Path("d/out.csv").symlink_to(Path("../outside.csv"))
+    _symlink(Path("d/out.csv"), Path("../outside.csv"))
     Path("d/datapackage.json").write_text(json.dumps({"resources": resources}), encoding="utf-8", newline="")
     problems = report_mod.verify(Path("d"))
     assert len(problems) == len(expected)
@@ -809,6 +835,13 @@ def test_validate_checks_sources_after_an_unimplemented_or_unknown_one(
     assert any(p.startswith("x: no terms") for p in problems)
 
 
+def test_attribution_keeps_non_breaking_spaces_in_the_publisher_s_words() -> None:
+    """Only ASCII whitespace breaks a Markdown row; a no-break space in 10 000 € is part of the terms."""
+    terms = " Fee\u00a010\u202f000 €\r\n\tper | year \u2003"
+    source = {"id": "a", "name": "X-ray X", "status": "implemented", "terms": terms}
+    assert report_mod.attribution([source])[2] == "| X-ray X | Fee\u00a010\u202f000 € per \\| year \u2003 |  |  | ? |"
+
+
 def test_attribution_leaves_missing_terms_empty() -> None:
     source = {"id": "a", "status": "implemented", "url": "https://example.org/a.csv"}
     assert report_mod.attribution([source])[2] == "| a |  |  |  | ? |"
@@ -821,6 +854,26 @@ def test_verify_shows_a_large_listed_size_with_separators(tmp_path: Path) -> Non
     assert report_mod.verify(tmp_path) == [f"{tmp_path.as_posix()}/a.csv is 2 bytes, not the 1,234 the package lists"]
     (tmp_path / "datapackage.json").write_text("[]", encoding="utf-8", newline="")
     assert report_mod.verify(tmp_path) == [f"{tmp_path.as_posix()}/datapackage.json has no list of resources"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows file names cannot hold control characters")
+def test_verify_shows_a_control_character_in_a_name_as_an_escape(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A received folder names its own files; an ESC in one must not reach the terminal raw, and --json keeps it."""
+    name = "a\x1b[2J.csv"
+    (tmp_path / name).write_text("x\n", encoding="utf-8", newline="")
+    package = {"resources": [{"path": name, "bytes": 3, "hash": _X_HASH}]}
+    (tmp_path / "datapackage.json").write_text(json.dumps(package), encoding="utf-8", newline="")
+    problem = f"{tmp_path.as_posix()}/{name} is 2 bytes, not the 3 the package lists"
+    assert report_mod.verify(tmp_path)[0] == problem
+    capsys.readouterr()
+    assert main(["verify", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "\x1b" not in out
+    assert f"{tmp_path.as_posix()}/a\\x1b[2J.csv is 2 bytes, not the 3 the package lists\n" in out
+    assert main(["verify", str(tmp_path), "--json"]) == 1
+    assert problem in json.loads(capsys.readouterr().out)["problems"]
 
 
 def test_verify_names_the_hash_it_found(tmp_path: Path) -> None:
@@ -836,12 +889,16 @@ def test_verify_names_the_hash_it_found(tmp_path: Path) -> None:
 def test_validate_reads_an_output_one_row_at_a_time(big: int) -> None:
     sources = manifest_mod.load_manifest()
     builder_mod.build(sources)
+    report_mod.validate(sources)  # unmeasured, as in the build test below
     assert _peak(lambda: report_mod.validate(sources)) < big // 4
     assert report_mod.validate(sources) == []
 
 
 def test_build_streams_a_csv_source_one_row_at_a_time(big: int) -> None:
     sources = manifest_mod.load_manifest()
+    # Built once unmeasured: under coverage, the first run of a code path allocates the tracer's
+    # own records, about 150 kB here, which a fresh container counted against the limit.
+    builder_mod.build(sources)
     assert _peak(lambda: builder_mod.build(sources)) < big // 4
     assert report_mod.validate(sources) == []
 
@@ -852,6 +909,7 @@ def test_build_streams_a_gzipped_csv_source(rows: int, upstream: Path) -> None:
     upstream.write_bytes(gzip.compress(body.encode()))
     sources = manifest_mod.load_manifest()
     fetcher_mod.fetch(sources)
+    builder_mod.build(sources)  # unmeasured, as in the CSV test above
     # gzip has fixed decompression buffers in addition to the CSV reader's row-sized memory.
     assert _peak(lambda: builder_mod.build(sources)) < len(body) // 4 + 1024 * 1024
     assert report_mod.validate(sources) == []
@@ -1070,3 +1128,23 @@ def test_scan_reports_rows_and_a_stale_stamp(tmp_path: Path, text: str, stamp: s
     out = tmp_path / "out.csv"
     out.write_bytes(text.encode())
     assert report_mod._scan(out, {"source_id": stamp}) == scanned  # noqa: SLF001
+
+
+class _AnHourLater(datetime):
+    @classmethod
+    def now(cls, tz: tzinfo | None = None) -> Self:
+        return cls.fromtimestamp(time.time() + 3600, tz=tz)
+
+
+@pytest.mark.usefixtures("upstream")
+def test_report_passes_a_build_after_a_refetch_of_the_same_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 200 with the bytes the log has (a file:// URL, or a server without ETag) keeps the logged time."""
+    assert _run("fetch", "build") == [0, 0]
+    monkeypatch.setattr(fetcher_mod, "datetime", _AnHourLater)
+    assert _run("fetch", "build", "validate") == [0, 0, 0]
+    logged = json.loads(LOG.read_text(encoding="utf-8"))
+    sidecar = json.loads(RAW.with_name(RAW.name + ".fetch.json").read_text(encoding="utf-8"))
+    assert sidecar["retrieved_at"] == logged["retrieved_at"]
+    page = report(load_manifest())
+    assert "Integrity checks passed" in page
+    assert "built from an earlier fetch" not in page

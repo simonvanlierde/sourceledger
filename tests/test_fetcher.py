@@ -5,6 +5,7 @@ import hashlib
 import http.client
 import http.server
 import io
+import itertools
 import json
 import re
 import shutil
@@ -39,6 +40,7 @@ from support import (
     _run,
     _serve,
     _source,
+    _symlink,
     _two_sources,
     builder_mod,
     fetcher_mod,
@@ -116,6 +118,18 @@ def test_fetch_does_not_retry_a_client_error(monkeypatch: pytest.MonkeyPatch, sl
     calls = _serve(monkeypatch, _http_error(404))
     assert _run("fetch") == [3]
     assert (len(calls), sleeps) == (1, [])
+
+
+@pytest.mark.usefixtures("upstream")
+def test_fetch_does_not_retry_a_certificate_it_cannot_verify(
+    monkeypatch: pytest.MonkeyPatch, sleeps: list[float], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A certificate that fails to verify fails the same way in 35 s, so it fails at once."""
+    refused = ssl.SSLCertVerificationError(1, "certificate verify failed: self-signed certificate")
+    calls = _serve(monkeypatch, urllib.error.URLError(refused), _Response(FIXTURE.encode()))
+    assert _run("fetch") == [3]
+    assert (len(calls), sleeps) == (1, [])
+    assert "certificate verify failed" in capsys.readouterr().err
 
 
 @pytest.mark.usefixtures("upstream")
@@ -305,7 +319,8 @@ def test_a_download_that_outlasts_its_budget_fails(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A server trickling bytes inside every socket timeout is still stopped."""
-    clock = iter([0, 0, 301, 301])
+    # 150 s pass at each look at the clock: the start, the attempt, then the first read is past 300 s.
+    clock = itertools.count(0, 150)
     monkeypatch.setattr(time, "monotonic", lambda: next(clock))
     _serve(monkeypatch, _Response(FIXTURE.encode()))
     assert _run("fetch") == [3]
@@ -334,12 +349,14 @@ def test_a_server_trickling_bytes_is_stopped_near_the_budget(
     threading.Thread(target=trickle, daemon=True).start()
     monkeypatch.chdir(tmp_path)
     _manifest(tmp_path, f"http://127.0.0.1:{listener.getsockname()[1]}/data.csv")
-    start = time.monotonic()
-    assert _run("fetch") == [3]
-    # Within the budget plus one socket timeout; the whole body takes 6 s.
-    assert time.monotonic() - start < 1.5 + 0.5
-    assert "unfinished after 0.5 s" in capsys.readouterr().err
-    listener.close()
+    try:
+        start = time.monotonic()
+        assert _run("fetch") == [3]
+        # Within the budget plus one socket timeout; the whole body takes 6 s.
+        assert time.monotonic() - start < 1.5 + 0.5
+        assert "unfinished after 0.5 s" in capsys.readouterr().err
+    finally:
+        listener.close()
 
 
 @pytest.mark.parametrize("timeout", [1, 0.5, 600])
@@ -590,7 +607,7 @@ def test_a_symlinked_fetch_log_is_refused(tmp_path: Path, capsys: pytest.Capture
     victim = tmp_path / "victim.txt"
     victim.write_text("", encoding="utf-8", newline="")
     LOG.parent.mkdir(parents=True)
-    LOG.symlink_to(victim)
+    _symlink(LOG, victim)
     assert _run("fetch") == [3]
     assert (
         capsys.readouterr().err == "error: data/fetches.jsonl is a symlink; the fetch log must be a file of its own\n"
@@ -788,6 +805,25 @@ def test_a_log_line_from_before_archive_url_reads_as_no_snapshot(upstream: Path,
     RAW.write_text("edited\n", encoding="utf-8", newline="")  # forces a full fetch of the same bytes
     assert _run("fetch") == [0]
     assert json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))["archive_url"] == ""
+
+
+@pytest.mark.usefixtures("upstream")
+def test_the_same_bytes_from_a_new_redirect_keep_the_logged_final_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The record keeps what the log says, which the report checks the build against; an old line has no final_url."""
+    _manifest(tmp_path, _DATA)
+    first, second = "https://mirror-a.example.org/data.csv", "https://mirror-b.example.org/data.csv"
+    _serve(monkeypatch, *(_Response(FIXTURE.encode(), url=url) for url in (first, second, second)))
+    sidecar = Path("data/raw/example.csv.fetch.json")
+    assert _run("fetch", "fetch") == [0, 0]
+    assert json.loads(sidecar.read_text(encoding="utf-8"))["final_url"] == first
+    (line,) = [json.loads(text) for text in LOG.read_text(encoding="utf-8").splitlines()]
+    assert line["final_url"] == first
+    del line["final_url"]
+    LOG.write_text(json.dumps(line) + "\n", encoding="utf-8", newline="")
+    assert _run("fetch") == [0]
+    assert json.loads(sidecar.read_text(encoding="utf-8"))["final_url"] == ""
 
 
 @pytest.mark.usefixtures("upstream")

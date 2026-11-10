@@ -9,6 +9,7 @@ import ipaddress
 import logging
 import os
 import socket
+import ssl
 import tempfile
 import time
 import urllib.error
@@ -42,7 +43,6 @@ from sourceledger.ledger import (
 from sourceledger.manifest import _BUDGET_S, Source, _vintage, implemented, select
 
 if TYPE_CHECKING:
-    import ssl
     from collections.abc import Callable, Collection
     from email.message import Message
 
@@ -293,7 +293,8 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
             failure: Exception = error
             wait = max(wait, _retry_after(error.headers))
         except _TRANSIENT as error:
-            if attempt == _ATTEMPTS:
+            # A certificate that does not verify now will not on the next attempt either.
+            if attempt == _ATTEMPTS or isinstance(getattr(error, "reason", None), ssl.SSLCertVerificationError):
                 raise
             failure = error
         if time.monotonic() + wait >= deadline:
@@ -368,7 +369,9 @@ def fetch(
 
     A source the server reports unchanged since its last intact fetch keeps that raw file
     and record, and its old record is returned. A record whose bytes differ from the last
-    ones logged for its source is appended to `log`.
+    ones logged for its source is appended to `log`. Bytes the log already has keep its
+    `retrieved_at` and `final_url` in the record on disk, while the returned record says when
+    and where this run downloaded them.
 
     Every source is tried. Raises FetchError after the loop when any failed, listing each
     with its reason; nothing is written for those. A source fails for a download over its

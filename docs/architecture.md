@@ -1,23 +1,23 @@
 ---
 title: How sourceledger works
-description: The three main stages, the files each one reads and writes, and where the code lives.
+description: The four main stages, the files each one reads and writes, and where the code lives.
 ---
 
 # How sourceledger works
 
-sourceledger turns a list of public sources into a dataset in three stages: `fetch`,
-`build` and `validate`. Each stage is a function in its own module (see
+sourceledger turns a list of public sources into a dataset in four stages: `fetch`,
+`build`, `validate` and `release`. Each stage is a function in its own module (see
 [Where the code lives](#where-the-code-lives)) and a command in `sourceledger.cli`. The
-stages talk to each other only through files on disk, so you
-can run them in separate CI jobs, or days apart. `record` takes the place of `fetch` for
-a file another tool downloaded.
+stages talk to each other only through files on disk, so you can run them in separate CI
+jobs, or days apart. `record` takes the place of `fetch` for a file another tool downloaded.
 
 ```text
 sources.toml ──fetch──> data/raw/        ──build──> data/processed/ ──validate──> problems
 other tool ──record──>  data/fetches.jsonl
 ```
 
-The [reference](reference.md) lists the manifest keys and command options. This page explains how the parts fit together.
+The [reference](reference.md) lists the manifest keys and command options. This page explains
+how the parts fit together.
 
 ## The files on disk
 
@@ -32,15 +32,18 @@ The [reference](reference.md) lists the manifest keys and command options. This 
 | `data/processed/<id>.parquet` | `build` (Parquet tables) | `validate`, `verify`, `report` | no |
 | `data/processed/<id>.<ext>` | `build` (`format = "file"`) | `validate`, `verify`, `report` | no |
 | `data/processed/datapackage.json` | `build` | `build --only`, `validate`, `verify`, `report` | no |
+| `codemeta.json` | you | `release`, only when `release_formats` asks for a format | yes |
+| `OUT_DIR` | `release` | `verify`, `release --check` | your choice |
 
 `<ext>` is the extension of the source's URL. The README says
 [what to commit](https://github.com/simonvanlierde/sourceledger#what-to-commit).
 
 Each raw file, record and output is written to a temporary file in the same folder and
-then renamed into place, so a crash never leaves half a file. A temp file that a killed
-`fetch` or `record` left in `data/raw/` is removed by the next one, once it holds the lock. The log is appended to
-instead, one line per new version. A last line cut off by a crash is dropped on the next fetch. A complete record that only
-lacks its final newline is kept.
+then renamed into place, so a crash never leaves half a file. The next `fetch` or `record`
+removes a temp file that a killed one left in `data/raw/`, once it holds the lock.
+
+The log is appended to instead, one line per new version. The next fetch drops a last line
+that a crash cut off. It keeps a complete record that only lacks its final newline.
 
 ## fetch
 
@@ -56,13 +59,15 @@ lacks its final newline is kept.
 4. It moves the file into place, appends a line to the log when the bytes are new for that
    source, and then writes the `.fetch.json` record.
 
-History reads retain only the latest record for each source and use small batches of complete lines. The CLI
-uses that same history read, under the fetch lock, to label downloads as new or unchanged.
+Reading the log keeps only the latest record for each source, and reads it in small batches of
+complete lines. The CLI uses that read, under the fetch lock, to label downloads as new or
+unchanged.
 
 The log line goes in before the record. If a crash comes between the two, the next run
 sees no matching record and fetches in full, so no version is lost. A lock on
 `data/raw/.lock` stops a second fetch in the same project while one runs (Linux, macOS and
-Windows). `fetch` refuses a symlink at `data/raw/.lock` or `data/fetches.jsonl`.
+Windows). [Use sourceledger safely](secure-use.md#limit-what-a-download-can-cost) lists what
+`fetch` refuses at that path.
 
 ## record
 
@@ -72,11 +77,14 @@ steps 3 and 4: the pin check, the move into place, the log line, and the record.
 the same lock and makes no request.
 
 The record keeps `recorded_at`, the time of the call. `retrieved_at` is the download time
-the other tool reported, or empty. A log line is added for new bytes, and also when the
-same bytes come under another `url` or `vintage`, switch between fetched and recorded, or are
-recorded for other `parameters`,
-so the log's last line always describes the current record. A later `fetch` sends the
-recorded ETag or Last-Modified only when they came from the source's own URL.
+the other tool reported, or empty.
+
+`record` adds a log line for new bytes. It also adds one when the same bytes come under
+another `url` or `vintage`, switch between fetched and recorded, or are recorded for other
+`parameters`. So the log's last line always describes the current record.
+
+A later `fetch` sends the recorded ETag or Last-Modified only when they came from the
+source's own URL.
 
 ## build
 
@@ -85,11 +93,11 @@ recorded ETag or Last-Modified only when they came from the source's own URL.
 1. For each implemented source, it re-reads the `.fetch.json` record and re-hashes the raw
    file. A record made for another URL, vintage or pin, or a raw file changed since, is
    refused.
-2. It reads the raw file with the project's reader, a `Parser`, into columns and rows. With
-   the default reader, CSV files, gzipped or not, are read one row at a time.
-   JSON, Excel and custom readers hold the whole source in memory. JSON converts its
-   decoded objects in place to avoid keeping a second list of rows. CSV output writes one row at a time;
-   Parquet writes batches of at most 10,000 rows.
+2. It reads the raw file with the project's reader, a `Parser`, into columns and rows. The
+   default reader reads CSV files, gzipped or not, one row at a time. JSON, Excel and custom
+   readers hold the whole source in memory. JSON converts its decoded objects in place, to
+   avoid keeping a second list of rows. CSV output writes one row at a time, and Parquet
+   writes batches of at most 10,000 rows.
 3. It writes `data/processed/<id>.csv` with five provenance columns in front of the source's
    own: `source_id`, `source_url`, `retrieved_at`, `vintage` and `raw_sha256`.
    `retrieved_at` is empty for a recorded file whose tool stated no download time.
@@ -114,10 +122,11 @@ each CSV output one row at a time. Parquet tables are decoded in batches of at m
 It compares each row's provenance
 columns with the record. For a file source, it compares the output's hash with the fetch
 record and checks that its package entry has the current provenance and reuse terms.
+
 It also reports a source without reuse terms, an output that no source owns, and a
 `datapackage.json` that no longer matches the outputs. Every file in `data/processed/`,
 including non-CSV files, must belong to a source or be the package descriptor.
-It exits 1 if it finds any problem.
+`validate` exits 1 if it finds any problem.
 
 ## The other commands
 
@@ -129,14 +138,15 @@ It exits 1 if it finds any problem.
 - `init` writes a starter `sources.toml`.
 - `release` copies the outputs of the sources that may be republished into a new folder,
   with `datapackage.json`, the metadata asked for and `SHA256SUMS`, then checks it. It reads
-  the manifest, the records, the outputs and `codemeta.json`.
+  the manifest, the records and the outputs, and `codemeta.json` when a metadata format is
+  asked for. [Release a dataset](reference.md#release-a-dataset) has the details.
 
 ## Where the code lives
 
 - `src/sourceledger/manifest.py`: `sources.toml` and the checks on it.
 - `src/sourceledger/ledger.py`: the fetch log, the sidecar records and `record()`.
-- `src/sourceledger/fetcher.py`: the HTTP(S) fetcher. It is the only module that opens a
-  network connection.
+- `src/sourceledger/fetcher.py`: the HTTP(S) fetcher. It is the only module of sourceledger's own
+  that opens a network connection. The release validators run in a subprocess and may fetch.
 - `src/sourceledger/builder.py`: the readers, the outputs and `datapackage.json`.
 - `src/sourceledger/report.py`: `validate`, `status`, `attribution`, `verify` and the
   standalone HTML provenance report.

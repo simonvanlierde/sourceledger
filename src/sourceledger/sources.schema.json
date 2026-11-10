@@ -30,16 +30,32 @@
         "id": {
           "type": "string",
           "pattern": "^[A-Za-z0-9_-]+$",
-          "description": "ASCII letters, digits, _ and -. Names the raw file and the output."
+          "not": { "pattern": "^([Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])$" },
+          "description": "ASCII letters, digits, _ and -, unique ignoring case, and not a Windows device name such as CON. Names the raw file and the output."
         },
         "status": {
           "enum": ["implemented", "unimplemented"],
           "description": "implemented: read by every stage. unimplemented: known, not read yet."
         },
         "name": { "type": "string", "description": "A title for people." },
-        "url": { "type": "string", "description": "What fetch downloads." },
+        "url": {
+          "type": "string",
+          "not": {
+            "anyOf": [
+              { "pattern": "^[\\u0000- ]*([A-Za-z][A-Za-z0-9+.-]*:)?//[^/?#]*@" },
+              {
+                "pattern": "^[\\u0000- ]*(?![\\u0000- ])([A-Za-z][A-Za-z0-9+.-]*:|(?![A-Za-z][A-Za-z0-9+.-]*:))(//[^/?#]*[/?#]|(?!//))[\\s\\S]*[^\\u0000-\\u007f]"
+              }
+            ]
+          },
+          "description": "What fetch downloads. No user name or password: send those in headers. ASCII outside the host: percent-encode the rest."
+        },
         "terms": { "type": "string", "description": "The publisher's reuse terms, in their words." },
-        "terms_url": { "type": "string", "description": "Where the terms are stated." },
+        "terms_url": {
+          "type": "string",
+          "not": { "pattern": "^[\\u0000- ]*([A-Za-z][A-Za-z0-9+.-]*:)?//[^/?#]*@" },
+          "description": "Where the terms are stated. No user name or password."
+        },
         "license": {
           "type": "string",
           "minLength": 1,
@@ -56,6 +72,14 @@
         "release": {
           "not": {},
           "description": "Renamed to vintage."
+        },
+        "output_format": {
+          "not": {},
+          "description": "Project-wide: set it above the first [[source]]."
+        },
+        "release_formats": {
+          "not": {},
+          "description": "Project-wide: set it above the first [[source]]."
         },
         "sha256": {
           "type": "string",

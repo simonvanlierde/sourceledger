@@ -1,7 +1,7 @@
 # Governance
 
 sourceledger has one maintainer, Simon van Lierde. This page says who decides what, and
-what happens if he can't continue.
+what happens if he is unavailable.
 
 ## Roles
 
@@ -37,7 +37,8 @@ together, and record the change in the changelog.
 The maintainer pushes a signed `v*` tag on `main`. The release workflow runs the full
 suite on the tagged commit, and again against the built wheel, before it publishes to
 PyPI. The maintainer approves each publish by hand. The workflow then creates the GitHub
-release, with the wheel, the sdist and their signed provenance as assets. Each release has
+release, with the wheel, the sdist, a CycloneDX SBOM and each file's signed provenance as
+assets, and checks every attestation before it publishes the release. Each release has
 a section in the [changelog](CHANGELOG.md), with breaking changes marked and upgrade steps
 first. [Stability](README.md#stability) in the README says which changes may break what.
 
@@ -47,10 +48,14 @@ An existing maintainer adds a new one, by name in this file and in
 [CONTRIBUTING.md](.github/CONTRIBUTING.md#who-maintains-this). A new maintainer gets write access to the repository and owner access
 to the PyPI project.
 
-## If the maintainer can't continue
+## If the maintainer is unavailable
 
-The repository is archived with a note in the README. The code stays available under the
-MIT license, and anyone may fork it and publish it under another name.
+A named person can take over the GitHub repository. The recovery details for PyPI and
+Zenodo are in an emergency-access vault.
+
+The code, the release history and the docs are public under the MIT license, so anyone can
+fork the project and publish it under another name. Installed copies keep working without
+upkeep: sourceledger has no required dependencies, and each release is pinned on PyPI.
 
 ## Changing this document
 

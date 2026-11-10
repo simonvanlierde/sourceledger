@@ -4,6 +4,7 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23460694.svg)](https://doi.org/10.5281/zenodo.23460694)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/simonvanlierde/sourceledger/badge)](https://scorecard.dev/viewer/?uri=github.com/simonvanlierde/sourceledger)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16545/badge)](https://www.bestpractices.dev/projects/16545)
 [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/simonvanlierde/sourceledger?utm_source=badge)
 
 Build a dataset from published sources and keep a record of the downloads behind it.
@@ -114,8 +115,17 @@ cheap. Older fetch logs stay readable. A record written by `record()`, or with
 
 - An error class per kind of failure in the other stages, under `ValueError` and `OSError`,
   once a caller needs to tell them apart. This will not break code that catches the base classes.
+- Comparing two versions of a table row by row, with the row keys the caller names, so a
+  revision shows which values changed and not only that the bytes did. It starts as a pilot on
+  real data, the archived World Development Indicators releases, before it becomes an API.
 - A review by [pyOpenSci](https://www.pyopensci.org) once the project has users besides
   its own template.
+
+Not planned:
+
+- Templated, paginated or parallel downloads, an `update` command, or a plugin per download
+  tool. Other tools fetch those files, and `record` logs them
+  ([0005](docs/decisions/0005-provenance-core.md)).
 
 Ideas and requests are welcome as [issues](https://github.com/simonvanlierde/sourceledger/issues).
 

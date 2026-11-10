@@ -340,8 +340,9 @@ def revision_records(before: Path, *, log: Path = FETCH_LOG) -> list[dict[str, A
 
 
 def without_query(url: str) -> str:
-    """`url` without its query and fragment, which can hold a signature."""
-    return urlsplit(url)._replace(query="", fragment="").geturl()
+    """`url` without its query, fragment and user name or password, which can hold a signature or key."""
+    parts = urlsplit(url)
+    return parts._replace(netloc=parts.netloc.rpartition("@")[2], query="", fragment="").geturl()
 
 
 def _served_from(source: Source, url: str) -> str:
@@ -599,8 +600,12 @@ def _log_new_version(log: Path, logged: dict[str, dict[str, Any]], record: Fetch
     last = logged.get(record.source_id, {})
     if log_version(last) == log_version(log_fields(record)):
         # A recorded file keeps its logged fields, so recording it again changes no byte of the
-        # sidecar and the package built from it stays current.
-        return last if last.get("recorded_at") else log_fields(record)
+        # sidecar and the package built from it stays current. A fetched one keeps the logged
+        # time and final URL, which the report checks the build against, and takes the new
+        # validators for the next conditional request.
+        if last.get("recorded_at"):
+            return last
+        return {**log_fields(record), "retrieved_at": last["retrieved_at"], "final_url": last.get("final_url", "")}
     _append(log, record)
     logged[record.source_id] = log_fields(record)
     return log_fields(record)

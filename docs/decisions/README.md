@@ -16,7 +16,7 @@ the old one's status to `superseded by 0007`, naming the new record's number.
 
 ## Index
 
-- [0001. Local builds and redistribution](0001-local-builds-and-redistribution.md): accepted
+- [0001. Local builds and redistribution](0001-local-builds-and-redistribution.md): accepted, consequences extended by 0006
 - [0002. URL templates and POST stay in each project's fetcher](0002-fetchers-stay-in-each-project.md): superseded by 0004, restored by 0005
 - [0003. Keep HTTP fetching in the standard library](0003-stdlib-http.md): accepted
 - [0004. Declarative retrieval with per-request provenance](0004-declarative-retrieval.md): superseded by 0005

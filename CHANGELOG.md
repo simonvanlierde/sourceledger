@@ -10,24 +10,33 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [0.5.0] - 2026-11-10
 
-Upgrade note for scripts that call the CLI: exit code 3 now means a stage could not run
-(it was 1), errors on stderr read `error: ...` and `help: ...` instead of `STAGE: ...`,
-`validate` and `verify` print their problems on stdout, and `--json` reports have a
-`schema_version` and error objects. Options go after the stage name. `revisions` prints
-`no revisions` instead of nothing when no source changed. In Python, `main()` also returns
-3 and 130, where 0.4.0 returned only 0 or 1. See
-[options, output and exit codes](docs/reference.md#options-output-and-exit-codes).
+Upgrade note for scripts that call the CLI:
 
-Upgrade note for Python callers and manifests: `read_output()` now yields rows instead of
-returning a list, so wrap it in `list()` where the code indexes or counts them. `sources.toml`
-refuses top-level keys other than `output_format`, `release_formats` and `[[source]]`. A dataset with a
-recorded file needs 0.5.0 to build. Details under Changed.
+- Exit code 3 now means a stage could not run. It was 1.
+- Errors on stderr read `error: ...` and `help: ...` instead of `STAGE: ...`.
+- `validate` and `verify` print their problems on stdout.
+- `--json` reports have a `schema_version` and error objects.
+- Options go after the stage name.
+- `revisions` prints `no revisions` when no source changed. It used to print nothing.
+- In Python, `main()` also returns 3 and 130. 0.4.0 returned only 0 or 1.
+
+See [options, output and exit codes](docs/reference.md#options-output-and-exit-codes).
+
+Upgrade note for Python callers and manifests:
+
+- `read_output()` now yields rows instead of returning a list. Wrap it in `list()` where the
+  code indexes or counts them.
+- `sources.toml` refuses top-level keys other than `output_format`, `release_formats` and
+  `[[source]]`.
+- A dataset with a recorded file needs 0.5.0 to build.
+
+Details are under Changed.
 
 ### Added
 
 - [`record`](docs/reference.md#other-commands), and `record()` in the library, take in a file that another tool such as pooch, DVC or your own script downloaded. It copies the file into `data/raw/`, checks the `sha256` pin, and writes the same log line and fetch record as `fetch`, with a `recorded_at` time and optional request `parameters`, stored as text in name order. The download time is the one the other tool reports, or empty. `datapackage.json` and the HTML report show these outputs as recorded, not fetched, and `status` shows the record time when there is no download time. A recorded URL other than the source's loses its query, and a parameter named like a credential (`api_key`, `apiKey`, `authKey`, `sessionid`, `sig`) is refused, since both are published with the dataset. Recording the same bytes again leaves the fetch record as logged; from another URL or download time it adds a log line, and `validate` reports a `datapackage.json` built before such a record. For a source with `archive = true`, `record` keeps the snapshot a fetch logged for the same bytes and asks for no new one. A dataset with a recorded file needs this version to build: 0.4.0 refuses its fetch records.
 - `sourceledger STAGE --help` lists only that stage's options. `--dry-run` on `fetch`, `record` and `build` says what they would do and writes nothing. `fetch`, `record` and `verify` accept `--json`. On a terminal, `fetch` shows which source it is fetching.
-- [Parquet outputs](docs/reference.md#sourcestoml) through `sourceledger[parquet]` and the project-wide `output_format = "parquet"` setting. Tables use zstd compression and an explicit string schema, with the same provenance columns and validation as CSV. `build` and `validate` accept `output_format=` in the library, and `read_output` reads either format.
+- [Parquet outputs](docs/reference.md#sourcestoml) through `sourceledger[parquet]` and the project-wide `output_format = "parquet"` setting. Tables use zstd compression and an explicit string schema, with the same provenance columns and validation as CSV. `build` and `validate` accept `output_format=` in the library, and `read_output` reads either format. `output_format` inside a `[[source]]` table, where a line appended to `sources.toml` lands, is refused, as is `release_formats`.
   Writing and validation use batches of at most 10,000 rows through PyArrow, including full-column decoding to detect corruption.
 - `load_output_format()` reads the project's `output_format`, for library callers to pass to `build` and `validate`. `validate` in the wrong format names the setting instead of asking you to delete the outputs.
 - `entry()` runs the command for a project with its own reader, as `sourceledger` does: point the console script at a function that calls it with your `parse` and `prog` ([recipe](docs/recipes.md#write-a-custom-reader)). After Ctrl-C it ends by SIGINT, so a shell loop around it stops.
@@ -36,17 +45,20 @@ recorded file needs 0.5.0 to build. Details under Changed.
 
 ### Changed
 
-- **Breaking:** `sources.toml` accepts only `output_format`, `release_formats` and `[[source]]` at the top level. A misspelt key such as `[[sources]]` is refused, with the intended key when one is close; it used to read as a manifest with no sources, so `build` wrote an empty `datapackage.json` over a good one. A project that kept its own table there, for its reader's settings, moves it into its own file or into each `[[source]]`, whose other keys stay allowed.
-- **Breaking:** `read_output()` is a generator that yields one row at a time, CSV row by row and Parquet in batches of at most 10,000 rows, so reading a table of 1.5 million rows no longer holds them all in one list. Wrap the call in `list()` where the code indexes the rows, takes their length, or reads them twice. Every error, a missing file included, now raises on the first `next()`, and an unfinished iterator keeps the file open, which on Windows blocks replacing the output.
+- **Breaking:** `sources.toml` refuses two ids that differ only in case, such as `Pudl` and `pudl`, since on Windows and macOS they name the same file. It also refuses a Windows device name as an id, such as `CON`, `NUL` or `COM1`, in any case. Rename the source, as `con_data`.
+- **Breaking:** `sources.toml` refuses a `url` with a non-ASCII character outside its host. Percent-encode it as UTF-8, as `d%C3%A4.csv` for `dä.csv`. A non-ASCII host such as `bücher.example` is still accepted. Before, `fetch` failed with only `'ascii' codec can't encode character`.
+- **Breaking:** options go after the stage name. `sourceledger --manifest x status` now exits 2, where 0.4.0 took it. A stage that takes no operand refuses one: `sourceledger status extra` and `build foo` exit 2 instead of ignoring it. Option prefixes are no longer accepted. `validate --j` used to run as `--json`, so write the full option name.
+- **Breaking:** `sources.toml` accepts only `output_format`, `release_formats` and `[[source]]` at the top level. A misspelt key such as `[[sources]]` is refused, with the intended key when one is close. Before, it read as a manifest with no sources, so `build` wrote an empty `datapackage.json` over a good one. A project that kept its own table there, for its reader's settings, moves it into its own file or into each `[[source]]`, whose other keys stay allowed. `output_format` and `release_formats` are refused inside a `[[source]]`.
+- **Breaking:** `read_output()` is a generator that yields one row at a time, so reading a table of 1.5 million rows no longer holds them all in one list. It reads CSV row by row and Parquet in batches of at most 10,000 rows. Wrap the call in `list()` where the code indexes the rows, takes their length, or reads them twice. Every error, a missing file included, now raises on the first `next()`. An unfinished iterator keeps the file open, which on Windows blocks replacing the output.
 - Windows is supported and tested in CI. 0.4.0 said it was not.
+- `build`, `validate` and `parse_csv` take 26%, 38% and 25% less time than in 0.4.0 on a 200,000-row CSV table (best of 21 runs on one machine). `load_manifest` takes about 0.6 ms longer for 200 sources, for its new checks.
 - The code behind the public names moved from `sourceledger.ledger` into `manifest`, `ledger`, `fetcher`, `builder` and `report` modules. Import from `sourceledger` itself: the submodules may change in any release, as the [stability policy](README.md#stability) says.
 - The CLI's stages, options, exit codes and `--json` reports are part of the public API in the [stability policy](README.md#stability).
 - The HTML report puts the integrity result in a box at the top, lists the outputs with links under one heading, and names hashes and times in plain words ("SHA-256 of the downloaded file", "Served from"). It follows the reader's dark mode, prints without the in-page links, wraps long ids, and shows a recorded file's request parameters. A script that reads the report's HTML needs updating.
 - The CLI help ends with a first run, the exit codes and a link to the docs, and `--version` prints the installed version, after the project's name when a project calls `main(prog=...)`. Ctrl-C ends a stage with an error, the command to finish it and exit code 130 instead of a traceback, and the command ends by SIGINT so a shell loop around it stops (on Windows it exits 130); under `--json` the report still prints, with the sources fetched so far. `init` says what to do next, and a count of one reads "1 problem" or "1 row".
 - An unexpected error, such as a project's parser raising `KeyError`, prints one `error:` line with its type and exits 3 instead of a traceback. A TOML syntax error names the manifest and the line to fix. A missing `record`, `revisions` or `verify` path says what to pass. A `--retrieved-at` that is not ISO 8601 is a usage error (exit 2).
 - CLI output is UTF-8 with LF line ends on every system, so `report > provenance.html` on Windows matches the encoding the HTML declares. Paths in the CLI's own lines use `/`.
-- Stages that take no operand refuse one: `build foo` exits 2 instead of ignoring `foo`.
-- **Breaking:** the CLI exits 0 when done, 1 when `validate` or `verify` finds problems, 2 for a usage error, and 3 when a stage could not run, such as a missing file, a failed download or a held lock. Before, a stage that could not run exited 1, as one that found problems does. An `--only` or `record` id that is not in `sources.toml` is a usage error. Errors print as `error: <what>`, with a `help:` line when there is a next step. `validate` and `verify` print their problems and the count on stdout, not stderr.
+- **Breaking:** the CLI exits 0 when done, 1 when `validate` or `verify` finds problems, 2 for a usage error, and 3 when a stage could not run, such as a missing file, a failed download or a held lock. Before, a stage that could not run exited 1, the same as one that found problems. An `--only` or `record` id that is not in `sources.toml` is a usage error. Errors print as `error: <what>`, with a `help:` line when there is a next step. `validate` and `verify` print their problems and the count on stdout, not stderr.
 - **Breaking:** every [JSON report](docs/reference.md#json-reports) has `"schema_version": 1`, and each entry in `errors` is an object with `message` and `help` instead of a string. `--json` must follow the stage name.
 - The website has [recipes](docs/recipes.md) for recording files from pooch, DVC, dlt and your own fetcher, and a [where it fits](docs/where-it-fits.md) page in place of the tool comparison. JSON and HTML reports moved into the [reference](docs/reference.md#json-reports), and release verification into [safe use](docs/secure-use.md#check-a-sourceledger-release); the old addresses redirect.
 - The CLI reports build row counts without rereading the outputs. Fetch history is read in small batches, once per CLI fetch, retaining only each source's latest record.
@@ -55,7 +67,11 @@ recorded file needs 0.5.0 to build. Details under Changed.
 
 ### Fixed
 
-- `output_format` inside a `[[source]]` table, where a line appended to `sources.toml` lands, is refused. Before, it was ignored and `build` wrote CSV.
+- `build` names the source when a raw CSV or JSON file is not UTF-8, such as Latin-1, cp1252 or UTF-16. It gives the first bad byte and says to re-save the file as UTF-8. Before, it stopped with a bare `UnicodeDecodeError`.
+- `build` names the source when a JSON file holds an unpaired surrogate escape such as `"\ud800"`. Before, it stopped with a bare `UnicodeEncodeError`.
+- `attribution` keeps no-break and narrow no-break spaces in names and terms, such as `10 000 €`. Only ASCII whitespace is joined onto one line.
+- The HTML report marks the source name, vintage, licence and terms with `dir="auto"`, so right-to-left text, or a U+202E, no longer reorders the text around it.
+- The data package name drops accents: a project folder named `Données-Ünï` gives `donnees-uni`. Before, each accented letter became a hyphen.
 - `sourceledger status | head` and other early-closing readers end the command quietly instead of with a `BrokenPipeError` traceback.
 - `fetch` and `record` print `relogged`, and `relogged: true` under `--json`, when the same bytes come in another way, such as a fetch after a `record`, and say to run `build`. Before, they printed `unchanged` while the outputs went stale, and `validate` then failed.
 - `fetch --json` and `record --json` give the fields of the log line, as the reference says, without an empty `recorded_at` and `parameters` for a fetched file.
@@ -63,15 +79,21 @@ recorded file needs 0.5.0 to build. Details under Changed.
 - `fetch` and `record` take the `data/raw/.lock` lock on Windows too, so a second run is refused there as on Linux and macOS. The test suite and CI now run on Windows.
 - The HTML report said "Local or non-HTTP URL omitted" for an empty final or terms URL, and "None" for an unknown redistribution flag. It now says "the URL above", "not stated in sources.toml", and "yes" or "no".
 - HTTPS downloads keep the SSL context on their own handler instead of reading a private standard-library attribute.
+- `fetch` fails at once on a TLS certificate that does not verify. Before, it retried it three times, waiting 35 s in all, before the same error.
+- A `fetch` that downloads the same bytes again in full, as from a `file://` URL or a server that sends no ETag, keeps the logged download time and final URL in the fetch record. Before, the record took the new time, the next `build` stamped it, and the HTML report said the outputs were built from an earlier fetch while `validate` passed.
 - A changed `url` or `vintage` that brings the same bytes adds a log line and prints `relogged`. Before, the log kept the old line while the fetch record took the new values, so the log disagreed with the record that `build` and `validate` read. 0.4.0 did the same.
 
 ### Security
 
-- `release` never ships the data of a source with `redistribute = false`: it takes the file list from `sources.toml`, not from `data/processed/`, and after writing it hashes every file in the folder and refuses one that has the bytes of a restricted raw file or output, whatever its name. Before, `build` copied such files into `data/processed/` and only the docs said to leave them out of a release.
+- `release` never ships the data of a source with `redistribute = false`. It takes the file list from `sources.toml`, not from `data/processed/`. After writing, it hashes every file in the folder and refuses one that has the bytes of a restricted raw file or output, whatever its name. Before, `build` copied such files into `data/processed/`, and only the docs said to leave them out of a release.
+- Each GitHub release asset has its build provenance beside it as `<asset>.intoto.jsonl`, replacing the single `sourceledger-<version>.sigstore.json`. A release also carries a CycloneDX SBOM with its own attestation. The workflow checks every attestation before it publishes the release. See [checking a release](docs/secure-use.md#check-a-sourceledger-release).
 - The release workflow publishes only a tag signed with a key listed in `.github/allowed_signers` on `main`. Before, it published from any pushed `v*` tag, signed or not. See [checking a release](docs/secure-use.md#check-a-sourceledger-release).
-- `fetch` keeps a redirect's final URL without its query and fragment, which can hold a signature, as signed download links from cloud storage do. Before, the full URL went into `fetches.jsonl`, the fetch record and `datapackage.json`.
+- `fetch` keeps a redirect's final URL without its query, fragment and any user name or password. Signed download links from cloud storage hold a signature or key there. Before, the full URL went into `fetches.jsonl`, the fetch record and `datapackage.json`.
 - A redirect from a public host to a non-HTTP URL, such as `ftp://` on an internal address, is refused. Before, urllib followed it past the check that refuses inward redirects.
-- `sources.toml` text with a control character other than a tab or line break, such as the ESC that starts a terminal escape sequence, is refused. Before, an ESC in a `url` reached the terminal raw in `fetch` and could recolour or rewrite the screen.
+- `sources.toml` text with a control character other than a tab or line break is refused. ESC, which starts a terminal escape sequence, is one. Before, an ESC in a `url` reached the terminal raw in `fetch` and could recolour or rewrite the screen. The check covers nested tables, arrays and keys too, such as a `[source.headers]` name.
+- A `url` or `terms_url` in `sources.toml` that holds a user name or password is refused. Before, it was copied into `fetches.jsonl`, the fetch record, `datapackage.json` and `ro-crate-metadata.json`, which go out with the dataset.
+- `release --check` and `verify` show a control character as an escape such as `\x1b` or `\r` when it is in a received folder's file names, its `SHA256SUMS` or a validator's output. Bidirectional controls such as U+202E are shown the same way. A crafted name can no longer recolour, overwrite or reorder a line of the output. `--json` keeps the names exact.
+- `release --check` reads `SHA256SUMS`, and `verify` reads `datapackage.json`, only when it is a regular file of at most 64 MiB. Before, a named pipe there made the check hang, and a link to `/dev/zero` filled memory.
 
 ## [0.4.0] - 2026-11-01
 

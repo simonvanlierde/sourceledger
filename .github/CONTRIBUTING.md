@@ -40,6 +40,8 @@ just check
   reason. Lines are at most 120 characters. `ruff format` formats the code.
 - **Types:** every function in `src/` is annotated, and [ty](https://docs.astral.sh/ty/) checks them.
   Silence a false positive with `# ty: ignore[<rule>]` and a reason, never a bare ignore.
+- **Warnings:** fix every warning from ruff, ty, pytest or the build, or silence it where it
+  arises with the reason. A pull request never leaves one behind.
 - **Docstrings:** [Google style](https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings),
   checked by ruff. A docstring says what the function does and what it raises. A comment
   says why, not what the next line does.
@@ -88,8 +90,9 @@ its tests still check the batch size and corruption detection.
 
 sourceledger has no runtime dependencies. It reads CSV and JSON with the standard
 library and fetches with `urllib`. The optional `xlsx` extra adds openpyxl;
-the `parquet` extra adds PyArrow. A new runtime dependency needs an issue first, saying why
-the standard library cannot do the job.
+the `parquet` extra adds PyArrow; the `release` extra adds the RO-Crate and Croissant
+validators. A new runtime dependency needs an issue first, saying why the standard library
+cannot do the job.
 
 Development tools are in the `dev` dependency group. All versions are locked in
 `uv.lock`, and CI installs with `uv sync --locked`. uv only resolves releases that are at
@@ -99,9 +102,9 @@ time. `uv audit` checks every locked package against the OSV vulnerability datab
 and a pull request that adds a dependency with a known advisory fails the dependency
 review check.
 
-uv locks only releases at least a week old. If `just check` fails on
-a security fix newer than that, add the package to `exclude-newer-package` under `[tool.uv]` in `pyproject.toml`,
-and remove it a week later ([how](https://github.com/simonvanlierde/project-templates/blob/main/docs/tooling.md#dependencies)).
+If `just check` fails on a security fix newer than that week, add the package to
+`exclude-newer-package` under `[tool.uv]` in `pyproject.toml`, and remove it a week later
+([how](https://github.com/simonvanlierde/project-templates/blob/main/docs/tooling.md#dependencies)).
 
 ## Write commits and pull requests
 
@@ -147,7 +150,9 @@ is the only remote. If you work from a fork, use the remote that points at this 
 If you pushed it already, update it with `git push --force-with-lease`, which refuses to
 overwrite work you have not seen. Do not use a plain `git push --force`.
 
-The `dco` workflow checks every pull request from a fork and fails on a commit without the line. Pull requests from a branch in this repository skip it: pushing that branch already needed write access.
+The `dco` workflow checks every pull request from a fork and fails on a commit without the
+line. Pull requests from a branch in this repository skip it, since pushing that branch
+already needed write access.
 
 ## Who maintains this
 

@@ -1,6 +1,6 @@
 # 0001. Local builds and redistribution
 
-- Status: accepted
+- Status: accepted. Consequences extended by [0006](0006-release-stage.md)
 - Date: 2026-10-31
 
 ## Decision

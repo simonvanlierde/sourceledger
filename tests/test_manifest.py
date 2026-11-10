@@ -230,6 +230,43 @@ def test_headers_on_a_plain_http_url_are_a_manifest_error(tmp_path: Path, capsys
 
 
 @pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("url", ["https://user:secret@example.org/x.csv", "https://token@example.org/x.csv"])
+def test_a_url_with_a_user_name_or_password_is_refused(tmp_path: Path, url: str) -> None:
+    """The url goes into the log, the fetch record, datapackage.json and the RO-Crate, all published."""
+    _manifest(tmp_path, url)
+    with pytest.raises(ValueError, match="user name or password") as refused:
+        manifest_mod.load_manifest()
+    assert str(refused.value) == (
+        "example: the url in sources.toml holds a user name or password; "
+        'send it in a header from an environment variable, as headers = { Authorization = "env:NAME" }'
+    )
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_terms_url_with_a_user_name_or_password_is_refused(tmp_path: Path) -> None:
+    """terms_url is the licence path in datapackage.json, which is published."""
+    _manifest(tmp_path, "https://example.org/x.csv", terms=TERMS.replace("https://", "https://user:pw@"))
+    with pytest.raises(ValueError, match="user name or password") as refused:
+        manifest_mod.load_manifest()
+    assert str(refused.value) == "example: the terms_url in sources.toml holds a user name or password; remove it"
+
+
+@pytest.mark.parametrize(
+    ("text", "shown"),
+    [
+        ("a\rFAKE: ok", "a\\rFAKE: ok"),
+        ("a\nb\tc", "a\\nb\\tc"),
+        ("\u202egnp.exe", "\\u202egnp.exe"),
+        ("\x1b[2J\x9b", "\\x1b[2J\\x9b"),
+        ("résumé, 東京", "résumé, 東京"),
+    ],
+)
+def test_printable_keeps_a_message_on_one_line_in_reading_order(text: str, shown: str) -> None:
+    """A carriage return could overwrite the line, a line break forge another, and a bidi control reorder it."""
+    assert manifest_mod.printable(text) == shown
+
+
+@pytest.mark.usefixtures("upstream")
 def test_an_id_must_be_ascii(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """An id names files, which must mean the same file on every system."""
     manifest = tmp_path / "sources.toml"
@@ -239,10 +276,80 @@ def test_an_id_must_be_ascii(tmp_path: Path, capsys: pytest.CaptureFixture[str])
 
 
 @pytest.mark.usefixtures("upstream")
+def test_ids_that_differ_only_in_case_are_refused(tmp_path: Path) -> None:
+    """Windows and macOS file systems ignore case, so Pudl.csv and pudl.csv would be one file."""
+    manifest = tmp_path / "sources.toml"
+    manifest.write_text(manifest.read_text(encoding="utf-8").replace('"later"', '"Example"'), encoding="utf-8")
+    with pytest.raises(ValueError, match="case") as refused:
+        manifest_mod.load_manifest()
+    assert str(refused.value) == (
+        "example: the id 'Example' in sources.toml differs from it only in case, "
+        "so both name one file on Windows and macOS; rename one of them"
+    )
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("name", ["CON", "con", "Prn", "aux", "NUL", "com1", "COM9", "lpt1", "LPT9"])
+def test_a_windows_device_name_as_an_id_is_refused(tmp_path: Path, name: str) -> None:
+    """On Windows, CON.csv opens the console, not a file."""
+    manifest = tmp_path / "sources.toml"
+    manifest.write_text(manifest.read_text(encoding="utf-8").replace('"later"', f'"{name}"'), encoding="utf-8")
+    with pytest.raises(ValueError, match="device") as refused:
+        manifest_mod.load_manifest()
+    assert str(refused.value) == f"{name}: the id names a device on Windows, not a file; rename it, as {name}_data"
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("name", ["COM0", "LPT10", "CONSOLE", "nul_data", "com"])
+def test_an_id_near_a_windows_device_name_is_allowed(tmp_path: Path, name: str) -> None:
+    manifest = tmp_path / "sources.toml"
+    manifest.write_text(manifest.read_text(encoding="utf-8").replace('"later"', f'"{name}"'), encoding="utf-8")
+    assert [s["id"] for s in manifest_mod.load_manifest()] == ["example", name]
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("url", ["https://example.invalid/dä.csv", "https://example.invalid/d.csv?q=é", "dä.csv"])
+def test_a_url_with_non_ascii_outside_its_host_is_refused_by_id(
+    tmp_path: Path, url: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The request line is ASCII: fetch would fail with only "'ascii' codec can't encode character"."""
+    _manifest(tmp_path, url)
+    assert _run("fetch") == [3]
+    assert capsys.readouterr().err.splitlines()[0] == (
+        "error: example: the url in sources.toml holds a character that is not ASCII outside its host; "
+        "percent-encode it as UTF-8, as d%C3%A4.csv for dä.csv"
+    )
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_url_with_a_non_ascii_host_is_allowed(tmp_path: Path) -> None:
+    """The fetch IDNA-encodes the host, so only the rest of the url must be ASCII."""
+    _manifest(tmp_path, "https://bücher.example/data.csv?q=x")
+    assert manifest_mod.load_manifest()[0]["url"] == "https://bücher.example/data.csv?q=x"
+
+
+@pytest.mark.usefixtures("upstream")
 @pytest.mark.parametrize("char", ["\\u001b", "\\u009b", "\\u007f", "\\u0000"])
 def test_a_control_character_in_the_manifest_is_refused(tmp_path: Path, char: str) -> None:
     """An ESC or C1 byte in a url or name would reach the terminal raw and could rewrite it."""
     _manifest(tmp_path, f"https://example.invalid/{char}[31mdata.csv")
+    with pytest.raises(ValueError, match=r"example: sources\.toml text may not hold a control character"):
+        manifest_mod.load_manifest()
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize(
+    "nested",
+    [
+        'headers = { "X-\\u001b[2J" = "env:TOKEN" }',
+        'headers = { Authorization = "env:TOKEN\\u001b" }',
+        'tags = ["ok", { note = "\\u009b" }]',
+        '"key\\u001b" = 1',
+    ],
+)
+def test_a_control_character_in_a_nested_table_or_key_is_refused(tmp_path: Path, nested: str) -> None:
+    """A header name reaches stderr in fetch; nested tables, arrays and keys are text too."""
+    _manifest(tmp_path, "https://example.invalid/data.csv", terms=f"{TERMS}\n{nested}")
     with pytest.raises(ValueError, match=r"example: sources\.toml text may not hold a control character"):
         manifest_mod.load_manifest()
 
@@ -285,6 +392,32 @@ _GOOD = f'[[source]]\nid = "a"\nstatus = "implemented"\nurl = "https://example.o
         'release_formats = ["ro-crate", "ro-crate"]\n' + _GOOD,
         'release_formats = ["zip"]\n' + _GOOD,
         'release_formats = "ro-crate"\n' + _GOOD,
+        # Appended below the last [[source]], so inside it, where both keys are refused.
+        _GOOD + 'output_format = "csv"\n',
+        _GOOD + "release_formats = []\n",
+        _GOOD.replace("https://", "https://user:pw@"),
+        _GOOD.replace("https://", "https://token@"),
+        _GOOD.replace("a.csv", "a@2x.csv?by=me@host"),
+        _GOOD.replace("https://example.org/terms", "https://user:pw@example.org/terms"),
+        _GOOD.replace('"https://example.org/a.csv"', '" https://user@example.org/a.csv"'),
+        *[_GOOD.replace('id = "a"', f'id = "{name}"') for name in ["CON", "nul", "Com1", "lpT9", "COM0", "CONSOLE"]],
+        *[
+            _GOOD.replace('"https://example.org/a.csv"', f'"{url}"')
+            for url in [
+                "https://example.org/dä.csv",
+                "https://example.org/a.csv?q=é",
+                "https://example.org?q=é",
+                "https://example.org/a.csv#é",
+                "dä.csv",
+                "//example.org/dä.csv",
+                "file:dä.csv",
+                " https://example.org/dä.csv",
+                "https://bücher.example/a.csv",
+                "https://bücher.example",
+                "//bücher.example",
+                "https://example.org/d%C3%A4.csv",
+            ]
+        ],
     ],
 )
 def test_the_schema_and_the_loader_agree(tmp_path: Path, text: str) -> None:

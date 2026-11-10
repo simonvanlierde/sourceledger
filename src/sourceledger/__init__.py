@@ -1,4 +1,4 @@
-"""Fetch or record the public files a dataset is built from.
+"""Fetch or record a dataset's public files with provenance, and release it without files whose terms forbid it.
 
 Every file keeps a provenance record, and every output row names the bytes it came from.
 
