@@ -104,8 +104,8 @@ JSON input must be an array of objects. Numbers keep their spelling: `1e5` stays
 keys are checked when the manifest loads. Keys not listed here are kept for your own reader.
 
 For checks in an editor with a TOML language server (Tombi, Taplo), put this line at the
-top of `sources.toml`. `init` writes it, with the version you have installed in place of
-`v0.5.0`:
+top of `sources.toml`. `init` writes it with the version you have installed in place of the
+one shown:
 
 ```toml
 #:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.5.1/src/sourceledger/sources.schema.json
