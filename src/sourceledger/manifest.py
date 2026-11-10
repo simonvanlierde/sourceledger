@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
-    from collections.abc import Collection
+    from collections.abc import Collection, Iterator
 
 
 MANIFEST = Path("sources.toml")
@@ -131,6 +131,7 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
     for source in sources:
         _check_placement(source)
         _check_text(source)
+        _check_url(source)
         _check_pin(source)
         _check_vintage(source)
         _check_format(source)
@@ -148,14 +149,37 @@ def _check_placement(source: Source) -> None:
 
 def _check_text(source: Source) -> None:
     """Refuse a control character: manifest text reaches the terminal, where an ESC could rewrite the screen."""
-    if any(_CONTROL.search(value) for value in source.values() if isinstance(value, str)):
+    if any(_CONTROL.search(text) for text in _texts(source)):
         msg = f"{source['id']}: sources.toml text may not hold a control character other than a tab or line break"
         raise ValueError(msg)
+
+
+def _texts(value: object) -> Iterator[str]:
+    """Every string in `value`, a key of a table or an item of an array as well."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield key
+            yield from _texts(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _texts(item)
 
 
 def printable(text: str) -> str:
     r"""`text` with each control character `_check_text` refuses shown as an escape, such as `\x1b`."""
     return _CONTROL.sub(lambda match: match[0].encode("unicode_escape").decode(), text)
+
+
+def _check_url(source: Source) -> None:
+    """Refuse a user name or password in the url: the url is logged and published with the dataset."""
+    if isinstance(url := source.get("url"), str) and urlsplit(url).username is not None:
+        msg = (
+            f"{source['id']}: the url in sources.toml holds a user name or password; "
+            'send it in a header from an environment variable, as headers = { Authorization = "env:NAME" }'
+        )
+        raise ValueError(msg)
 
 
 def _check_output_format(output_format: str) -> None:
