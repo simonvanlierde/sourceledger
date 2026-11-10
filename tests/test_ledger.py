@@ -337,6 +337,7 @@ def test_an_empty_manifest_is_no_sources(tmp_path: Path, monkeypatch: pytest.Mon
         ("[[sources]]\nid = 'a'\nstatus = 'implemented'\n", "source"),
         ("[[Source]]\nid = 'a'\nstatus = 'implemented'\n", "source"),
         ("output-format = 'parquet'\n", "output_format"),
+        ("out-fmt = 'csv'\n", "output_format"),
     ],
 )
 def test_a_misspelt_top_level_key_is_refused_before_any_write(
@@ -349,6 +350,15 @@ def test_a_misspelt_top_level_key_is_refused_before_any_write(
         ledger.load_manifest()
     assert _run("build") == [3]
     assert not (tmp_path / "data").exists()
+
+
+def test_an_unknown_top_level_key_with_no_close_match_gets_no_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "sources.toml").write_text("zzz = 1\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match=r"'zzz' is not a sources\.toml key$"):
+        ledger.load_manifest()
 
 
 def test_the_schema_closes_the_top_level() -> None:
@@ -3688,6 +3698,9 @@ def test_record_logs_no_query_it_drops(upstream: Path, caplog: pytest.LogCapture
         ("apiKey", True),
         ("accessKeyId", True),
         ("session_date", True),
+        ("pass_word", True),
+        ("pass-word", True),
+        ("mySig", True),
         ("author", False),
         ("authors", False),
         ("year", False),
@@ -3787,3 +3800,113 @@ def test_a_csv_output_ends_its_lines_in_crlf() -> None:
     out = Path("data/processed/example.csv").read_bytes()
     assert out.startswith(b"source_id,source_url,retrieved_at,vintage,raw_sha256,")
     assert out.count(b"\n") == out.count(b"\r\n") > 1
+
+
+@pytest.mark.usefixtures("upstream")
+def test_a_failed_source_leaves_the_others_on_the_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A library caller still gets the records of the sources that were fetched."""
+    first = ledger.load_manifest()[0]
+    sources = [{**first, "id": "first"}, {**first, "id": "second"}]
+    _serve(monkeypatch, _Response(FIXTURE.encode()), _http_error(404))
+    with pytest.raises(ledger.FetchError) as error:
+        ledger.fetch(sources)
+    assert [r.source_id for r in error.value.records] == ["first"]
+    assert len(error.value.failures) == 1
+
+
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="needs time.tzset")
+def test_record_takes_the_earliest_utc_time_whatever_the_local_zone(
+    upstream: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The range check is against UTC: a local zone west of it would put this time before year 1."""
+    monkeypatch.setenv("TZ", "Etc/GMT+12")
+    time.tzset()
+    try:
+        result = ledger.record(_source(), upstream, retrieved_at="0001-01-01T00:00:00Z")
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+    assert result.retrieved_at.endswith("-01-01T00:00:00Z")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows cannot delete a file that is still open")
+def test_a_failed_copy_raises_its_own_error_even_if_the_temp_file_is_gone(
+    upstream: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def vanish(*_args: object) -> None:
+        for part in Path("data/raw").glob(".example.*.part"):
+            part.unlink()
+        raise OSError(errno.EIO, "disk gone")
+
+    monkeypatch.setattr(ledger, "_copy", vanish)
+    with pytest.raises(OSError, match="disk gone"):
+        ledger.record(_source(), upstream)
+
+
+def test_record_gives_no_snapshot_when_the_log_holds_none(upstream: Path, tmp_path: Path) -> None:
+    """No log line, or a line from before archive_url, leaves archive_url empty."""
+    _manifest(tmp_path, upstream.as_uri(), terms=f"{TERMS}\narchive = true")
+    assert ledger.record(_source(), upstream).archive_url == ""
+    line = json.loads(LOG.read_text(encoding="utf-8"))
+    del line["archive_url"]
+    LOG.write_text(json.dumps(line) + "\n", encoding="utf-8", newline="")
+    assert ledger.record(_source(), upstream, retrieved_at=WHEN).archive_url == ""
+
+
+@pytest.mark.parametrize("field", ["etag", "last_modified"])
+def test_recording_the_same_bytes_with_another_validator_adds_a_line(upstream: Path, field: str) -> None:
+    for value in ("a", "b"):
+        ledger.record(
+            _source(),
+            upstream,
+            etag=value if field == "etag" else "",
+            last_modified=value if field == "last_modified" else "",
+        )
+    assert len(LOG.read_text(encoding="utf-8").splitlines()) == 2
+
+
+def test_a_log_line_with_empty_parameters_reads_as_having_none(upstream: Path) -> None:
+    ledger.record(_source(), upstream)
+    line = json.loads(LOG.read_text(encoding="utf-8"))
+    LOG.write_text(json.dumps({**line, "parameters": {}}) + "\n", encoding="utf-8", newline="")
+    ledger.record(_source(), upstream)
+    assert len(LOG.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_validate_names_the_package_that_describes_an_earlier_file_build(upstream: Path, tmp_path: Path) -> None:
+    _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nformat = "file"')
+    assert _run("fetch", "build") == [0, 0]
+    package = Path("data/processed/datapackage.json")
+    described = json.loads(package.read_text(encoding="utf-8"))
+    described["resources"][0]["bytes"] += 1
+    package.write_text(json.dumps(described), encoding="utf-8", newline="")
+    assert ledger.validate(ledger.load_manifest()) == [
+        "data/processed/datapackage.json describes an earlier build of data/processed/example.csv; re-run build"
+    ]
+
+
+@pytest.mark.usefixtures("upstream")
+def test_validate_names_the_resources_a_package_lists_in_place_of_the_sources() -> None:
+    _run("fetch", "build")
+    Path("data/processed/datapackage.json").write_text('{"resources": [{"name": "zzz"}]}', encoding="utf-8", newline="")
+    assert (
+        "data/processed/datapackage.json lists ['zzz'], not the implemented sources ['example']; re-run build"
+        in ledger.validate(ledger.load_manifest())
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "stamp", "scanned"),
+    [
+        ("", "example", (False, False)),
+        ("source_id\n\nexample\n", "example", (True, False)),
+        ('source_id\r\n"a\r\nb"\r\n', "a\r\nb", (True, False)),
+        ("other\nexample\n", "example", (True, True)),
+        ("other,source_id\nx\n", "example", (True, True)),
+    ],
+)
+def test_scan_reports_rows_and_a_stale_stamp(tmp_path: Path, text: str, stamp: str, scanned: tuple[bool, bool]) -> None:
+    """An empty file, blank lines, a line break inside the stamp, a missing column and a short row."""
+    out = tmp_path / "out.csv"
+    out.write_bytes(text.encode())
+    assert ledger._scan(out, {"source_id": stamp}) == scanned  # noqa: SLF001

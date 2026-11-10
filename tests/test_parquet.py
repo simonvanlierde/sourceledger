@@ -319,3 +319,9 @@ def test_parquet_writes_parser_cells_as_csv_does(output_format: str) -> None:
     ledger.build(sources, parse=loose, output_format=output_format)
     row = next(ledger.read_output(Path(f"data/processed/example.{output_format}")))
     assert (row["code"], row["value"]) == ("7", "")
+
+
+def test_parquet_refuses_rows_of_unequal_width(tmp_path: Path) -> None:
+    """A row longer than the others is an error, not cells dropped silently."""
+    with pytest.raises(ValueError, match="zip"):
+        ledger._write_cells({"id": "x"}, tmp_path / "x.parquet", {}, ["a"], [["1"], ["2", "3"]])  # noqa: SLF001

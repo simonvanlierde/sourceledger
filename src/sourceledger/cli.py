@@ -329,12 +329,13 @@ def _explain(error: Exception, run: _Run) -> tuple[str, str | None]:
 def _help(error: Exception, run: _Run) -> str | None:
     """What to do about an error the CLI knows the cause of; None for the rest."""
     missing = Path(error.filename) if isinstance(error, FileNotFoundError) and error.filename else None
+    # The stage's own path first: one named like the manifest is still the path the user passed.
+    if missing and (path := getattr(run.args, "path", None)) and missing in (path, path / DATAPACKAGE):
+        return _MISSING_PATH_HELP[run.args.stage]
     if missing == run.args.manifest:
         return f"run `{run.prog} init` to write one, or pass --manifest PATH"
     if missing == FETCH_LOG:
         return f"run `{run.prog} fetch` first; it writes the log"
-    if missing and (path := getattr(run.args, "path", None)) and missing in (path, path / DATAPACKAGE):
-        return _MISSING_PATH_HELP[run.args.stage]
     if isinstance(error, FileExistsError):
         return "edit it, or pass --manifest PATH to write one elsewhere"
     # A held lock: BlockingIOError on POSIX, PermissionError on Windows.
