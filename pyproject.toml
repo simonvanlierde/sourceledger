@@ -110,11 +110,11 @@ convention = "google"
 allow-magic-value-types = ["int"]
 max-args = 10
 
-# A rule set to "warn" reports without failing: ty otherwise exits 1 on warnings too.
 # The example script imports pyarrow, which the project environment need not hold.
 [tool.ty.src]
 exclude = ["docs/examples"]
 
+# A rule set to "warn" reports without failing: ty otherwise exits 1 on warnings too.
 [tool.ty.terminal]
 error-on-warning = false
 
