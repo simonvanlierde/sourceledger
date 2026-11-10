@@ -117,6 +117,8 @@ from several sources can still hold their values, so check the terms for those t
 the size and SHA-256 it gives. It needs no network, no manifest and no log. It refuses a
 path that leads out of the folder, including through a symlink.
 
+`sourceledger release --check DIR` also checks a received folder, but it is not offline. The RO-Crate validator fetches the `@context` that `ro-crate-metadata.json` names, so the folder's author chooses which addresses it requests. Run it on a folder you do not trust only where that is acceptable.
+
 ## Check a sourceledger release
 
 Each release is built and published by the
@@ -164,7 +166,7 @@ Compare the hashes with the ones under "Download files" on PyPI.
 ## How dependencies are chosen
 
 sourceledger has no runtime dependencies, so installing it pulls in no other code. The
-optional `xlsx` extra adds openpyxl, and `parquet` adds PyArrow. [CONTRIBUTING.md](https://github.com/simonvanlierde/sourceledger/blob/main/.github/CONTRIBUTING.md#dependencies)
+optional `xlsx` extra adds openpyxl, `parquet` adds PyArrow, and `release` adds the RO-Crate and Croissant validators. [CONTRIBUTING.md](https://github.com/simonvanlierde/sourceledger/blob/main/.github/CONTRIBUTING.md#dependencies)
 explains how the development tools are locked and audited.
 
 [What the checks establish](assurance-case.md) explains their trust assumptions, evidence and limits.

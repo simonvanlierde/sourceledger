@@ -147,10 +147,12 @@ Publishers see `my-dataset` as the User-Agent when you fetch. If your project sh
 [project-templates](https://github.com/simonvanlierde/project-templates) `data-pipeline`
 kind sets this up, with CI and a weekly revision report. The stages are also
 functions: `load_manifest`, `fetch`, `record`, `build`, `validate`, `revisions`, `status`,
-`attribution` and `verify`. `verified(source)` returns a source's fetch record and raw
+`attribution`, `verify`, `release`, `check_release`, `report` and `entry`. `verified(source)` returns a source's fetch record and raw
 bytes after checking that both are current, for a reader that needs them.
 
 ## Publish a build only when it validates
+
+[`release`](reference.md#release-a-dataset) does this for you: it validates, writes the folder beside `OUT_DIR` and moves it into place only after its checks pass. The code below is the manual version.
 
 `build` replaces each output in place. To publish a folder that is either the old dataset
 or a complete new one, build into a fresh folder, validate it, and only then swap it in:

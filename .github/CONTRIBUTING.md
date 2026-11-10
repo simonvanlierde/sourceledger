@@ -88,7 +88,7 @@ its tests still check the batch size and corruption detection.
 
 sourceledger has no runtime dependencies. It reads CSV and JSON with the standard
 library and fetches with `urllib`. The optional `xlsx` extra adds openpyxl;
-the `parquet` extra adds PyArrow. A new runtime dependency needs an issue first, saying why
+the `parquet` extra adds PyArrow; the `release` extra adds the RO-Crate and Croissant validators. A new runtime dependency needs an issue first, saying why
 the standard library cannot do the job.
 
 Development tools are in the `dev` dependency group. All versions are locked in

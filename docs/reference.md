@@ -138,7 +138,7 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 
 ## Options, output and exit codes
 
-`sourceledger STAGE --help` lists the options of one stage; options go after the stage name.
+`sourceledger STAGE --help` lists the options of one stage; options go after the stage name. Write each option in full: a prefix such as `--j` is refused.
 
 | Option | Stages | Effect |
 | --- | --- | --- |
@@ -274,7 +274,8 @@ The dataset's name, description, authors, licence, version, identifier, `datePub
 `url` come from `codemeta.json` in the current directory, the project's CodeMeta file; `release`
 does not write it. RO-Crate needs
 `name`, `description`, `license` and `datePublished`, and Croissant `name`, `description`,
-`license` and `url`. A missing one stops `release` with exit code 1, naming it.
+`license` and `url`. A missing one stops `release` with exit code 1, naming it. `release` reads
+`codemeta.json` only when `release_formats` asks for a format; with the setting absent, no file is needed. When a format is asked for and the file is missing, `release` exits 1 and names `codemeta.json`.
 
 After writing, `release` hashes every file in the folder, and refuses with exit code 1 when
 one has the bytes of a restricted source's raw file or output, whatever its name. Then it runs
@@ -283,7 +284,7 @@ the same checks as `release --check DIR`, which checks a folder that exists:
 | File | Check |
 | --- | --- |
 | `SHA256SUMS` | Every listed file is there with its SHA-256, and no file is unlisted. Built in. |
-| `ro-crate-metadata.json` | `rocrate-validator validate`, profile `ro-crate-1.3`. It downloads the RO-Crate context, so it needs the network. |
+| `ro-crate-metadata.json` | `rocrate-validator validate`, profile `ro-crate-1.3`. It downloads the context that the crate names, so it needs the network, and on a folder you received it makes the requests that crate asks for. |
 | `croissant.json` | `mlcroissant validate --jsonld`. |
 
 Each validator runs in its own process and every finding is a problem, with exit code 1. A
@@ -293,7 +294,7 @@ report names each check that ran, with its version. The two validators come with
 extra: `uv tool install 'sourceledger[release]'`, or `uv add 'sourceledger[release]'` in a
 project. When a metadata file is there but its validator is not, `release` exits 3 with the
 install line. The folder is written beside `OUT_DIR` and moved into place only once every
-check passes, so a refused release leaves nothing at `OUT_DIR`. An `OUT_DIR` that already
+check passes, so a refused release leaves nothing at `OUT_DIR`. A killed `release` leaves `.OUT_DIR.part` beside it, and the next run refuses until you delete that folder. An `OUT_DIR` that already
 exists and is empty, such as a mounted volume, is kept and the files are moved into it.
 
 Above 100 files, `release` warns: Zenodo takes at most 100 files a record, so zip the folder

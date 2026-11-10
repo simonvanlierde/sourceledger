@@ -36,7 +36,8 @@ The evidence below is executable regression coverage in
 [`tests/test_ledger.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_ledger.py),
 [`tests/test_fetcher.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_fetcher.py),
 [`tests/test_builder.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_builder.py),
-[`tests/test_report.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_report.py)
+[`tests/test_report.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_report.py),
+[`tests/test_releaser.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_releaser.py)
 and [`tests/test_golden.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_golden.py).
 It supports the stated behavior; it is not an independent security certification.
 
@@ -51,6 +52,7 @@ It supports the stated behavior; it is not an independent security certification
 | A recipient can check a package without fetching its sources. | Verify checks listed files against size and SHA-256, and refuses paths that escape the dataset folder, including through symlinks. | `test_verify_checks_a_published_dataset_against_its_package`, `test_verify_reports_a_package_it_cannot_check` |
 | A provenance report can be read offline without executing displayed metadata. | Standalone HTML escapes metadata, omits raw values and headers, redacts HTTP URL credentials, queries and fragments, and blocks remote assets and scripts. Free text and URL paths still need review before sharing. | `test_report_escapes_metadata_and_omits_credentials`, `test_report_displays_the_built_metadata_and_security_policy`, `test_report_does_not_echo_credentials_from_an_invalid_file_url` |
 | A file another tool downloaded is held to the same rules as a fetch, and marked as such. | `record` copies the file into `data/raw/`, checks the pin under the fetch lock, refuses credentials in the URL, and writes the log line and record through the code `fetch` uses. The record keeps `recorded_at`, and states no download time unless one is given. Validators from another URL are not kept. | `test_a_recorded_file_builds_like_a_fetched_one`, `test_record_refuses_what_it_cannot_record_honestly`, `test_record_states_no_download_time_it_was_not_given`, `test_a_recorded_file_verifies_and_reads_back` |
+| A release folder holds no file from a source marked `redistribute = false`. | `release` takes the file list from `sources.toml`, not from the folder. A second pass hashes every file written and refuses the bytes of a restricted raw file or output under any name. The validators run with `python -I`, so code planted in the folder does not run. | `test_a_restricted_source_never_reaches_the_release`, `test_flipping_redistribute_after_build_keeps_the_file_out`, `test_the_hash_pass_refuses_restricted_bytes_under_any_name`, `test_the_hash_pass_holds_when_the_file_list_ships_everything`, `test_check_runs_no_code_planted_in_the_folder` |
 | Records, logs, packages and reports keep their format, and a 0.4.0 project still reads. | Golden files pin each written format byte for byte. A project written by 0.4.0 validates and rebuilds to the same bytes, and a fetch over it writes the same record keys. | `test_a_full_dataset_matches_its_goldens`, `test_a_minimal_dataset_matches_its_goldens`, `test_a_0_4_0_project_validates_and_rebuilds_unchanged`, `test_a_fetch_over_a_0_4_0_project_writes_the_0_4_0_format` |
 | The same input records give repeatable build outputs. | Build writes no current timestamps into outputs or package metadata. | `test_the_same_records_build_the_same_package`, `test_the_package_is_written_exactly` |
 
@@ -82,7 +84,7 @@ for the full mutation check against the recorded survivor baseline; coverage alo
 not show that every incorrect implementation would be detected.
 
 The library uses the standard library at runtime; the optional Excel reader adds
-openpyxl. Development tools are locked and audited. See the
+openpyxl, the Parquet outputs add PyArrow, and `release` adds the RO-Crate and Croissant validators. Development tools are locked and audited. See the
 [dependency policy](https://github.com/simonvanlierde/sourceledger/blob/main/.github/CONTRIBUTING.md#dependencies).
 The release workflow tests the source and the built wheel before publishing.
 [Release verification](secure-use.md#check-a-sourceledger-release) explains the attestations and reproducible-build check.

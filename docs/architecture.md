@@ -1,12 +1,12 @@
 ---
 title: How sourceledger works
-description: The three main stages, the files each one reads and writes, and where the code lives.
+description: The four main stages, the files each one reads and writes, and where the code lives.
 ---
 
 # How sourceledger works
 
-sourceledger turns a list of public sources into a dataset in three stages: `fetch`,
-`build` and `validate`. Each stage is a function in its own module (see
+sourceledger turns a list of public sources into a dataset in four stages: `fetch`,
+`build`, `validate` and `release`. Each stage is a function in its own module (see
 [Where the code lives](#where-the-code-lives)) and a command in `sourceledger.cli`. The
 stages talk to each other only through files on disk, so you
 can run them in separate CI jobs, or days apart. `record` takes the place of `fetch` for
@@ -32,6 +32,8 @@ The [reference](reference.md) lists the manifest keys and command options. This 
 | `data/processed/<id>.parquet` | `build` (Parquet tables) | `validate`, `verify`, `report` | no |
 | `data/processed/<id>.<ext>` | `build` (`format = "file"`) | `validate`, `verify`, `report` | no |
 | `data/processed/datapackage.json` | `build` | `build --only`, `validate`, `verify`, `report` | no |
+| `codemeta.json` | you | `release`, only when `release_formats` asks for a format | yes |
+| `OUT_DIR` | `release` | `verify`, `release --check` | your choice |
 
 `<ext>` is the extension of the source's URL. The README says
 [what to commit](https://github.com/simonvanlierde/sourceledger#what-to-commit).
@@ -129,14 +131,14 @@ It exits 1 if it finds any problem.
 - `init` writes a starter `sources.toml`.
 - `release` copies the outputs of the sources that may be republished into a new folder,
   with `datapackage.json`, the metadata asked for and `SHA256SUMS`, then checks it. It reads
-  the manifest, the records, the outputs and `codemeta.json`.
+  the manifest, the records and the outputs, and `codemeta.json` when a metadata format is asked for.
 
 ## Where the code lives
 
 - `src/sourceledger/manifest.py`: `sources.toml` and the checks on it.
 - `src/sourceledger/ledger.py`: the fetch log, the sidecar records and `record()`.
-- `src/sourceledger/fetcher.py`: the HTTP(S) fetcher. It is the only module that opens a
-  network connection.
+- `src/sourceledger/fetcher.py`: the HTTP(S) fetcher. It is the only module of sourceledger's own
+  that opens a network connection. The release validators run in a subprocess and may fetch.
 - `src/sourceledger/builder.py`: the readers, the outputs and `datapackage.json`.
 - `src/sourceledger/report.py`: `validate`, `status`, `attribution`, `verify` and the
   standalone HTML provenance report.
