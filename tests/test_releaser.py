@@ -637,6 +637,16 @@ def test_release_codemeta_names_a_dataset_file_with_its_own_licence(
     assert "missing.json is missing, which ro-crate needs" in capsys.readouterr().out
 
 
+def test_release_refuses_a_package_built_under_another_name(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A name added to sources.toml after the build must not ship under the old one."""
+    _write_manifest(project, head='name = "ducks"\n\n')
+    assert _release(str(OUT)) == 1
+    assert "names the package" in capsys.readouterr().out
+    assert not OUT.exists()
+    assert [main(["build"]), _release(str(OUT))] == [0, 0]
+    assert json.loads((OUT / "datapackage.json").read_bytes())["name"] == "ducks"
+
+
 @pytest.mark.usefixtures("stand_ins")
 def test_codemeta_3_id_and_type_aliases_become_json_ld_keywords(project: Path) -> None:
     """CodeMeta 3's context makes `id` and `type` aliases of `@id` and `@type`; RO-Crate's context has no such terms."""
@@ -1110,6 +1120,7 @@ def test_check_of_a_missing_folder_says_what_to_pass(tmp_path: Path, capsys: pyt
         (["--check", "out", "--dry-run"], "--check writes nothing; drop --dry-run"),
         (["--check", "out", "--manifest", "other.toml"], "--check reads no manifest; drop --manifest"),
         (["--check", "out", "--codemeta", "data.json"], "--check reads no codemeta.json; drop --codemeta"),
+        (["--check", "out", "--codemeta", "./codemeta.json"], "--check reads no codemeta.json; drop --codemeta"),
     ],
 )
 def test_release_needs_one_folder(argv: list[str], message: str, capsys: pytest.CaptureFixture[str]) -> None:

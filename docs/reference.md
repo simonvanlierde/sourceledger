@@ -59,10 +59,12 @@ Set `name` there to name the data package in `datapackage.json`:
 name = "co2-annual"
 ```
 
-It takes lower case letters, digits, `.`, `_` and `-`. Without it, `build` uses the `[project]`
+Put it above the first `[[source]]`: below one, TOML makes it that source's title. It takes
+lower case letters, digits, `.`, `_` and `-`, and `validate` and `release` check that
+`datapackage.json` has it. Without it, `build` uses the `[project]`
 name in `./pyproject.toml`, or else the current folder's name, made lower case. The folder
 differs between clones, worktrees and CI, so set `name` or keep a `pyproject.toml` when the
-file must be the same everywhere. Library callers pass `name=` to `build`; `load_package_name` reads it.
+file must be the same everywhere. Library callers pass `name=` to `build`, `validate` and `release`; `load_package_name` reads it.
 
 `name`, `output_format`, `release_formats` and `[[source]]` are the only top-level keys. Any other, such as a misspelt
 `[[sources]]`, is refused, with the intended name when one is close, so a typo never reads as
@@ -295,6 +297,10 @@ as when the code is MIT and the data CC-BY-4.0, keep a CodeMeta file for the dat
 it with `--codemeta`.
 `release` does not write it, and reads it only when `release_formats` asks for a format.
 If the file is missing then, `release` exits 1 and names it.
+[citesync](https://github.com/simonvanlierde/citesync/blob/v0.5.0/docs/formats.md#dataset-files)
+0.5.0 or later keeps it in step with `CITATION.cff`, and its `check` also compares the
+`ro-crate-metadata.json` and `croissant.json` of a release folder you list under `manifests`,
+so a release made from a stale CodeMeta file fails it.
 Both CodeMeta 2 and 3 files work: CodeMeta 3's `id` and `type` are written as `@id` and `@type`, so an author's ORCID stays its `@id`.
 
 RO-Crate needs `name`, `description`, `license` and `datePublished`. Croissant needs `name`,

@@ -37,6 +37,7 @@ from support import (
     report_mod,
 )
 
+import sourceledger
 from sourceledger import ledger
 from sourceledger import manifest as manifest_mod
 from sourceledger.cli import main
@@ -375,11 +376,16 @@ def test_the_package_name_comes_from_pyproject_before_the_folder(
     assert builder_mod._package_name() == name  # noqa: SLF001
 
 
+@pytest.mark.parametrize("content", [b"[project\n", b'[project]\nname = "\xe9t\xe9"\n', None])
 def test_a_broken_pyproject_is_named_when_it_would_name_the_package(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: bytes | None
 ) -> None:
+    """A TOML error, bytes outside UTF-8, or a folder in its place."""
     monkeypatch.chdir(tmp_path)
-    Path("pyproject.toml").write_text("[project\n", encoding="utf-8")
+    if content is None:
+        Path("pyproject.toml").mkdir()
+    else:
+        Path("pyproject.toml").write_bytes(content)
     with pytest.raises(ValueError, match=r"^pyproject.toml: .*; fix it, or set name in sources.toml$"):
         builder_mod._package_name()  # noqa: SLF001
 
@@ -396,6 +402,11 @@ def test_build_names_the_package_from_sources_toml_first() -> None:
     assert json.loads(Path("data/processed/datapackage.json").read_bytes())["name"] == "from-pyproject"
     with pytest.raises(ValueError, match=r"^name in sources\.toml must be"):
         builder_mod.build(manifest_mod.load_manifest(), name="Bad Name")
+    # The last build named it from pyproject.toml: validate wants a rebuild.
+    assert sourceledger.validate(manifest_mod.load_manifest(), name="co2-annual") == [
+        "data/processed/datapackage.json names the package 'from-pyproject', not 'co2-annual'; re-run build"
+    ]
+    assert _run("validate", "build", "validate") == [1, 0, 0]
 
 
 def test_build_only_a_later_source_builds_it(upstream: Path, tmp_path: Path) -> None:

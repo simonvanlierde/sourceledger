@@ -142,6 +142,7 @@ def release(
     processed: Path = PROCESSED,
     codemeta: Path = CODEMETA,
     output_format: str = "csv",
+    name: str | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Write a release folder at `out_dir` from a validated build, check it, and return what it holds.
@@ -151,7 +152,8 @@ def release(
     when `formats` (any iterable of their names) asks for them, and `SHA256SUMS`, written last.
     The descriptive fields come from `codemeta`. The folder is written beside `out_dir` and moved
     into place only once every check passed, so a refused release leaves nothing at `out_dir`.
-    `dry_run` checks the input and returns what would be written, without writing.
+    `dry_run` checks the input and returns what would be written, without writing. `name` is
+    passed to `validate`.
 
     The result has `files` (paths in the folder), `excluded` (source ids), `formats` (each
     optional format "written" or "skipped") and `validators` (`file`, `name`, `version` of each
@@ -167,7 +169,7 @@ def release(
         msg = f"formats must be drawn from {list(RELEASE_FORMATS)}, not {formats!r}"
         raise ValueError(msg)
     formats = [fmt for fmt in RELEASE_FORMATS if fmt in wanted]
-    if problems := validate(sources, raw=raw, processed=processed, output_format=output_format):
+    if problems := validate(sources, raw=raw, processed=processed, output_format=output_format, name=name):
         raise ReleaseError(problems)
     if out_dir.exists() and (not out_dir.is_dir() or any(out_dir.iterdir())):
         msg = f"{out_dir.as_posix()} already exists; a release goes into a new folder"
