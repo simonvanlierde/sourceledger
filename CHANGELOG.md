@@ -16,6 +16,11 @@ Upgrade note for scripts that call the CLI: exit code 3 now means a stage could 
 3 and 130, where 0.4.0 returned only 0 or 1. See
 [options, output and exit codes](docs/reference.md#options-output-and-exit-codes).
 
+Upgrade note for Python callers and manifests: `read_output()` now yields rows instead of
+returning a list, so wrap it in `list()` where the code indexes or counts them. `sources.toml`
+refuses top-level keys other than `output_format` and `[[source]]`. A dataset with a
+recorded file needs 0.5.0 to build. Details under Changed.
+
 ### Added
 
 - [`record`](docs/reference.md#other-commands), and `record()` in the library, take in a file that another tool such as pooch, DVC or your own script downloaded. It copies the file into `data/raw/`, checks the `sha256` pin, and writes the same log line and fetch record as `fetch`, with a `recorded_at` time and optional request `parameters`, stored as text in name order. The download time is the one the other tool reports, or empty. `datapackage.json` and the HTML report show these outputs as recorded, not fetched, and `status` shows the record time when there is no download time. A recorded URL other than the source's loses its query, and a parameter named like a credential (`api_key`, `apiKey`, `authKey`, `sessionid`, `sig`) is refused, since both are published with the dataset. Recording the same bytes again leaves the fetch record as logged; from another URL or download time it adds a log line, and `validate` reports a `datapackage.json` built before such a record. For a source with `archive = true`, `record` keeps the snapshot a fetch logged for the same bytes and asks for no new one. A dataset with a recorded file needs this version to build: 0.4.0 refuses its fetch records.

@@ -159,7 +159,7 @@ repo-settings:
 
 # Set the GitHub About box from your answers: description and a topic per stack. Adds topics, never removes yours. Safe to rerun.
 repo-about:
-    gh repo edit --description 'Fetch, verify and validate the public sources a dataset is built from, with a provenance record for every download' --add-topic python
+    gh repo edit --description 'Fetch or record the public files a dataset is built from, with a provenance record for every file' --add-topic python
 
 # A repo's own recipes that copier updates never touch:
 import? 'just/local.just'

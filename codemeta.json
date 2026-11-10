@@ -2,7 +2,7 @@
   "@context": "https://w3id.org/codemeta/3.0",
   "@type": "SoftwareSourceCode",
   "name": "sourceledger",
-  "description": "Fetch, verify and validate the public sources a dataset is built from, with a provenance record for every download",
+  "description": "Fetch or record the public files a dataset is built from, with a provenance record for every file",
   "author": [
     {
       "@type": "Person",
@@ -23,7 +23,7 @@
     "research software",
     "FAIR"
   ],
-  "version": "0.4.0",
-  "datePublished": "2026-11-01",
+  "version": "0.5.0",
+  "datePublished": "2026-11-10",
   "identifier": "https://doi.org/10.5281/zenodo.23460694"
 }
