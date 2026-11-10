@@ -1,6 +1,6 @@
 [project]
 name = "sourceledger"
-version = "0.5.0"
+version = "0.5.1"
 description = "Fetch or record a dataset's public files with provenance, and release it without files whose terms forbid it"
 readme = "README.md"
 requires-python = ">=3.12"
