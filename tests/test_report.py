@@ -628,6 +628,14 @@ def test_validate_only_skips_the_check_for_files_no_source_owns(capsys: pytest.C
     assert main(["validate", "--only", "example"]) == 0
 
 
+@pytest.mark.usefixtures("upstream")
+def test_validate_passes_the_temp_file_of_a_killed_build() -> None:
+    """A killed build leaves `.NAME.<random>.part`: not published data, and build takes no lock to sweep it."""
+    _run("fetch", "build")
+    Path("data/processed/.example.csv.k3x9.part").write_text("year,va", encoding="utf-8", newline="")
+    assert report_mod.validate(manifest_mod.load_manifest()) == []
+
+
 def test_only_runs_in_manifest_order(upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """The order of --only flags does not reorder the sources; a lone string is refused, not split into letters."""
     _two_sources(tmp_path, upstream.as_uri(), upstream.as_uri())
