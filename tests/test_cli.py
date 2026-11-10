@@ -419,14 +419,14 @@ def test_output_is_utf8_with_lf_in_any_locale(tmp_path: Path) -> None:
 def test_the_command_dies_of_sigint_after_ctrl_c() -> None:
     """A shell loop stops on Ctrl-C only when the command died of SIGINT, not when it exited 130."""
     result = subprocess.run(
-        [sys.executable, "-c", "from sourceledger import cli; cli.main = lambda: 130; cli.entry()"], check=False
+        [sys.executable, "-c", "from sourceledger import cli; cli.main = lambda **_: 130; cli.entry()"], check=False
     )
     assert result.returncode == -2  # SIGINT
 
 
 def test_the_command_exits_with_mains_code() -> None:
     result = subprocess.run(
-        [sys.executable, "-c", "from sourceledger import cli; cli.main = lambda: 3; cli.entry()"], check=False
+        [sys.executable, "-c", "from sourceledger import cli; cli.main = lambda **_: 3; cli.entry()"], check=False
     )
     assert result.returncode == 3
 
@@ -522,12 +522,39 @@ def test_entry_re_raises_sigint_only_after_ctrl_c_off_windows(
 ) -> None:
     """In process, so mutmut sees it: the signal calls are recorded, not sent."""
     calls: list[tuple[object, ...]] = []
-    monkeypatch.setattr(cli, "main", lambda: code)
+    monkeypatch.setattr(cli, "main", lambda **_: code)
     monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setattr(signal, "signal", lambda *args: calls.append(("signal", *args)))
     monkeypatch.setattr(os, "kill", lambda *args: calls.append(("kill", *args)))
     with pytest.raises(SystemExit) as exit_:
         cli.entry()
     assert exit_.value.code == code
-    expected = [("signal", signal.SIGINT, signal.SIG_DFL), ("kill", os.getpid(), signal.SIGINT)] if kills else []
-    assert calls == expected
+    pipe = [] if platform == "win32" else [("signal", signal.SIGPIPE, signal.SIG_DFL)]
+    kill = [("signal", signal.SIGINT, signal.SIG_DFL), ("kill", os.getpid(), signal.SIGINT)] if kills else []
+    assert calls == pipe + kill
+
+
+def test_entry_passes_a_projects_arguments_to_main(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(cli, "main", lambda **kwargs: seen.update(kwargs) or 0)
+    monkeypatch.setattr(signal, "signal", lambda *_: None)
+    with pytest.raises(SystemExit) as exit_:
+        cli.entry(prog="my-dataset", user_agent="my-dataset/1", manifest=tmp_path / "s.toml")
+    assert exit_.value.code == 0
+    assert seen == {
+        "parse": ledger.parse_source,
+        "prog": "my-dataset",
+        "user_agent": "my-dataset/1",
+        "manifest": tmp_path / "s.toml",
+    }
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no SIGPIPE")
+def test_a_closed_pipe_ends_the_command_quietly() -> None:
+    """`sourceledger status | head -1`: no BrokenPipeError traceback, death by SIGPIPE as for other tools."""
+    read, write = os.pipe()
+    os.close(read)
+    code = "from sourceledger import cli; cli.main = lambda **_: print('x' * 1_000_000) or 0; cli.entry()"
+    result = subprocess.run([sys.executable, "-c", code], stdout=write, stderr=subprocess.PIPE, check=False)  # noqa: S603
+    os.close(write)
+    assert (result.returncode, result.stderr) == (-signal.SIGPIPE, b"")

@@ -6,6 +6,8 @@ import re
 import runpy
 import shlex
 import shutil
+import signal
+import sys
 from importlib.metadata import version
 from pathlib import Path
 
@@ -53,12 +55,19 @@ def test_the_quick_start_runs() -> None:
     assert [row["mean"] for row in ledger.read_output(Path("data/processed/co2.csv"))] == ["418.53", "421.08"]
 
 
-def test_the_own_reader_example_runs(project: Path) -> None:
+def test_the_own_reader_example_runs(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The project entry point in "Your own readers" runs every stage with its reader."""
     module = project / "pipeline.py"
     module.write_text(_block(RECIPES, "## Write a custom reader", "python"), encoding="utf-8", newline="")
     entry = runpy.run_path(str(module))["main"]
-    assert [entry([stage]) for stage in ("fetch", "build", "validate")] == [0, 0, 0]
+    codes = []
+    for stage in ("fetch", "build", "validate"):
+        monkeypatch.setattr(sys, "argv", ["my-dataset", stage])
+        monkeypatch.setattr(signal, "signal", lambda *_: None)
+        with pytest.raises(SystemExit) as exit_:
+            entry()
+        codes.append(exit_.value.code)
+    assert codes == [0, 0, 0]
 
 
 def test_every_schema_line_names_the_published_schema() -> None:

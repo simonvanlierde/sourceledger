@@ -16,8 +16,8 @@ license: MIT
 module_name: sourceledger
 openssf_badge: none
 profiling: false
-project_description: Fetch, verify and validate the public sources a dataset is built
-    from, with a provenance record for every download
+project_description: Fetch or record the public files a dataset is built from, with a
+    provenance record for every file
 project_name: sourceledger
 public: true
 publish_to_pypi: true

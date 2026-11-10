@@ -80,10 +80,10 @@ keys are checked when the manifest loads. Keys not listed here are kept for your
 
 For checks in an editor with a TOML language server (Tombi, Taplo), put this line at the
 top of `sources.toml`. `init` writes it, with the version you have installed in place of
-`v0.4.0`:
+`v0.5.0`:
 
 ```toml
-#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.4.0/src/sourceledger/sources.schema.json
+#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.5.0/src/sourceledger/sources.schema.json
 ```
 
 The schema accepts exactly what sourceledger accepts. A test keeps the two in step.
@@ -106,7 +106,9 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   `sig` is refused ([safe use](secure-use.md) lists the rule). The file must be a regular
   file within the source's `max_bytes`. The library function is `record()`. The report and
   `datapackage.json` show the output as recorded, not fetched, and `status` shows the record
-  time when there is no download time. `--dry-run` makes every check and hashes the file,
+  time when there is no download time. A later `fetch` of the same bytes logs a fetch over
+  the record and prints `unchanged`, but the outputs then name the record: run `build`
+  again before `validate`. `--dry-run` makes every check and hashes the file,
   then prints what it would record and writes nothing.
 - `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
   log. Copy the log before you fetch (`cp data/fetches.jsonl before.jsonl`), then run
@@ -256,7 +258,7 @@ stated", and the time it was recorded, instead of a fetch time.
 Source details come from the current manifest; the fetch stamps describe the last build.
 If a file or its provenance is stale, the report lists the problem. The command returns 0
 when it produces a report, including one with integrity problems. A fatal input error
-returns 1 and writes no HTML. A missing fetch log produces a provenance problem in the report. Run `validate` to gate a pipeline on those problems.
+exits 3 and writes no HTML. A missing fetch log produces a provenance problem in the report. Run `validate` to gate a pipeline on those problems.
 
 The report includes no raw values or header names and values. Displayed HTTP URLs omit
 user information, query parameters and fragments. URLs that are not HTTP or HTTPS are omitted.

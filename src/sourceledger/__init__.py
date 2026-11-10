@@ -1,13 +1,13 @@
-"""Fetch, verify and validate the public sources a dataset is built from.
+"""Fetch or record the public files a dataset is built from.
 
-Every download keeps a provenance record, and every output row names the bytes it came from.
+Every file keeps a provenance record, and every output row names the bytes it came from.
 
 The names below are the public API. Until 1.0, a breaking change to them, to the keys of
 sources.toml, or to the fetch-record format comes only in a minor version, listed in the
 changelog. `sourceledger.ledger` and `sourceledger.cli` may change in any release.
 """
 
-from sourceledger.cli import main
+from sourceledger.cli import entry, main
 from sourceledger.ledger import (
     USER_AGENT,
     FetchError,
@@ -18,6 +18,7 @@ from sourceledger.ledger import (
     build,
     fetch,
     load_manifest,
+    load_output_format,
     parse_csv,
     parse_json,
     parse_source,
@@ -40,8 +41,10 @@ __all__ = [
     "Source",
     "attribution",
     "build",
+    "entry",
     "fetch",
     "load_manifest",
+    "load_output_format",
     "main",
     "parse_csv",
     "parse_json",

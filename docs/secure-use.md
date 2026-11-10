@@ -140,10 +140,11 @@ From 0.3.1, the same provenance is also attached to each GitHub release as
 
 Release tags from 0.3.0 on are signed with the SSH key in
 [`.github/allowed_signers`](https://github.com/simonvanlierde/sourceledger/blob/main/.github/allowed_signers),
-and the release workflow publishes nothing for a tag signed with another key. To check a tag:
+and the release workflow publishes nothing for a tag signed with another key. To check a tag,
+with the `allowed_signers` file from `main`, not the one in the tagged tree:
 
 ```sh
-git -c gpg.ssh.allowedSignersFile=.github/allowed_signers tag -v v0.4.0
+git -c gpg.ssh.allowedSignersFile=.github/allowed_signers tag -v v0.5.0
 ```
 
 You can also rebuild a release from its tag and compare. Built with the uv version the

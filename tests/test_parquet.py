@@ -95,6 +95,20 @@ def test_unknown_output_format_fails(value: str) -> None:
 
 
 @pytest.mark.usefixtures("project")
+def test_the_library_reads_the_projects_output_format() -> None:
+    """The publish-when-valid recipe builds and validates in the project's format, not CSV."""
+    assert main(["fetch"]) == 0
+    sources, output_format = ledger.load_manifest(), ledger.load_output_format()
+    assert output_format == "parquet"
+    assert all(p.suffix in {".parquet", ".json"} for p in ledger.build(sources, output_format=output_format))
+    assert ledger.validate(sources, output_format=output_format) == []
+    problems = ledger.validate(sources)
+    assert problems
+    assert all("output_format is 'csv'; build again" in p for p in problems if ".parquet:" in p)
+    assert not any("delete it" in p for p in problems)
+
+
+@pytest.mark.usefixtures("project")
 def test_missing_extra_has_an_install_hint(monkeypatch: pytest.MonkeyPatch) -> None:
     assert main(["fetch"]) == 0
     monkeypatch.setitem(sys.modules, "pyarrow", None)

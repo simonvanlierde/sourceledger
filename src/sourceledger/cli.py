@@ -37,7 +37,7 @@ from sourceledger.ledger import (
     _build,
     _current,
     _fetch,
-    _load_output_format,
+    _fields,
     _output_name,
     _record_file,
     _revision_records,
@@ -48,6 +48,7 @@ from sourceledger.ledger import (
     implemented,
     init,
     load_manifest,
+    load_output_format,
     one_line,
     parse_source,
     revisions,
@@ -218,13 +219,24 @@ def _check_parameters(args: argparse.Namespace) -> None:
         args.parser.error(f"--parameter names {dupes} more than once")
 
 
-def entry() -> NoReturn:
-    """The `sourceledger` command: run `main`, and after Ctrl-C die of SIGINT, as the shell expects.
+def entry(
+    *,
+    parse: Parser = parse_source,
+    prog: str = "sourceledger",
+    user_agent: str = USER_AGENT,
+    manifest: Path = MANIFEST,
+) -> NoReturn:
+    """The `sourceledger` command: run `main` with these arguments, and exit as the shell expects.
 
+    A project's own command points its console script at a function that calls this with its
+    `parse`, `prog`, `user_agent` and `manifest`, as for `main`.
     A shell loop stops on Ctrl-C only when the command was killed by the signal; an exit code of
-    130 alone does not stop it. `main` itself returns 130, for projects that call it.
+    130 alone does not stop it, so after Ctrl-C this dies of SIGINT. `main` itself returns 130.
+    A reader that closes the pipe early, such as `head`, ends the command quietly by SIGPIPE.
     """
-    code = main()
+    if sys.platform != "win32":  # noqa: PLR2004
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    code = main(parse=parse, prog=prog, user_agent=user_agent, manifest=manifest)
     if code == EXIT_INTERRUPTED and sys.platform != "win32":  # noqa: PLR2004
         sys.stdout.flush()
         sys.stderr.flush()
@@ -368,7 +380,7 @@ def _fetch_line(record: FetchRecord, before: dict[str, str]) -> str:
 
 
 def _report_records(run: _Run, records: list[FetchRecord], before: dict[str, str]) -> None:
-    run.result["records"] = [{**dataclasses.asdict(r), "new": _new(r, before)} for r in records]
+    run.result["records"] = [{**_fields(r), "new": _new(r, before)} for r in records]
     for record in records:
         run.say(_fetch_line(record, before))
 
@@ -449,7 +461,7 @@ def _record_stage(run: _Run) -> list[str]:
 
 def _build_stage(run: _Run) -> list[str]:
     sources = _sources(run)
-    output_format = _load_output_format(run.args.manifest)
+    output_format = load_output_format(run.args.manifest)
     if run.args.dry_run:
         for source in implemented(_select(sources, run.args.only)):
             _current(source, RAW)  # the same refusal build gives for a missing or changed raw file
@@ -465,7 +477,7 @@ def _build_stage(run: _Run) -> list[str]:
 
 def _validate_stage(run: _Run) -> list[str]:
     sources = _sources(run)
-    output_format = _load_output_format(run.args.manifest)
+    output_format = load_output_format(run.args.manifest)
     return _report_problems(run, validate(sources, only=run.args.only, output_format=output_format))
 
 

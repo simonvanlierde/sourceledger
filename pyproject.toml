@@ -1,7 +1,7 @@
 [project]
 name = "sourceledger"
 version = "0.5.0"
-description = "Fetch, verify and validate the public sources a dataset is built from, with a provenance record for every download"
+description = "Fetch or record the public files a dataset is built from, with a provenance record for every file"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "Simon van Lierde", email = "code@duinlab.nl" }]
@@ -24,7 +24,7 @@ classifiers = [
 dependencies = []
 
 # `sourceledger fetch|build|validate|revisions`, using each source's format. A project
-# with its own readers calls `sourceledger.main` from its own entry point instead.
+# with its own readers calls `sourceledger.entry` from its own entry point instead.
 [project.scripts]
 sourceledger = "sourceledger.cli:entry"
 
