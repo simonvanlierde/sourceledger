@@ -95,11 +95,11 @@ jobs:
           name: dist
           path: ./dist/
 
-      # The SBOM lists the locked runtime dependencies, so the versions we tested with,
-      # not what a user will resolve. The wheel is pure Python and carries none of its own.
+      # The SBOM lists the locked dependencies of every extra, so the versions we tested with,
+      # not what a user will resolve. The core has none, so without the extras it would be empty.
       - run: |
           mkdir sbom
-          uv export --locked --no-dev --format cyclonedx1.5 -o "sbom/$(basename dist/*.tar.gz).cdx.json"
+          uv export --locked --no-dev --all-extras --format cyclonedx1.5 -o "sbom/$(basename dist/*.tar.gz).cdx.json"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
