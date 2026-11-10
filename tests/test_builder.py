@@ -337,11 +337,20 @@ def test_the_package_is_written_exactly(tmp_path: Path, monkeypatch: pytest.Monk
     assert Path("data/processed/datapackage.json").read_text(encoding="utf-8") == expected
 
 
-@pytest.mark.parametrize(("folder", "name"), [("Data.Set_2", "data.set_2"), ("--x--", "x"), ("!!!", "dataset")])
+@pytest.mark.parametrize(
+    ("folder", "name"),
+    [
+        ("Data.Set_2", "data.set_2"),
+        ("--x--", "x"),
+        ("!!!", "dataset"),
+        ("Données-Ünï", "donnees-uni"),
+        ("東京", "dataset"),
+    ],
+)
 def test_the_package_name_comes_from_the_folder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, folder: str, name: str
 ) -> None:
-    """Lower case, runs of other characters as one dash, and a fallback when nothing is left."""
+    """Lower case without accents, runs of other characters as one dash, and a fallback when nothing is left."""
     (tmp_path / folder).mkdir()
     monkeypatch.chdir(tmp_path / folder)
     assert builder_mod._package_name() == name  # noqa: SLF001
@@ -502,6 +511,42 @@ def test_json_nested_too_deeply_is_refused_by_name() -> None:
         builder_mod.parse_json({"id": "j"}, b'[{"a": ' + b"[" * 100_000 + b"]" * 100_000 + b"}]")
 
 
+@pytest.mark.parametrize(
+    ("parse", "payload", "where"),
+    [
+        (builder_mod.parse_csv, "year,place\n2020,Liège\n".encode("cp1252"), "byte 0xe8 at offset 18"),
+        (builder_mod.parse_csv, "year,place\n2020,Liège\n".encode("utf-16"), "byte 0xff at offset 0"),
+        (builder_mod.parse_csv, gzip.compress("year,place\n2020,Liège\n".encode("latin-1")), "byte 0xe8 at offset 18"),
+        (builder_mod.parse_json, '[{"place": "Liège"}]'.encode("latin-1"), "byte 0xe8 at offset 14"),
+        (builder_mod.parse_json, '[{"place": "Liège"}]'.encode("utf-16"), "byte 0xff at offset 0"),
+    ],
+)
+def test_a_file_that_is_not_utf8_is_refused_by_name(parse: builder_mod.Parser, payload: bytes, where: str) -> None:
+    """A Latin-1 or UTF-16 export names its source, the first bad byte and the fix, on one line."""
+    with pytest.raises(ValueError, match="not UTF-8") as error:
+        parse({"id": "x"}, payload)
+    assert str(error.value) == f"x: the raw file is not UTF-8 ({where}); re-save it as UTF-8"
+
+
+@pytest.mark.parametrize("output_format", ["csv", "parquet"])
+def test_a_json_value_with_an_unpaired_surrogate_is_refused_by_name(
+    upstream: Path, tmp_path: Path, output_format: str
+) -> None:
+    """JSON can escape half a UTF-16 pair, which no UTF-8 output can hold."""
+    if output_format == "parquet":
+        pytest.importorskip("pyarrow")
+    upstream.write_bytes(b'[{"place": "Li\\ud800ge"}]')
+    _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nformat = "json"')
+    assert _run("fetch") == [0]
+    with pytest.raises(ValueError, match="surrogate") as error:
+        builder_mod.build(manifest_mod.load_manifest(), output_format=output_format)
+    assert str(error.value) == (
+        "example: the raw file holds an unpaired surrogate escape, '\\ud800', which is not text; "
+        "remove it or write the whole character"
+    )
+    assert not OUT.with_suffix(f".{output_format}").exists()
+
+
 def test_json_numbers_are_kept_as_written() -> None:
     """1.10 is not 1.1, and 1e5 is not 100000.0, at the top level or nested."""
     payload = '[{"a": 1.10, "b": 1e5, "c": -0, "d": {"é": [2.50, 3E2, true, "ü"], "f": null}}]'.encode()
@@ -635,6 +680,16 @@ def test_a_streamed_build_writes_or_refuses_what_the_list_path_does(raw: bytes, 
         raw = gzip.compress(raw)
     streamed, listed = _both_paths(raw)
     assert streamed == listed
+
+
+@pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("compressed", [False, True])
+def test_a_streamed_build_names_a_csv_that_is_not_utf8(*, compressed: bool) -> None:
+    """The streamed read and the list read both name the source, past the first block the stream decodes."""
+    assert _run("fetch") == [0]
+    raw = b"year,place\n" + b"2020,x\n" * 5000 + b"2021,Li\xe8ge\n"
+    expected = "ValueError: example: the raw file is not UTF-8 (byte 0xe8 at offset 35018); re-save it as UTF-8"
+    assert _both_paths(gzip.compress(raw) if compressed else raw) == [expected, expected]
 
 
 def test_a_file_source_checks_its_raw_hash_before_building(upstream: Path, tmp_path: Path) -> None:
