@@ -30,7 +30,8 @@
         "id": {
           "type": "string",
           "pattern": "^[A-Za-z0-9_-]+$",
-          "description": "ASCII letters, digits, _ and -. Names the raw file and the output."
+          "not": { "pattern": "^([Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])$" },
+          "description": "ASCII letters, digits, _ and -, unique ignoring case, and not a Windows device name such as CON. Names the raw file and the output."
         },
         "status": {
           "enum": ["implemented", "unimplemented"],
@@ -39,8 +40,15 @@
         "name": { "type": "string", "description": "A title for people." },
         "url": {
           "type": "string",
-          "not": { "pattern": "^[\\u0000- ]*([A-Za-z][A-Za-z0-9+.-]*:)?//[^/?#]*@" },
-          "description": "What fetch downloads. No user name or password: send those in headers."
+          "not": {
+            "anyOf": [
+              { "pattern": "^[\\u0000- ]*([A-Za-z][A-Za-z0-9+.-]*:)?//[^/?#]*@" },
+              {
+                "pattern": "^[\\u0000- ]*(?![\\u0000- ])([A-Za-z][A-Za-z0-9+.-]*:|(?![A-Za-z][A-Za-z0-9+.-]*:))(//[^/?#]*[/?#]|(?!//))[\\s\\S]*[^\\u0000-\\u007f]"
+              }
+            ]
+          },
+          "description": "What fetch downloads. No user name or password: send those in headers. ASCII outside the host: percent-encode the rest."
         },
         "terms": { "type": "string", "description": "The publisher's reuse terms, in their words." },
         "terms_url": {
