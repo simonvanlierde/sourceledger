@@ -15,7 +15,7 @@ from pathlib import Path
 import openpyxl
 import pytest
 from pytest_codspeed import BenchmarkFixture
-from support import build_mod, fetch_mod, report_mod
+from support import builder_mod, fetcher_mod, report_mod
 
 from sourceledger import ledger
 from sourceledger import manifest as manifest_mod
@@ -109,39 +109,39 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def fetched(project: Path) -> list[manifest_mod.Source]:
     """The project's sources, fetched into data/raw/."""
     sources = manifest_mod.load_manifest(project / "sources.toml")
-    fetch_mod.fetch(sources)
+    fetcher_mod.fetch(sources)
     return sources
 
 
 @pytest.fixture
 def built(fetched: list[manifest_mod.Source]) -> list[manifest_mod.Source]:
     """The project's sources, fetched and built into data/processed/."""
-    build_mod.build(fetched)
+    builder_mod.build(fetched)
     return fetched
 
 
 def test_parse_csv(benchmark: BenchmarkFixture) -> None:
-    columns, rows = benchmark(build_mod.parse_csv, SOURCE, _csv())
+    columns, rows = benchmark(builder_mod.parse_csv, SOURCE, _csv())
     assert len(columns) == 5
     assert len(rows) == ROWS
 
 
 def test_parse_csv_wide(benchmark: BenchmarkFixture) -> None:
     # Tables with years as columns get wide: every per-column check runs once per row.
-    columns, rows = benchmark(build_mod.parse_csv, SOURCE, _wide_csv(1_000, 100))
+    columns, rows = benchmark(builder_mod.parse_csv, SOURCE, _wide_csv(1_000, 100))
     assert len(columns) == 1_000
     assert len(rows) == 100
 
 
 def test_parse_json(benchmark: BenchmarkFixture) -> None:
-    columns, rows = benchmark(build_mod.parse_json, {**SOURCE, "format": "json"}, _json())
+    columns, rows = benchmark(builder_mod.parse_json, {**SOURCE, "format": "json"}, _json())
     assert columns == ["year", "region", "value", "ok", "tags"]
     assert len(rows) == ROWS
     assert rows[0]["tags"] == ""
 
 
 def test_parse_xlsx(benchmark: BenchmarkFixture) -> None:
-    columns, rows = benchmark(build_mod.parse_xlsx, {**SOURCE, "format": "xlsx"}, _xlsx())
+    columns, rows = benchmark(builder_mod.parse_xlsx, {**SOURCE, "format": "xlsx"}, _xlsx())
     assert columns == ["year", "region", "value", "unit", "published"]
     assert len(rows) == 2_000
     assert rows[0]["published"] == "2026-01-01T00:00:00"
@@ -157,7 +157,7 @@ def test_load_manifest(benchmark: BenchmarkFixture, tmp_path: Path) -> None:
 def test_fetch(benchmark: BenchmarkFixture, project: Path) -> None:
     # After the first round each fetch re-downloads the same bytes: file:// has no 304.
     sources = manifest_mod.load_manifest(project / "sources.toml")
-    records = benchmark(fetch_mod.fetch, sources)
+    records = benchmark(fetcher_mod.fetch, sources)
     assert len(records) == SOURCES
 
 
@@ -167,17 +167,17 @@ def test_fetch_archived(benchmark: BenchmarkFixture, project: Path, caplog: pyte
     _write_manifest(project, extra="archive = true\n")
     sources = manifest_mod.load_manifest(project / "sources.toml")
     with caplog.at_level("ERROR"):  # file:// URLs are never archived, which warns once per source
-        fetch_mod.fetch(sources)
+        fetcher_mod.fetch(sources)
     log = Path("data/fetches.jsonl")
     current = log.read_text(encoding="utf-8")
     _log(log, SOURCES, 500)
     log.write_text(log.read_text(encoding="utf-8") + current, encoding="utf-8")
-    records = benchmark(fetch_mod.fetch, sources)
+    records = benchmark(fetcher_mod.fetch, sources)
     assert len(records) == SOURCES
 
 
 def test_build(benchmark: BenchmarkFixture, fetched: list[manifest_mod.Source]) -> None:
-    written = benchmark(build_mod.build, fetched)
+    written = benchmark(builder_mod.build, fetched)
     assert len(written) == SOURCES
 
 

@@ -10,7 +10,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 import pytest
-from support import build_mod, fetch_mod, report_mod
+from support import builder_mod, fetcher_mod, report_mod
 
 from sourceledger import cli, ledger
 from sourceledger import manifest as manifest_mod
@@ -52,7 +52,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def test_the_quick_start_runs() -> None:
     """The manifest the README starts with fetches, builds and validates."""
     assert [main([stage]) for stage in ("fetch", "build", "validate")] == [0, 0, 0]
-    assert [row["mean"] for row in build_mod.read_output(Path("data/processed/co2.csv"))] == ["418.53", "421.08"]
+    assert [row["mean"] for row in builder_mod.read_output(Path("data/processed/co2.csv"))] == ["418.53", "421.08"]
 
 
 def test_the_own_reader_example_runs(project: Path) -> None:
@@ -94,16 +94,16 @@ def test_the_website_revision_example_matches_the_pipeline(project: Path) -> Non
     upstream = project / "upstream" / "co2-annmean-mlo.csv"
     sources = manifest_mod.load_manifest()
     upstream.write_text(example["before"], encoding="utf-8", newline="")
-    (before,) = fetch_mod.fetch(sources)
-    build_mod.build(sources)
+    (before,) = fetcher_mod.fetch(sources)
+    builder_mod.build(sources)
     assert report_mod.validate(sources) == []
     assert before.sha256 == example["before_sha256"]
     upstream.write_text(example["after"], encoding="utf-8", newline="")
-    (after,) = fetch_mod.fetch(sources)
+    (after,) = fetcher_mod.fetch(sources)
     assert after.sha256 == example["after_sha256"]
     assert before.sha256 != after.sha256
     assert report_mod.validate(sources) == [example["problem"]]
-    build_mod.build(sources)
+    builder_mod.build(sources)
     assert report_mod.validate(sources) == []
 
 
@@ -123,9 +123,9 @@ def test_the_publisher_revision_tutorial_runs(tmp_path: Path, monkeypatch: pytes
             assert [main([stage]) for stage in ("fetch", "validate")] == [0, 1]
             assert main(["revisions", "before.jsonl"]) == 0
             assert [main([stage]) for stage in ("build", "validate")] == [0, 0]
-    assert list(build_mod.read_output(Path("data/processed/co2.csv")))[-1]["co2_ppm"] == "419.32"
+    assert list(builder_mod.read_output(Path("data/processed/co2.csv")))[-1]["co2_ppm"] == "419.32"
     assert _shell(_block(guide, "## Record a file another tool downloaded", "sh")) == [0] * 5
-    rows = list(build_mod.read_output(Path("data/processed/co2.csv")))
+    rows = list(builder_mod.read_output(Path("data/processed/co2.csv")))
     assert {row["retrieved_at"] for row in rows} == {"2026-11-05T09:30:00Z"}
 
 

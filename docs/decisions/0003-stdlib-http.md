@@ -9,7 +9,7 @@ sourceledger uses `urllib.request` and fetches one source at a time.
 Its core has no runtime dependencies. The [standard library client](https://docs.python.org/3/library/urllib.request.html)
 also handles proxy settings from the environment and local file inputs.
 
-The fetcher in [`fetch.py`](../../src/sourceledger/fetch.py) adds behavior that a
+The fetcher in [`fetcher.py`](../../src/sourceledger/fetcher.py) adds behavior that a
 replacement must preserve:
 
 - Check the connected peer before sending a redirected request from a public host.

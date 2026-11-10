@@ -24,8 +24,8 @@ from support import (
     _run,
     _serve,
     _source,
-    build_mod,
-    fetch_mod,
+    builder_mod,
+    fetcher_mod,
     report_mod,
 )
 
@@ -393,7 +393,7 @@ def test_a_recorded_file_is_marked_in_the_log_package_and_report(upstream: Path)
     line = json.loads(LOG.read_text(encoding="utf-8"))
     assert (line["recorded_at"], line["parameters"]) == (result.recorded_at, {"country": "NL", "year": "2024"})
     assert json.loads(Path(f"{RAW}.fetch.json").read_text(encoding="utf-8")) == line
-    build_mod.build(manifest_mod.load_manifest())
+    builder_mod.build(manifest_mod.load_manifest())
     package = json.loads(Path("data/processed/datapackage.json").read_text(encoding="utf-8"))
     assert package["resources"][0]["sourceledger"]["recorded_at"] == result.recorded_at
     html = report(manifest_mod.load_manifest())
@@ -406,7 +406,7 @@ def test_a_crash_between_moving_the_file_and_logging_it_loses_nothing(
     upstream: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Until the record matches the raw file, build refuses it and the next record or fetch starts over."""
-    fetch_mod.fetch(manifest_mod.load_manifest())
+    fetcher_mod.fetch(manifest_mod.load_manifest())
     upstream.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8", newline="")
 
     def crash(*_: object) -> None:
@@ -418,8 +418,8 @@ def test_a_crash_between_moving_the_file_and_logging_it_loses_nothing(
             ledger.record(_source(), upstream, retrieved_at=WHEN)
     assert RAW.read_text(encoding="utf-8") == FIXTURE + "2022,3.5\n"
     with pytest.raises(ValueError, match="changed since it was fetched"):
-        build_mod.build(manifest_mod.load_manifest())
+        builder_mod.build(manifest_mod.load_manifest())
     assert not list(RAW.parent.glob("*.part"))
     ledger.record(_source(), upstream, retrieved_at=WHEN)
     assert len(_lines()) == 2
-    assert build_mod.build(manifest_mod.load_manifest())
+    assert builder_mod.build(manifest_mod.load_manifest())

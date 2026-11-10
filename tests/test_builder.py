@@ -31,8 +31,8 @@ from support import (
     _serve,
     _source,
     _two_sources,
-    build_mod,
-    fetch_mod,
+    builder_mod,
+    fetcher_mod,
     report_mod,
 )
 
@@ -51,7 +51,7 @@ def test_the_whole_pipeline_runs_from_a_local_file(upstream: Path) -> None:
     assert record["retrieved_at"].endswith("Z")
     assert record["vintage"] == "not stated"
 
-    rows = list(build_mod.read_output(OUT))
+    rows = list(builder_mod.read_output(OUT))
     assert [(r["year"], r["value"]) for r in rows] == [("2020", "1.5"), ("2021", "2.5")]
     assert {(r["source_url"], r["raw_sha256"]) for r in rows} == {(record["url"], record["sha256"])}
 
@@ -130,7 +130,7 @@ def test_build_drops_a_byte_order_mark(upstream: Path) -> None:
     """A spreadsheet export's BOM does not end up in the first column's name."""
     upstream.write_bytes(b"\xef\xbb\xbf" + FIXTURE.encode())
     assert _run("fetch", "build") == [0, 0]
-    assert [r["year"] for r in build_mod.read_output(OUT)] == ["2020", "2021"]
+    assert [r["year"] for r in builder_mod.read_output(OUT)] == ["2020", "2021"]
 
 
 @pytest.mark.usefixtures("upstream")
@@ -149,16 +149,16 @@ def test_a_project_passes_its_own_parser_and_name(monkeypatch: pytest.MonkeyPatc
     calls = _serve(monkeypatch, _Response(FIXTURE.encode()), _Response(FIXTURE.encode()))
 
     def marked(source: manifest_mod.Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
-        columns, rows = build_mod.parse_csv(source, payload)
+        columns, rows = builder_mod.parse_csv(source, payload)
         return columns, [{**row, "year": f"y{row['year']}"} for row in rows]
 
     assert main(["fetch"], user_agent="my-dataset") == 0
     assert calls[0].get_header("User-agent") == "my-dataset"
     RAW.unlink()  # forces a full fetch through the library function
-    fetch_mod.fetch(manifest_mod.load_manifest(), user_agent="my-library-dataset")
+    fetcher_mod.fetch(manifest_mod.load_manifest(), user_agent="my-library-dataset")
     assert calls[1].get_header("User-agent") == "my-library-dataset"
     assert main(["build"], parse=marked) == 0
-    assert [r["year"] for r in build_mod.read_output(OUT)] == ["y2020", "y2021"]
+    assert [r["year"] for r in builder_mod.read_output(OUT)] == ["y2020", "y2021"]
 
 
 def test_build_checks_the_pin_too(upstream: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -178,7 +178,7 @@ def test_a_new_vintage_needs_a_new_fetch(upstream: Path, tmp_path: Path, monkeyp
     calls = _serve(monkeypatch, _Response(FIXTURE.encode()))
     assert _run("fetch", "build", "validate") == [0, 0, 0]
     assert calls[0].get_header("If-none-match") is None
-    assert {r["vintage"] for r in build_mod.read_output(OUT)} == {"2025"}
+    assert {r["vintage"] for r in builder_mod.read_output(OUT)} == {"2025"}
 
 
 @pytest.mark.usefixtures("upstream")
@@ -186,12 +186,12 @@ def test_a_parser_cannot_overwrite_a_provenance_column() -> None:
     """The stamp is written last, so a parser's row keys never replace it."""
 
     def sneaky(source: manifest_mod.Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
-        columns, rows = build_mod.parse_csv(source, payload)
+        columns, rows = builder_mod.parse_csv(source, payload)
         return columns, [{**row, "vintage": "forged"} for row in rows]
 
     _run("fetch")
     assert main(["build"], parse=sneaky) == 0
-    assert {r["vintage"] for r in build_mod.read_output(OUT)} == {"not stated"}
+    assert {r["vintage"] for r in builder_mod.read_output(OUT)} == {"not stated"}
 
 
 @pytest.mark.parametrize(
@@ -212,7 +212,7 @@ def test_the_default_reader_follows_the_format(
     _manifest(tmp_path, upstream.as_uri(), terms=f"{TERMS}\n{extra}")
     monkeypatch.chdir(tmp_path)
     assert _run("fetch", "build", "validate") == [0, 0, 0]
-    rows = list(build_mod.read_output(OUT))
+    rows = list(builder_mod.read_output(OUT))
     assert [(r["year"], r["value"]) for r in rows] == [("2020", "1.5"), ("2021", "2.5")]
 
 
@@ -232,11 +232,11 @@ def test_a_gzip_that_expands_past_max_bytes_is_refused(
 def test_json_values_become_text() -> None:
     """Missing keys are empty, booleans are lower case, nested values stay JSON."""
     payload = b'[{"a": true, "b": {"c": 1}}, {"a": null, "d": "x"}]'
-    columns, rows = build_mod.parse_json({"id": "j"}, payload)
+    columns, rows = builder_mod.parse_json({"id": "j"}, payload)
     assert columns == ["a", "b", "d"]
     assert rows == [{"a": "true", "b": '{"c": 1}', "d": ""}, {"a": "", "b": "", "d": "x"}]
     with pytest.raises(ValueError, match="array of objects"):
-        build_mod.parse_json({"id": "j"}, b'{"a": 1}')
+        builder_mod.parse_json({"id": "j"}, b'{"a": 1}')
 
 
 def test_an_excel_sheet_reads_by_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -253,7 +253,7 @@ def test_an_excel_sheet_reads_by_name(tmp_path: Path, monkeypatch: pytest.Monkey
     _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nsheet = "data"')
     monkeypatch.chdir(tmp_path)
     assert _run("fetch", "build", "validate") == [0, 0, 0]
-    assert [(r["year"], r["value"]) for r in build_mod.read_output(OUT)] == [("2020", "1.5"), ("2021", "2.5")]
+    assert [(r["year"], r["value"]) for r in builder_mod.read_output(OUT)] == [("2020", "1.5"), ("2021", "2.5")]
 
 
 def test_build_describes_its_outputs_as_a_data_package(upstream: Path) -> None:
@@ -313,7 +313,7 @@ def test_the_package_is_written_exactly(tmp_path: Path, monkeypatch: pytest.Monk
             "redistribute": True,
         },
     }
-    package = {"$schema": build_mod._DATAPACKAGE_PROFILE, "name": "my-data-set", "resources": [resource]}  # noqa: SLF001
+    package = {"$schema": builder_mod._DATAPACKAGE_PROFILE, "name": "my-data-set", "resources": [resource]}  # noqa: SLF001
     expected = json.dumps(package, indent=2, ensure_ascii=False) + "\n"
     assert Path("data/processed/datapackage.json").read_text(encoding="utf-8") == expected
 
@@ -325,7 +325,7 @@ def test_the_package_name_comes_from_the_folder(
     """Lower case, runs of other characters as one dash, and a fallback when nothing is left."""
     (tmp_path / folder).mkdir()
     monkeypatch.chdir(tmp_path / folder)
-    assert build_mod._package_name() == name  # noqa: SLF001
+    assert builder_mod._package_name() == name  # noqa: SLF001
 
 
 def test_build_only_a_later_source_builds_it(upstream: Path, tmp_path: Path) -> None:
@@ -341,29 +341,29 @@ def test_build_only_a_later_source_builds_it(upstream: Path, tmp_path: Path) -> 
 def test_a_gzip_exactly_at_max_bytes_is_read() -> None:
     """The cap is the most a file may expand to, not one byte less."""
     body = FIXTURE.encode()
-    columns, _ = build_mod.parse_csv({"id": "g", "max_bytes": len(body)}, gzip.compress(body))
+    columns, _ = builder_mod.parse_csv({"id": "g", "max_bytes": len(body)}, gzip.compress(body))
     assert columns == ["year", "value"]
-    _, rows = build_mod.parse_json({"id": "g"}, gzip.compress(b'[{"a": 1}]'))
+    _, rows = builder_mod.parse_json({"id": "g"}, gzip.compress(b'[{"a": 1}]'))
     assert rows == [{"a": "1"}]
 
 
 def test_a_csv_field_keeps_its_line_break() -> None:
     """A quoted field with CR LF inside is data, not a line ending to translate."""
-    _, rows = build_mod.parse_csv({"id": "c"}, b'a,b\r\n"one\r\ntwo",2\r\n')
+    _, rows = builder_mod.parse_csv({"id": "c"}, b'a,b\r\n"one\r\ntwo",2\r\n')
     assert rows == [{"a": "one\r\ntwo", "b": "2"}]
 
 
 def test_a_quoted_line_break_survives_read_output(tmp_path: Path) -> None:
     out = tmp_path / "o.csv"
     out.write_bytes(b'a\r\n"one\r\ntwo"\r\n')
-    assert list(build_mod.read_output(out)) == [{"a": "one\r\ntwo"}]
+    assert list(builder_mod.read_output(out)) == [{"a": "one\r\ntwo"}]
 
 
 def test_read_output_streams_rows(tmp_path: Path) -> None:
     """A table of millions of rows is read one row at a time, not into one list."""
     out = tmp_path / "o.csv"
     out.write_bytes(b"a\r\n1\r\n2\r\n")
-    rows = build_mod.read_output(out)
+    rows = builder_mod.read_output(out)
     assert next(rows) == {"a": "1"}
     assert list(rows) == [{"a": "2"}]
 
@@ -371,19 +371,19 @@ def test_read_output_streams_rows(tmp_path: Path) -> None:
 @pytest.mark.parametrize("payload", [b"[1]", b"{}", b'"x"'])
 def test_json_that_is_not_an_array_of_objects_is_refused(payload: bytes) -> None:
     with pytest.raises(ValueError, match=r"^j: expected a JSON array of objects$"):
-        build_mod.parse_json({"id": "j"}, payload)
+        builder_mod.parse_json({"id": "j"}, payload)
 
 
 def test_cells_keep_false_dates_times_and_non_ascii_text() -> None:
     naive = datetime(2020, 1, 2, 3, 4)  # noqa: DTZ001  # what openpyxl returns for a date cell
     assert [
-        build_mod._cell(value)  # noqa: SLF001
+        builder_mod._cell(value)  # noqa: SLF001
         for value in (False, True, 3, 1.5, naive, date(2020, 1, 2), dt_time(1, 2), ["é"])
     ] == ["false", "true", "3", "1.5", "2020-01-02T03:04:00", "2020-01-02", '"01:02:00"', '["é"]']
 
 
 def test_the_reader_needs_no_url_when_the_format_is_given() -> None:
-    assert build_mod.parse_source({"id": "j", "format": "json"}, b"[]") == ([], [])
+    assert builder_mod.parse_source({"id": "j", "format": "json"}, b"[]") == ([], [])
 
 
 def test_an_excel_workbook_reads_its_first_sheet_and_cached_values(tmp_path: Path) -> None:
@@ -396,7 +396,10 @@ def test_an_excel_workbook_reads_its_first_sheet_and_cached_values(tmp_path: Pat
     path = tmp_path / "b.xlsx"
     book.save(path)
     # openpyxl saves no computed values, so the formula cell is empty when read as data.
-    assert build_mod.parse_xlsx({"id": "x"}, path.read_bytes()) == (["year", "total"], [{"year": "2020", "total": ""}])
+    assert builder_mod.parse_xlsx({"id": "x"}, path.read_bytes()) == (
+        ["year", "total"],
+        [{"year": "2020", "total": ""}],
+    )
 
 
 def test_excel_errors_name_the_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -406,12 +409,12 @@ def test_excel_errors_name_the_source(tmp_path: Path, monkeypatch: pytest.Monkey
     path = tmp_path / "b.xlsx"
     book.save(path)
     with pytest.raises(ValueError, match=r"^x: columns \['a'\] appear more than once in the header$"):
-        build_mod.parse_xlsx({"id": "x"}, path.read_bytes())
+        builder_mod.parse_xlsx({"id": "x"}, path.read_bytes())
     with pytest.raises(ValueError, match=r"^x: no sheet 'nope'; the workbook has \['Sheet'\]$"):
-        build_mod.parse_xlsx({"id": "x", "sheet": "nope"}, path.read_bytes())
+        builder_mod.parse_xlsx({"id": "x", "sheet": "nope"}, path.read_bytes())
     monkeypatch.setitem(sys.modules, "openpyxl", None)
     with pytest.raises(ValueError, match=r"^x: reading .xlsx needs the xlsx extra: uv add 'sourceledger\[xlsx\]'$"):
-        build_mod.parse_xlsx({"id": "x"}, path.read_bytes())
+        builder_mod.parse_xlsx({"id": "x"}, path.read_bytes())
 
 
 def _xlsx(tmp_path: Path, *rows: tuple[object, ...]) -> bytes:
@@ -431,8 +434,8 @@ def test_an_excel_workbook_that_expands_past_max_bytes_is_refused(tmp_path: Path
     with pytest.raises(
         ValueError, match=r"^x: decompresses past 1000 bytes; raise max_bytes in sources\.toml if expected$"
     ):
-        build_mod.parse_xlsx({"id": "x", "max_bytes": 1000}, payload)
-    assert len(build_mod.parse_xlsx({"id": "x", "max_bytes": 10 * len(payload)}, payload)[1]) == 100
+        builder_mod.parse_xlsx({"id": "x", "max_bytes": 1000}, payload)
+    assert len(builder_mod.parse_xlsx({"id": "x", "max_bytes": 10 * len(payload)}, payload)[1]) == 100
 
 
 def test_an_excel_workbook_exactly_at_max_bytes_is_read(tmp_path: Path) -> None:
@@ -440,21 +443,21 @@ def test_an_excel_workbook_exactly_at_max_bytes_is_read(tmp_path: Path) -> None:
     payload = _xlsx(tmp_path, ("year", "value"), (2020, 1.5))
     with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         expanded = sum(info.file_size for info in archive.infolist())
-    assert build_mod.parse_xlsx({"id": "x", "max_bytes": expanded}, payload) == (
+    assert builder_mod.parse_xlsx({"id": "x", "max_bytes": expanded}, payload) == (
         ["year", "value"],
         [{"year": "2020", "value": "1.5"}],
     )
     with pytest.raises(ValueError, match="decompresses past"):
-        build_mod.parse_xlsx({"id": "x", "max_bytes": expanded - 1}, payload)
+        builder_mod.parse_xlsx({"id": "x", "max_bytes": expanded - 1}, payload)
 
 
 def test_a_cell_right_of_the_excel_header_is_refused(tmp_path: Path) -> None:
     """As a CSV row with more fields than its header; an empty cell reads as "", like an empty CSV field."""
     trailing = _xlsx(tmp_path, ("a", "b", None), (1,), (1, 2))
-    assert build_mod.parse_xlsx({"id": "x"}, trailing) == (["a", "b"], [{"a": "1", "b": ""}, {"a": "1", "b": "2"}])
+    assert builder_mod.parse_xlsx({"id": "x"}, trailing) == (["a", "b"], [{"a": "1", "b": ""}, {"a": "1", "b": "2"}])
     stray = _xlsx(tmp_path, ("a", "b"), (1, 2), (None, None), (1, 2, None, "x", "y"))
     with pytest.raises(ValueError, match=r"^x: row 4 has more cells than the header$"):
-        build_mod.parse_xlsx({"id": "x"}, stray)
+        builder_mod.parse_xlsx({"id": "x"}, stray)
 
 
 @pytest.mark.parametrize("payload", [b"not a workbook", b"PK\x05\x06" + bytes(18)])
@@ -462,7 +465,7 @@ def test_a_file_that_is_not_a_workbook_is_refused_by_name(payload: bytes) -> Non
     """A damaged download or an empty zip is a one-line error naming the source, not a zipfile traceback."""
     pytest.importorskip("openpyxl")
     with pytest.raises(ValueError, match=r"^x: not a readable Excel workbook \("):
-        build_mod.parse_xlsx({"id": "x"}, payload)
+        builder_mod.parse_xlsx({"id": "x"}, payload)
 
 
 @pytest.mark.parametrize(
@@ -471,19 +474,19 @@ def test_a_file_that_is_not_a_workbook_is_refused_by_name(payload: bytes) -> Non
 def test_a_damaged_gzip_is_refused_by_name(payload: bytes) -> None:
     """A bad checksum or a corrupt stream names the source too."""
     with pytest.raises(ValueError, match=r"^j: not a readable gzip file \("):
-        build_mod.parse_json({"id": "j"}, payload)
+        builder_mod.parse_json({"id": "j"}, payload)
 
 
 def test_json_nested_too_deeply_is_refused_by_name() -> None:
     """Up to 3.13 the JSON reader gives up on it; from 3.14 it reads it, and writing the cell does."""
     with pytest.raises(ValueError, match=r"^j: JSON nested too deeply to read$"):
-        build_mod.parse_json({"id": "j"}, b'[{"a": ' + b"[" * 100_000 + b"]" * 100_000 + b"}]")
+        builder_mod.parse_json({"id": "j"}, b'[{"a": ' + b"[" * 100_000 + b"]" * 100_000 + b"}]")
 
 
 def test_json_numbers_are_kept_as_written() -> None:
     """1.10 is not 1.1, and 1e5 is not 100000.0, at the top level or nested."""
     payload = '[{"a": 1.10, "b": 1e5, "c": -0, "d": {"é": [2.50, 3E2, true, "ü"], "f": null}}]'.encode()
-    _, rows = build_mod.parse_json({"id": "j"}, payload)
+    _, rows = builder_mod.parse_json({"id": "j"}, payload)
     assert rows == [{"a": "1.10", "b": "1e5", "c": "-0", "d": '{"é": [2.50, 3E2, true, "ü"], "f": null}'}]
 
 
@@ -497,7 +500,7 @@ def test_a_gzip_is_read_no_further_than_one_byte_past_the_cap(monkeypatch: pytes
         return read(self, size)
 
     monkeypatch.setattr(gzip.GzipFile, "read", spy)
-    build_mod.parse_csv({"id": "g", "max_bytes": 100}, gzip.compress(FIXTURE.encode()))
+    builder_mod.parse_csv({"id": "g", "max_bytes": 100}, gzip.compress(FIXTURE.encode()))
     assert asks == [101]
 
 
@@ -515,7 +518,7 @@ def test_a_manifest_outside_the_project_is_read_from_the_option_or_the_keyword(
     assert main(["fetch", "--manifest", str(packaged)]) == 0
     assert main(["build", "--manifest", str(packaged)]) == 0
     assert main(["validate", "--manifest", str(packaged)]) == 0
-    assert [row["value"] for row in build_mod.read_output(project / OUT)] == ["1.5", "2.5"]
+    assert [row["value"] for row in builder_mod.read_output(project / OUT)] == ["1.5", "2.5"]
     assert main(["validate"], manifest=packaged) == 0
     assert main(["validate"]) == 3  # no ./sources.toml here
     assert not packaged.with_name("data").exists()
@@ -530,7 +533,7 @@ def test_streamed_gzip_stops_at_the_decompressed_cap(
     upstream.write_bytes(gzip.compress(body))
     _manifest(tmp_path, upstream.as_uri(), terms=f"{TERMS}\nmax_bytes = {cap}")
     sources = manifest_mod.load_manifest()
-    fetch_mod.fetch(sources)
+    fetcher_mod.fetch(sources)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_bytes(b"previous output")
     chunks: list[int] = []
@@ -544,11 +547,11 @@ def test_streamed_gzip_stops_at_the_decompressed_cap(
     monkeypatch.setattr(gzip.GzipFile, "read1", spy)
     if offset:
         with pytest.raises(ValueError, match=f"decompresses past {cap} bytes"):
-            build_mod.build(sources)
+            builder_mod.build(sources)
         assert OUT.read_bytes() == b"previous output"
         assert sorted(path.name for path in OUT.parent.iterdir()) == [OUT.name]
     else:
-        build_mod.build(sources)
+        builder_mod.build(sources)
         assert report_mod.validate(sources) == []
     assert chunks
     assert sum(chunks) <= cap + 1
@@ -557,15 +560,15 @@ def test_streamed_gzip_stops_at_the_decompressed_cap(
 @pytest.mark.parametrize("count", [2_000, 20_000])
 def test_json_conversion_releases_each_decoded_object(count: int) -> None:
     payload = b"[" + b'{"flag":true,"value":null},' * (count - 1) + b'{"flag":true,"value":null}]'
-    assert _peak(lambda: build_mod.parse_json({"id": "j"}, payload)) < count * 350
-    columns, rows = build_mod.parse_json({"id": "j"}, payload)
+    assert _peak(lambda: builder_mod.parse_json({"id": "j"}, payload)) < count * 350
+    columns, rows = builder_mod.parse_json({"id": "j"}, payload)
     assert columns == ["flag", "value"]
     assert rows == [{"flag": "true", "value": ""}] * count
 
 
 def _list_path(source: manifest_mod.Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
     """The default parser behind another name, so build takes the path any custom parser takes."""
-    return build_mod.parse_source(source, payload)
+    return builder_mod.parse_source(source, payload)
 
 
 def _both_paths(raw: bytes) -> list[bytes | str]:
@@ -575,9 +578,9 @@ def _both_paths(raw: bytes) -> list[bytes | str]:
     record["sha256"] = hashlib.sha256(raw).hexdigest()
     Path(f"{RAW}.fetch.json").write_text(json.dumps(record), encoding="utf-8", newline="")
     results: list[bytes | str] = []
-    for parse in (build_mod.parse_source, _list_path):
+    for parse in (builder_mod.parse_source, _list_path):
         try:
-            build_mod.build(manifest_mod.load_manifest(), parse=parse)
+            builder_mod.build(manifest_mod.load_manifest(), parse=parse)
         except (ValueError, csv.Error) as error:
             results.append(f"{type(error).__name__}: {error}")
         else:
@@ -620,13 +623,13 @@ def test_a_file_source_checks_its_raw_hash_before_building(upstream: Path, tmp_p
     assert _run("fetch") == [0]
     RAW.write_bytes(b"changed")
     with pytest.raises(ValueError, match="changed since it was fetched"):
-        build_mod.build(manifest_mod.load_manifest())
+        builder_mod.build(manifest_mod.load_manifest())
     assert not OUT.exists()
 
 
 def test_parse_source_reports_that_files_have_no_table() -> None:
     with pytest.raises(ValueError, match="format file has no table"):
-        build_mod.parse_source({"id": "example", "format": "file"}, b"anything")
+        builder_mod.parse_source({"id": "example", "format": "file"}, b"anything")
 
 
 @pytest.mark.parametrize("suffix", [".json", ".JSON"])
@@ -636,35 +639,35 @@ def test_a_file_output_cannot_overwrite_the_package(suffix: str) -> None:
     source = sources[0]
     source.update(id="datapackage", format="file", url=source["url"].removesuffix(".csv") + suffix)
     Path(url2pathname(urlsplit(source["url"]).path)).write_bytes(b"raw")
-    fetch_mod.fetch(sources)
+    fetcher_mod.fetch(sources)
     with pytest.raises(ValueError, match=r"datapackage\.json.*reserved"):
-        build_mod.build(sources)
+        builder_mod.build(sources)
 
 
 def test_public_build_preserves_custom_parser(upstream: Path):
     sources = manifest_mod.load_manifest()
-    fetch_mod.fetch(sources)
+    fetcher_mod.fetch(sources)
 
     def parse(source: manifest_mod.Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
         assert source["id"] == "example"
         assert payload == upstream.read_bytes()
         return ["custom"], [{"custom": "kept"}]
 
-    assert build_mod.build(sources, parse=parse) == [OUT]
-    row = next(build_mod.read_output(OUT))
+    assert builder_mod.build(sources, parse=parse) == [OUT]
+    row = next(builder_mod.read_output(OUT))
     assert row["custom"] == "kept"
     assert row["source_id"] == "example"
 
 
 def test_a_recorded_file_builds_like_a_fetched_one(upstream: Path) -> None:
     """The same bytes, fetched or recorded, give the same rows; only the record says which happened."""
-    (fetched,) = fetch_mod.fetch(manifest_mod.load_manifest())
-    build_mod.build(manifest_mod.load_manifest())
-    fetched_rows = list(build_mod.read_output(OUT))
+    (fetched,) = fetcher_mod.fetch(manifest_mod.load_manifest())
+    builder_mod.build(manifest_mod.load_manifest())
+    fetched_rows = list(builder_mod.read_output(OUT))
     shutil.rmtree("data")
 
     recorded = ledger.record(_source(), upstream, retrieved_at=WHEN, last_modified="Tue, 03 Nov 2026 08:00:00 GMT")
-    build_mod.build(manifest_mod.load_manifest())
+    builder_mod.build(manifest_mod.load_manifest())
 
     assert recorded == dataclasses.replace(
         fetched,
@@ -673,7 +676,7 @@ def test_a_recorded_file_builds_like_a_fetched_one(upstream: Path) -> None:
         recorded_at=recorded.recorded_at,
     )
     assert recorded.recorded_at.endswith("Z")
-    assert [{**row, "retrieved_at": ""} for row in build_mod.read_output(OUT)] == [
+    assert [{**row, "retrieved_at": ""} for row in builder_mod.read_output(OUT)] == [
         {**row, "retrieved_at": ""} for row in fetched_rows
     ]
     assert upstream.read_text(encoding="utf-8") == FIXTURE  # copied, not moved
@@ -688,8 +691,8 @@ def test_record_states_no_download_time_it_was_not_given(upstream: Path, capsys:
     shutil.copy(LOG, "before.jsonl")
     result = ledger.record(_source(), upstream)
     assert (result.retrieved_at, bool(result.recorded_at)) == ("", True)
-    build_mod.build(manifest_mod.load_manifest())
-    assert {row["retrieved_at"] for row in build_mod.read_output(OUT)} == {""}
+    builder_mod.build(manifest_mod.load_manifest())
+    assert {row["retrieved_at"] for row in builder_mod.read_output(OUT)} == {""}
     assert f"recorded {result.recorded_at}" in report_mod.status(manifest_mod.load_manifest())[0]
     assert f"recorded {result.recorded_at} from" in ledger.revisions(Path("before.jsonl"))[0]
     assert main(["status", "--json"]) == 0
@@ -699,7 +702,7 @@ def test_record_states_no_download_time_it_was_not_given(upstream: Path, capsys:
 def test_parse_csv_skips_blank_lines() -> None:
     """A blank line is no row, as in csv.DictReader; a row of empty cells is one, and a short row is refused."""
     payload = b"year,value\n\n2020,1.5\r\n\r\n,\n2021,2.5\n"
-    assert build_mod.parse_csv({"id": "x"}, payload) == (
+    assert builder_mod.parse_csv({"id": "x"}, payload) == (
         ["year", "value"],
         [{"year": "2020", "value": "1.5"}, {"year": "", "value": ""}, {"year": "2021", "value": "2.5"}],
     )

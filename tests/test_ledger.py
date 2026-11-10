@@ -30,7 +30,7 @@ from support import (
     _run,
     _serve,
     _source,
-    fetch_mod,
+    fetcher_mod,
     report_mod,
 )
 
@@ -270,7 +270,7 @@ def test_the_log_reader_skips_blank_lines_and_forgives_only_a_cut_off_end(
 
 @pytest.mark.usefixtures("upstream")
 def test_verified_gives_the_record_and_bytes_and_refuses_an_edited_raw_file() -> None:
-    (record,) = fetch_mod.fetch(manifest_mod.load_manifest())
+    (record,) = fetcher_mod.fetch(manifest_mod.load_manifest())
     source = manifest_mod.load_manifest()[0]
     assert ledger.verified(source) == (record, FIXTURE.encode())
     assert ledger.verified(source, raw=RAW.parent) == (record, FIXTURE.encode())
@@ -333,7 +333,7 @@ def test_cli_fetch_reads_history_once(count: int, monkeypatch: pytest.MonkeyPatc
     LOG.write_text((_record("example", "0") + "\n") * count, encoding="utf-8", newline="")
     reads: list[Path] = []
     original = ledger._last_records  # noqa: SLF001
-    monkeypatch.setattr(fetch_mod, "_last_records", lambda log: reads.append(log) or original(log))
+    monkeypatch.setattr(fetcher_mod, "_last_records", lambda log: reads.append(log) or original(log))
     assert main(["fetch"]) == 0
     assert reads == [LOG]
 
@@ -392,10 +392,10 @@ def test_the_last_log_line_and_the_sidecar_agree_on_how_the_bytes_came_in(upstre
     ledger.record(_source(), upstream, retrieved_at=WHEN)
     ledger.record(_source(), upstream, retrieved_at=WHEN)
     assert len(_lines()) == 1
-    (fetched,) = fetch_mod.fetch(manifest_mod.load_manifest())
+    (fetched,) = fetcher_mod.fetch(manifest_mod.load_manifest())
     assert "recorded_at" not in _lines()[-1]
     assert json.loads(sidecar.read_text(encoding="utf-8")) == ledger._fields(fetched)
-    fetch_mod.fetch(manifest_mod.load_manifest())
+    fetcher_mod.fetch(manifest_mod.load_manifest())
     assert len(_lines()) == 2
     ledger.record(_source(), upstream, parameters={"country": "NL"})
     ledger.record(_source(), upstream, parameters={"country": "BE"})

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
-from support import build_mod, fetch_mod, report_mod
+from support import builder_mod, fetcher_mod, report_mod
 
 from sourceledger import ledger
 from sourceledger import manifest as manifest_mod
@@ -90,7 +90,7 @@ def _message(name: str, value: str) -> Message:
 @example("²")  # a digit to str.isdigit, not to float()
 def test_retry_after_never_raises(value: str) -> None:
     """Any Retry-After gives a wait between 0 and the cap."""
-    assert 0.0 <= fetch_mod._retry_after(_message("Retry-After", value)) <= fetch_mod._MAX_RETRY_AFTER_S  # noqa: SLF001
+    assert 0.0 <= fetcher_mod._retry_after(_message("Retry-After", value)) <= fetcher_mod._MAX_RETRY_AFTER_S  # noqa: SLF001
 
 
 @given(st.text())
@@ -99,7 +99,7 @@ def test_retry_after_never_raises(value: str) -> None:
 @example("²")
 def test_content_length_never_raises(value: str) -> None:
     """Any Content-Length gives a byte count or None."""
-    length = fetch_mod._content_length(_message("Content-Length", value))  # noqa: SLF001
+    length = fetcher_mod._content_length(_message("Content-Length", value))  # noqa: SLF001
     assert length is None or length >= 0
 
 
@@ -110,7 +110,7 @@ _columns = st.lists(
 )
 
 
-def _built(name: str, payload: bytes, parse: build_mod.Parser) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+def _built(name: str, payload: bytes, parse: builder_mod.Parser) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     """The rows `parse` reads from `payload`, and the rows read back after a fetch and build of it."""
     with tempfile.TemporaryDirectory() as folder:
         root = Path(folder)
@@ -118,11 +118,11 @@ def _built(name: str, payload: bytes, parse: build_mod.Parser) -> tuple[list[dic
         upstream.write_bytes(payload)
         source = {"id": "s", "status": "implemented", "url": upstream.as_uri()}
         raw, processed = root / "raw", root / "processed"
-        fetch_mod.fetch([source], raw=raw, log=root / "fetches.jsonl")
+        fetcher_mod.fetch([source], raw=raw, log=root / "fetches.jsonl")
         _, parsed = parse(source, payload)
-        build_parser = build_mod.parse_source if parse is build_mod.parse_csv else parse
-        (out,) = build_mod.build([source], raw=raw, processed=processed, parse=build_parser)
-        read = [{k: v for k, v in row.items() if k not in _provenance} for row in build_mod.read_output(out)]
+        build_parser = builder_mod.parse_source if parse is builder_mod.parse_csv else parse
+        (out,) = builder_mod.build([source], raw=raw, processed=processed, parse=build_parser)
+        read = [{k: v for k, v in row.items() if k not in _provenance} for row in builder_mod.read_output(out)]
         return parsed, read
 
 
@@ -144,7 +144,7 @@ def test_csv_rows_survive_build_and_read_output(table: tuple[list[str], list[lis
     writer.writerows(rows)
     payload = buffer.getvalue().encode()
     name = "s.csv.gz" if compressed else "s.csv"
-    parsed, read = _built(name, gzip.compress(payload) if compressed else payload, build_mod.parse_csv)
+    parsed, read = _built(name, gzip.compress(payload) if compressed else payload, builder_mod.parse_csv)
     assert read == parsed
 
 
@@ -164,7 +164,7 @@ _json_values = st.recursive(
 )
 def test_json_rows_survive_build_and_read_output(items: list[dict[str, object]]) -> None:
     """What parse_json reads is what the published output holds, field for field."""
-    parsed, read = _built("s.json", json.dumps(items).encode(), build_mod.parse_json)
+    parsed, read = _built("s.json", json.dumps(items).encode(), builder_mod.parse_json)
     assert read == parsed
 
 
@@ -186,8 +186,8 @@ def test_file_sources_keep_every_byte(payload: bytes) -> None:
             "terms_url": "https://example.org/terms",
         }
         raw, processed = root / "raw", root / "processed"
-        fetch_mod.fetch([source], raw=raw, log=root / "fetches.jsonl")
-        assert build_mod.build([source], raw=raw, processed=processed) == [processed / "example.bin"]
+        fetcher_mod.fetch([source], raw=raw, log=root / "fetches.jsonl")
+        assert builder_mod.build([source], raw=raw, processed=processed) == [processed / "example.bin"]
         assert (processed / "example.bin").read_bytes() == payload
         assert report_mod.validate([source], raw=raw, processed=processed) == []
         assert report_mod.verify(processed) == []
@@ -291,5 +291,5 @@ def test_a_recorded_file_verifies_and_reads_back(
         assert ledger._record(source, raw) == result  # noqa: SLF001
         assert ledger._last_records(log)["s"] == ledger._fields(result)  # noqa: SLF001
         assert ledger.verified(source, raw=raw) == (result, payload)
-        build_mod.build([source], raw=raw, processed=processed)
+        builder_mod.build([source], raw=raw, processed=processed)
         assert report_mod.verify(processed) == []

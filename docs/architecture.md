@@ -131,9 +131,9 @@ It exits 1 if it finds any problem.
 
 - `src/sourceledger/manifest.py`: `sources.toml` and the checks on it.
 - `src/sourceledger/ledger.py`: the fetch log, the sidecar records and `record()`.
-- `src/sourceledger/fetch.py`: the HTTP(S) fetcher. It is the only module that opens a
+- `src/sourceledger/fetcher.py`: the HTTP(S) fetcher. It is the only module that opens a
   network connection.
-- `src/sourceledger/build.py`: the readers, the outputs and `datapackage.json`.
+- `src/sourceledger/builder.py`: the readers, the outputs and `datapackage.json`.
 - `src/sourceledger/report.py`: `validate`, `status`, `attribution`, `verify` and the
   standalone HTML provenance report.
 - `src/sourceledger/cli.py`: the command line. One argparse subcommand per stage; it runs

@@ -14,7 +14,7 @@ from email.message import Message
 from pathlib import Path
 
 import pytest
-from support import build_mod, fetch_mod, report_mod
+from support import builder_mod, fetcher_mod, report_mod
 
 from sourceledger import ledger
 from sourceledger import manifest as manifest_mod
@@ -127,7 +127,7 @@ vintage = 2024-06-01
 """,
     )
     sources = manifest_mod.load_manifest()
-    fetch_mod.fetch(sources, only=["table", "document"])
+    fetcher_mod.fetch(sources, only=["table", "document"])
     ledger.record(
         sources[2],
         download,
@@ -135,7 +135,7 @@ vintage = 2024-06-01
         url="https://mirror.example.org/mirror.csv?country=NL",
         parameters={"country": "NL", "year": 2024},
     )
-    build_mod.build(sources)
+    builder_mod.build(sources)
     assert report_mod.validate(sources) == []
     golden("full/fetches.jsonl", _text("data/fetches.jsonl", publisher))
     golden("full/table.csv.fetch.json", _text("data/raw/table.csv.fetch.json", publisher))
@@ -154,8 +154,8 @@ def test_a_minimal_dataset_matches_its_goldens(
     """One source with only the keys a fetch needs: the report says what is not stated."""
     _project(tmp_path, monkeypatch, f'[[source]]\nid = "only"\nstatus = "implemented"\nurl = "{publisher}/data.csv"\n')
     sources = manifest_mod.load_manifest()
-    fetch_mod.fetch(sources)
-    build_mod.build(sources)
+    fetcher_mod.fetch(sources)
+    builder_mod.build(sources)
     golden("minimal/datapackage.json", _package(publisher))
     golden("minimal/report.html", _report(sources, publisher))
 
@@ -171,8 +171,8 @@ def test_the_parquet_schema_matches_its_golden(
     )
     _project(tmp_path, monkeypatch, manifest)
     sources = manifest_mod.load_manifest()
-    fetch_mod.fetch(sources)
-    build_mod.build(sources, output_format="parquet")
+    fetcher_mod.fetch(sources)
+    builder_mod.build(sources, output_format="parquet")
     metadata = pq.ParquetFile("data/processed/table.parquet").metadata
     codecs = {metadata.row_group(0).column(i).compression for i in range(metadata.num_columns)}
     golden("parquet/schema.txt", f"{pq.read_schema('data/processed/table.parquet')}\ncompression: {sorted(codecs)}\n")
@@ -212,7 +212,7 @@ def test_a_0_4_0_project_validates_and_rebuilds_unchanged() -> None:
     assert "Integrity checks passed" in report(sources)
     assert main(["status"]) == 0
     before = {p: p.read_bytes() for p in Path("data/processed").iterdir()}
-    build_mod.build(sources)
+    builder_mod.build(sources)
     assert {p: p.read_bytes() for p in Path("data/processed").iterdir()} == before
 
 
@@ -228,8 +228,8 @@ def test_a_fetch_over_a_0_4_0_project_writes_the_0_4_0_format(monkeypatch: pytes
         assert request.get_header("If-none-match") == old["etag"]
         return _Response(body, old["url"], **{"ETag": old["etag"], "Last-Modified": old["last_modified"]})
 
-    monkeypatch.setattr(fetch_mod, "_open", open_)
-    (record,) = fetch_mod.fetch(manifest_mod.load_manifest())
+    monkeypatch.setattr(fetcher_mod, "_open", open_)
+    (record,) = fetcher_mod.fetch(manifest_mod.load_manifest())
     assert record.retrieved_at == "2026-11-05T09:30:00Z"
     new = json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
     assert list(new) == list(old)

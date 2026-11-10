@@ -21,8 +21,8 @@ from support import (
     _run,
     _serve,
     _two_sources,
-    build_mod,
-    fetch_mod,
+    builder_mod,
+    fetcher_mod,
     report_mod,
 )
 
@@ -71,8 +71,8 @@ def dataset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[manifest_mo
                 "redistribute": False,
             }
         )
-    fetch_mod.fetch(sources)
-    build_mod.build(sources)
+    fetcher_mod.fetch(sources)
+    builder_mod.build(sources)
     return sources
 
 
@@ -121,7 +121,7 @@ def test_report_escapes_metadata_and_omits_credentials(dataset: list[manifest_mo
 
 def test_report_marks_an_output_from_an_earlier_fetch(dataset: list[manifest_mod.Source]) -> None:
     Path("upstream/table.csv").write_text("year,value\n2023,2.5\n", encoding="utf-8")
-    fetch_mod.fetch(dataset)
+    fetcher_mod.fetch(dataset)
     assert "built from an earlier fetch" in report(dataset)
 
 
@@ -274,8 +274,8 @@ def test_report_keeps_source_urls_and_names(dataset: list[manifest_mod.Source]) 
 
 def test_report_accepts_a_source_without_a_declared_vintage(dataset: list[manifest_mod.Source]) -> None:
     del dataset[0]["vintage"]
-    fetch_mod.fetch(dataset)
-    build_mod.build(dataset)
+    fetcher_mod.fetch(dataset)
+    builder_mod.build(dataset)
     assert "Integrity checks passed" in report(dataset)
 
 
@@ -757,7 +757,7 @@ def test_a_retry_after_past_the_budget_fails_with_the_status(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """When the wait would outlast the fetch, the run stops with the server's own error."""
-    monkeypatch.setattr(fetch_mod, "_BUDGET_S", 60)
+    monkeypatch.setattr(fetcher_mod, "_BUDGET_S", 60)
     monkeypatch.setattr(ledger, "_BUDGET_S", 60)
     _serve(monkeypatch, _http_error(503, Retry_After="90"))
     assert _run("fetch") == [3]
@@ -813,14 +813,14 @@ def test_verify_names_the_hash_it_found(tmp_path: Path) -> None:
 
 def test_validate_reads_an_output_one_row_at_a_time(big: int) -> None:
     sources = manifest_mod.load_manifest()
-    build_mod.build(sources)
+    builder_mod.build(sources)
     assert _peak(lambda: report_mod.validate(sources)) < big // 4
     assert report_mod.validate(sources) == []
 
 
 def test_build_streams_a_csv_source_one_row_at_a_time(big: int) -> None:
     sources = manifest_mod.load_manifest()
-    assert _peak(lambda: build_mod.build(sources)) < big // 4
+    assert _peak(lambda: builder_mod.build(sources)) < big // 4
     assert report_mod.validate(sources) == []
 
 
@@ -829,9 +829,9 @@ def test_build_streams_a_gzipped_csv_source(rows: int, upstream: Path) -> None:
     body = "year,value,note\n" + "".join(f"{i},{i * 0.5},row {i}\n" for i in range(rows))
     upstream.write_bytes(gzip.compress(body.encode()))
     sources = manifest_mod.load_manifest()
-    fetch_mod.fetch(sources)
+    fetcher_mod.fetch(sources)
     # gzip has fixed decompression buffers in addition to the CSV reader's row-sized memory.
-    assert _peak(lambda: build_mod.build(sources)) < len(body) // 4 + 1024 * 1024
+    assert _peak(lambda: builder_mod.build(sources)) < len(body) // 4 + 1024 * 1024
     assert report_mod.validate(sources) == []
 
 
@@ -857,7 +857,7 @@ def test_file_sources_build_without_a_parser(
     if suffix != ".csv":
         assert not OUT.exists()
     assert f"{len(payload)} bytes -> {out.as_posix()}" in capsys.readouterr().out
-    package = json.loads((out.parent / build_mod.DATAPACKAGE).read_text())
+    package = json.loads((out.parent / builder_mod.DATAPACKAGE).read_text())
     (resource,) = package["resources"]
     assert "type" not in resource
     assert resource["path"] == out.name
@@ -869,7 +869,7 @@ def test_file_sources_build_without_a_parser(
     out.write_bytes(b"edited")
     assert any("earlier build" in p for p in report_mod.validate(manifest_mod.load_manifest()))
     resource["hash"] = "sha256:" + hashlib.sha256(out.read_bytes()).hexdigest()
-    (out.parent / build_mod.DATAPACKAGE).write_text(json.dumps(package))
+    (out.parent / builder_mod.DATAPACKAGE).write_text(json.dumps(package))
     assert any("differs from the fetched file" in p for p in report_mod.validate(manifest_mod.load_manifest()))
     out.unlink()
     assert any("missing" in p for p in report_mod.validate(manifest_mod.load_manifest()))
@@ -887,7 +887,7 @@ def test_partial_build_keeps_file_resources(upstream: Path, tmp_path: Path) -> N
     _manifest(tmp_path, upstream.as_uri(), terms=f'{TERMS}\nformat = "file"')
     assert _run("fetch", "build") == [0, 0]
     sources = manifest_mod.load_manifest()
-    assert build_mod.build(sources, only=[]) == []
+    assert builder_mod.build(sources, only=[]) == []
     assert report_mod.validate(sources) == []
     assert report_mod.verify(Path("data/processed")) == []
     sources[0]["status"] = "unimplemented"
@@ -900,8 +900,8 @@ def test_validate_requires_current_file_metadata(upstream: Path, field: str) -> 
     sources = manifest_mod.load_manifest()
     source = sources[0]
     source.update(format="file", vintage="2024")
-    fetch_mod.fetch(sources)
-    build_mod.build(sources)
+    fetcher_mod.fetch(sources)
+    builder_mod.build(sources)
     assert report_mod.validate(sources) == []
     original = OUT.read_bytes()
     if field == "url":
@@ -913,11 +913,11 @@ def test_validate_requires_current_file_metadata(upstream: Path, field: str) -> 
     else:
         source["redistribute"] = False
     if field != "redistribute":
-        fetch_mod.fetch(sources)
+        fetcher_mod.fetch(sources)
     assert OUT.read_bytes() == original
     assert any("re-run build" in problem for problem in report_mod.validate(sources))
     assert any("re-run build" in problem for problem in report_mod.validate(sources, only=["example"]))
-    build_mod.build(sources)
+    builder_mod.build(sources)
     assert report_mod.validate(sources) == []
     assert OUT.read_bytes() == original
 
@@ -927,8 +927,8 @@ def test_validate_requires_current_file_metadata(upstream: Path, field: str) -> 
 def test_unselected_reserved_file_names_do_not_block_validation(status: str) -> None:
     sources = manifest_mod.load_manifest()
     sources.append({"id": "datapackage", "status": status, "format": "file", "url": "https://example.org/a.json"})
-    fetch_mod.fetch(sources, only=["example"])
-    build_mod.build(sources, only=["example"])
+    fetcher_mod.fetch(sources, only=["example"])
+    builder_mod.build(sources, only=["example"])
     assert report_mod.validate(sources, only=["example"]) == []
     if status == "unimplemented":
         assert report_mod.validate(sources) == []
@@ -995,8 +995,8 @@ def test_validate_hashes_each_file_output_once(tmp_path: Path, monkeypatch: pyte
         }
         for number in range(count)
     ]
-    fetch_mod.fetch(sources)
-    build_mod.build(sources)
+    fetcher_mod.fetch(sources)
+    builder_mod.build(sources)
     hashed = []
     original = ledger._digest  # noqa: SLF001
 
@@ -1006,7 +1006,7 @@ def test_validate_hashes_each_file_output_once(tmp_path: Path, monkeypatch: pyte
 
     monkeypatch.setattr(report_mod, "_digest", digest)
     monkeypatch.setattr(ledger, "_digest", digest)
-    monkeypatch.setattr(build_mod, "_digest", digest)
+    monkeypatch.setattr(builder_mod, "_digest", digest)
     assert report_mod.validate(sources) == []
     assert len([p for p in hashed if p.parent == Path("data/processed")]) == count
 

@@ -10,7 +10,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
-from sourceledger.build import (
+from sourceledger.builder import (
     _PARQUET_SUFFIX,
     DATAPACKAGE,
     PROCESSED,

@@ -10,7 +10,7 @@ from typing import Self
 
 import pytest
 from hypothesis import settings
-from support import FIXTURE, _manifest, _run, fetch_mod
+from support import FIXTURE, _manifest, _run, fetcher_mod
 
 from sourceledger import ledger
 
@@ -91,7 +91,7 @@ class _FrozenDatetime(datetime, metaclass=_AnyDatetime):
 def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> datetime:
     """Fetch and record times are `NOW`, so their records compare byte for byte."""
     monkeypatch.setattr(ledger, "datetime", _FrozenDatetime)
-    monkeypatch.setattr(fetch_mod, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(fetcher_mod, "datetime", _FrozenDatetime)
     return NOW
 
 

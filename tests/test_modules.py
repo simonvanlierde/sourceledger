@@ -4,13 +4,13 @@ import ast
 from pathlib import Path
 
 import pytest
-from support import build_mod
+from support import builder_mod
 
 from sourceledger import manifest
 
 SRC = Path(manifest.__file__).parent
 # A module imports only from a lower level. `fetch` and `build` do not import each other.
-LEVEL = {"manifest": 0, "ledger": 1, "fetch": 2, "build": 2, "report": 3, "cli": 4}
+LEVEL = {"manifest": 0, "ledger": 1, "fetcher": 2, "builder": 2, "report": 3, "cli": 4}
 NETWORK = {"socket", "ssl", "http", "urllib.request", "urllib.error", "urllib.response"}
 
 
@@ -35,7 +35,7 @@ def test_a_module_imports_only_from_a_lower_level(module: str) -> None:
                 assert LEVEL[sibling.split(".")[0]] < LEVEL[module], f"{module} imports {name}"
 
 
-@pytest.mark.parametrize("module", ["manifest", "ledger", "build", "report"])
+@pytest.mark.parametrize("module", ["manifest", "ledger", "builder", "report"])
 def test_only_fetch_and_the_cli_reach_the_network(module: str) -> None:
     for node in _imports(module):
         for name in _modules(node):
@@ -50,4 +50,4 @@ def test_the_cli_uses_only_public_names_of_the_package() -> None:
 
 
 def test_the_manifest_knows_the_formats_build_reads() -> None:
-    assert set(manifest._FORMATS) == set(build_mod._PARSERS)  # noqa: SLF001
+    assert set(manifest._FORMATS) == set(builder_mod._PARSERS)  # noqa: SLF001

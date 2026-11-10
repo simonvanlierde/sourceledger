@@ -40,8 +40,8 @@ from support import (
     _serve,
     _source,
     _two_sources,
-    build_mod,
-    fetch_mod,
+    builder_mod,
+    fetcher_mod,
     report_mod,
 )
 
@@ -177,7 +177,7 @@ def test_the_fetch_log_keeps_each_new_version_once(upstream: Path) -> None:
 
 def test_the_default_user_agent_names_the_library() -> None:
     """A fetch without a project name still says who is asking."""
-    assert fetch_mod.USER_AGENT.startswith("sourceledger/")
+    assert fetcher_mod.USER_AGENT.startswith("sourceledger/")
 
 
 def test_one_failing_source_does_not_stop_the_others(
@@ -225,8 +225,8 @@ def test_a_pin_is_compared_as_given_by_a_library_caller(upstream: Path, tmp_path
     source = {"id": "example", "status": "implemented", "url": upstream.as_uri(), "sha256": digest.upper()}
     raw = tmp_path / "raw"
     with pytest.raises(ledger.FetchError, match=r"not the sha256 in sources\.toml$"):
-        fetch_mod.fetch([source], raw=raw, log=tmp_path / "log.jsonl")
-    fetch_mod.fetch([{**source, "sha256": digest}], raw=raw, log=tmp_path / "log.jsonl")
+        fetcher_mod.fetch([source], raw=raw, log=tmp_path / "log.jsonl")
+    fetcher_mod.fetch([{**source, "sha256": digest}], raw=raw, log=tmp_path / "log.jsonl")
     with pytest.raises(ValueError, match=r"not the sha256 sources\.toml now pins; re-run fetch$"):
         ledger.verified(source, raw=raw)
 
@@ -290,7 +290,7 @@ def test_each_request_has_a_socket_timeout(monkeypatch: pytest.MonkeyPatch) -> N
     """A server that never answers can't hold the run forever."""
     calls = _serve(monkeypatch, _Response(FIXTURE.encode()))
     _run("fetch")
-    assert calls[0].timeout == fetch_mod._SOCKET_TIMEOUT_S  # noqa: SLF001
+    assert calls[0].timeout == fetcher_mod._SOCKET_TIMEOUT_S  # noqa: SLF001
 
 
 @pytest.mark.usefixtures("upstream")
@@ -316,9 +316,9 @@ def test_a_server_trickling_bytes_is_stopped_near_the_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A byte every 0.2 s never trips the socket timeout, yet the fetch stops at the budget, not the body's end."""
-    monkeypatch.setattr(fetch_mod, "_BUDGET_S", 0.5)
+    monkeypatch.setattr(fetcher_mod, "_BUDGET_S", 0.5)
     monkeypatch.setattr(ledger, "_BUDGET_S", 0.5)
-    monkeypatch.setattr(fetch_mod, "_SOCKET_TIMEOUT_S", 1)
+    monkeypatch.setattr(fetcher_mod, "_SOCKET_TIMEOUT_S", 1)
     listener = socket.create_server(("127.0.0.1", 0))
 
     def trickle() -> None:
@@ -348,7 +348,7 @@ def test_source_timeout_bounds_the_socket(monkeypatch: pytest.MonkeyPatch, timeo
     calls = _serve(monkeypatch, _Response(FIXTURE.encode()))
     sources = manifest_mod.load_manifest()
     sources[0]["timeout_s"] = timeout
-    fetch_mod.fetch(sources)
+    fetcher_mod.fetch(sources)
     assert calls[0].timeout is not None
     assert 0 < calls[0].timeout <= min(timeout, 30)
 
@@ -363,14 +363,14 @@ def test_source_timeout_includes_retry_waits(
     sources[0]["timeout_s"] = timeout
     monkeypatch.setattr(time, "monotonic", lambda: 0)
     with pytest.raises(ledger.FetchError, match="503"):
-        fetch_mod.fetch(sources)
+        fetcher_mod.fetch(sources)
     assert len(calls) == 1
     assert sleeps == []
 
 
 def test_a_redirect_from_a_public_host_is_marked_public_only() -> None:
     """The mark carries on to every later hop; a redirect within an internal host gets none."""
-    handler = fetch_mod._NoRedirectInward()  # noqa: SLF001
+    handler = fetcher_mod._NoRedirectInward()  # noqa: SLF001
     public = urllib.request.Request("http://93.184.215.14/data.csv")
     new = handler.redirect_request(public, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://10.0.0.1/a")
     assert new is not None
@@ -388,9 +388,9 @@ def test_a_redirect_from_a_public_host_is_marked_public_only() -> None:
 
 def test_a_redirect_from_a_public_host_must_stay_http() -> None:
     """The connected-peer check sees only HTTP, so a public host can't send a fetch to internal ftp."""
-    handler = fetch_mod._NoRedirectInward()  # noqa: SLF001
+    handler = fetcher_mod._NoRedirectInward()  # noqa: SLF001
     public = urllib.request.Request("http://93.184.215.14/data.csv")
-    with pytest.raises(fetch_mod._InwardRedirectError, match="not HTTP or HTTPS"):  # noqa: SLF001
+    with pytest.raises(fetcher_mod._InwardRedirectError, match="not HTTP or HTTPS"):  # noqa: SLF001
         handler.redirect_request(public, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "ftp://10.0.0.1/a")
     # A source that already lives on an internal host keeps urllib's own redirect rules.
     internal = urllib.request.Request("http://127.0.0.1/data.csv")
@@ -444,9 +444,9 @@ def test_a_redirect_to_a_name_that_rebinds_inward_is_refused(
 
 def test_a_refused_redirect_names_no_query_or_fragment() -> None:
     """A presigned URL's signature must not reach a log or the CLI's output."""
-    handler = fetch_mod._NoRedirectInward()  # noqa: SLF001
+    handler = fetcher_mod._NoRedirectInward()  # noqa: SLF001
     public = urllib.request.Request("http://93.184.215.14/data.csv")
-    with pytest.raises(fetch_mod._InwardRedirectError) as refused:  # noqa: SLF001
+    with pytest.raises(fetcher_mod._InwardRedirectError) as refused:  # noqa: SLF001
         handler.redirect_request(
             public, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "ftp://10.0.0.1/a?sig=s3cr3t#frag"
         )
@@ -457,7 +457,7 @@ def test_a_refused_redirect_names_no_query_or_fragment() -> None:
     try:
         request = urllib.request.Request(f"http://127.0.0.1:{server.server_address[1]}/a.csv?sig=s3cr3t")
         request.public_only = True  # ty: ignore[unresolved-attribute]
-        connection = fetch_mod._PeerCheck("127.0.0.1", port=server.server_address[1], req=request)  # noqa: SLF001
+        connection = fetcher_mod._PeerCheck("127.0.0.1", port=server.server_address[1], req=request)  # noqa: SLF001
         with pytest.raises(ValueError, match=r"/a\.csv, which is at") as inward:
             connection.connect()
         assert "s3cr3t" not in str(inward.value)
@@ -475,7 +475,7 @@ def test_the_peer_check_is_skipped_through_a_proxy() -> None:
         for url, refused in ((f"http://127.0.0.1:{port}/a.csv", True), ("http://example.org/a.csv", False)):
             request = urllib.request.Request(url)  # noqa: S310  # http only
             request.public_only = True  # ty: ignore[unresolved-attribute]
-            connection = fetch_mod._PeerCheck("127.0.0.1", port=port, req=request)  # noqa: SLF001
+            connection = fetcher_mod._PeerCheck("127.0.0.1", port=port, req=request)  # noqa: SLF001
             if refused:
                 with pytest.raises(
                     ValueError, match=rf"^refused a redirect from a public host to {url}, which is at 127\.0\.0\.1$"
@@ -544,7 +544,9 @@ def test_the_peer_check_refuses_a_loopback_peer_over_tls(tmp_path: Path) -> None
     server.socket = server_context.wrap_socket(server.socket, server_side=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     url = f"https://127.0.0.1:{server.server_address[1]}/a.csv"
-    opener = urllib.request.build_opener(fetch_mod._HTTPSHandler(context=ssl.create_default_context(cafile=str(cert))))  # noqa: SLF001
+    opener = urllib.request.build_opener(
+        fetcher_mod._HTTPSHandler(context=ssl.create_default_context(cafile=str(cert)))  # noqa: SLF001
+    )
     try:
         plain = urllib.request.Request(url)  # https only
         with opener.open(plain, timeout=5) as response:
@@ -655,7 +657,7 @@ def test_a_missing_variable_fails_that_source(tmp_path: Path, capsys: pytest.Cap
 
 def test_a_redirect_to_another_host_drops_the_credentials() -> None:
     """Urllib copies every header to a redirect; a token for one host must not reach another."""
-    handler = fetch_mod._NoRedirectInward()  # noqa: SLF001
+    handler = fetcher_mod._NoRedirectInward()  # noqa: SLF001
     req = urllib.request.Request("https://93.184.215.14/data.csv", headers={"Authorization": "x", "User-Agent": "ua"})
     other = handler.redirect_request(
         req, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "https://8.8.8.8/data.csv"
@@ -671,7 +673,7 @@ def test_a_redirect_to_another_host_drops_the_credentials() -> None:
 
 def test_a_redirect_to_plain_http_on_the_same_host_drops_the_credentials() -> None:
     """A token sent over https must not go out again in clear text after a downgrade."""
-    handler = fetch_mod._NoRedirectInward()  # noqa: SLF001
+    handler = fetcher_mod._NoRedirectInward()  # noqa: SLF001
     req = urllib.request.Request("https://93.184.215.14/data.csv", headers={"Authorization": "x", "User-Agent": "ua"})
     new = handler.redirect_request(
         req, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://93.184.215.14/data.csv"
@@ -685,9 +687,9 @@ def test_the_stages_take_their_folders_as_arguments(tmp_path: Path) -> None:
     """A library caller can keep raw files elsewhere; build and validate then read them there."""
     sources = manifest_mod.load_manifest()
     raw, processed, log = tmp_path / "elsewhere", tmp_path / "out", tmp_path / "logs" / "deep" / "log.jsonl"
-    fetch_mod.fetch(sources, raw=raw, log=log)
-    fetch_mod.fetch(sources, raw=raw, log=log)  # the second asks conditionally, from the record in `raw`
-    build_mod.build(sources, raw=raw, processed=processed)
+    fetcher_mod.fetch(sources, raw=raw, log=log)
+    fetcher_mod.fetch(sources, raw=raw, log=log)  # the second asks conditionally, from the record in `raw`
+    builder_mod.build(sources, raw=raw, processed=processed)
     assert report_mod.validate(sources, raw=raw, processed=processed) == []
     assert not RAW.exists()
     assert len(log.read_text(encoding="utf-8").splitlines()) == 1
@@ -706,12 +708,12 @@ def test_the_stages_take_their_folders_as_arguments(tmp_path: Path) -> None:
 )
 def test_retry_after_reads_seconds_dates_and_nothing(headers: Message | None, expected: float) -> None:
     """No header, junk and a date in the past all mean no wait of the server's own."""
-    assert fetch_mod._retry_after(headers) == expected  # noqa: SLF001
+    assert fetcher_mod._retry_after(headers) == expected  # noqa: SLF001
 
 
 def test_content_length_is_none_when_absent() -> None:
-    assert fetch_mod._content_length(_headers(ETag="x")) is None  # noqa: SLF001
-    assert fetch_mod._content_length(_headers(Content_Length=" 12 ")) == 12  # noqa: SLF001
+    assert fetcher_mod._content_length(_headers(ETag="x")) is None  # noqa: SLF001
+    assert fetcher_mod._content_length(_headers(Content_Length=" 12 ")) == 12  # noqa: SLF001
 
 
 @pytest.mark.usefixtures("upstream")
@@ -723,8 +725,8 @@ def test_a_failed_conditional_request_is_not_a_304(monkeypatch: pytest.MonkeyPat
 
 def test_the_opener_gets_the_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[float] = []
-    monkeypatch.setattr(fetch_mod._OPENER, "open", lambda _request, timeout: seen.append(timeout))  # noqa: SLF001
-    fetch_mod._open(urllib.request.Request("https://example.invalid/"), timeout=7)  # noqa: SLF001
+    monkeypatch.setattr(fetcher_mod._OPENER, "open", lambda _request, timeout: seen.append(timeout))  # noqa: SLF001
+    fetcher_mod._open(urllib.request.Request("https://example.invalid/"), timeout=7)  # noqa: SLF001
     assert seen == [7]
 
 
@@ -735,7 +737,7 @@ def test_an_unresolvable_host_counts_as_public(monkeypatch: pytest.MonkeyPatch) 
         raise socket.gaierror
 
     monkeypatch.setattr(socket, "getaddrinfo", fail)
-    assert fetch_mod._is_public("no-such-host.invalid")  # noqa: SLF001
+    assert fetcher_mod._is_public("no-such-host.invalid")  # noqa: SLF001
 
 
 class _Spy(_Response):
@@ -805,9 +807,9 @@ def test_archive_asks_for_a_snapshot_of_new_bytes_only(tmp_path: Path, monkeypat
     assert _run("fetch") == [0]
     assert (calls[1].full_url, calls[1].timeout) == (
         f"https://web.archive.org/save/{_DATA}",
-        fetch_mod._ARCHIVE_TIMEOUT_S,  # noqa: SLF001
+        fetcher_mod._ARCHIVE_TIMEOUT_S,  # noqa: SLF001
     )
-    assert calls[1].get_header("User-agent") == fetch_mod.USER_AGENT
+    assert calls[1].get_header("User-agent") == fetcher_mod.USER_AGENT
     record = json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
     assert record["archive_url"] == _SNAPSHOT
     assert json.loads(LOG.read_text(encoding="utf-8"))["archive_url"] == _SNAPSHOT
@@ -883,7 +885,7 @@ _SNAPSHOT_FORM = r"https://web\.archive\.org/web/\d{14}/(?P<url>.+)"
 
 
 class _SavePageNow:
-    """A fake of Save Page Now, standing in for `fetch_mod._open`, as far as `_archive` relies on it.
+    """A fake of Save Page Now, standing in for `fetcher_mod._open`, as far as `_archive` relies on it.
 
     It redirects to a snapshot, or answers 429 with no Retry-After, which the live archive sends
     once a URL has had its 5 captures of the day. `test_save_page_now_contract` checks it against
@@ -894,19 +896,19 @@ class _SavePageNow:
         self.rate_limited = rate_limited
 
     def __call__(self, request: urllib.request.Request, timeout: float) -> _Response:
-        assert request.full_url.startswith(fetch_mod._ARCHIVE)  # noqa: SLF001
-        assert timeout == fetch_mod._ARCHIVE_TIMEOUT_S  # noqa: SLF001
+        assert request.full_url.startswith(fetcher_mod._ARCHIVE)  # noqa: SLF001
+        assert timeout == fetcher_mod._ARCHIVE_TIMEOUT_S  # noqa: SLF001
         if self.rate_limited:
             raise urllib.error.HTTPError(request.full_url, 429, "TOO MANY REQUESTS", _headers(), None)
-        target = request.full_url.removeprefix(fetch_mod._ARCHIVE)  # noqa: SLF001
-        return _Response(b"", url=f"{fetch_mod._SNAPSHOT}20261019161808/{target}")  # noqa: SLF001
+        target = request.full_url.removeprefix(fetcher_mod._ARCHIVE)  # noqa: SLF001
+        return _Response(b"", url=f"{fetcher_mod._SNAPSHOT}20261019161808/{target}")  # noqa: SLF001
 
 
 @pytest.fixture(params=["fake", "fake-rate-limited", pytest.param("live", marks=pytest.mark.live)])
 def save_page_now(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
     """Save Page Now: the fake on every run, the live service under `pytest -m live`."""
     if request.param != "live":
-        monkeypatch.setattr(fetch_mod, "_open", _SavePageNow(rate_limited=request.param == "fake-rate-limited"))
+        monkeypatch.setattr(fetcher_mod, "_open", _SavePageNow(rate_limited=request.param == "fake-rate-limited"))
     return request.param
 
 
@@ -914,7 +916,7 @@ def test_save_page_now_contract(save_page_now: str, caplog: pytest.LogCaptureFix
     """The archive either redirects to a snapshot of the URL that opens, or rate-limits with a 429."""
     # A page few others save: example.com reaches the archive's 5 captures a day by morning.
     target = "https://github.com/simonvanlierde/sourceledger/blob/main/README.md"
-    snapshot = fetch_mod._archive({"id": "contract", "url": target}, fetch_mod.USER_AGENT)  # noqa: SLF001
+    snapshot = fetcher_mod._archive({"id": "contract", "url": target}, fetcher_mod.USER_AGENT)  # noqa: SLF001
     if not snapshot:
         assert "HTTP Error 429" in caplog.text
         if save_page_now == "live":
@@ -924,15 +926,15 @@ def test_save_page_now_contract(save_page_now: str, caplog: pytest.LogCaptureFix
     assert match
     assert match["url"].rstrip("/") == target.rstrip("/")
     if save_page_now == "live":
-        request = urllib.request.Request(snapshot, headers={"User-Agent": fetch_mod.USER_AGENT})  # noqa: S310
-        with fetch_mod._open(request, timeout=60) as response:  # noqa: SLF001
+        request = urllib.request.Request(snapshot, headers={"User-Agent": fetcher_mod.USER_AGENT})  # noqa: S310
+        with fetcher_mod._open(request, timeout=60) as response:  # noqa: SLF001
             assert response.status == 200
 
 
 def test_a_conditional_fetch_hashes_the_raw_file_without_holding_it(big: int, monkeypatch: pytest.MonkeyPatch) -> None:
     sources = manifest_mod.load_manifest()
     _serve(monkeypatch, _http_error(304))
-    assert _peak(lambda: fetch_mod.fetch(sources)) < big // 4
+    assert _peak(lambda: fetcher_mod.fetch(sources)) < big // 4
 
 
 @pytest.mark.usefixtures("upstream")
@@ -942,11 +944,11 @@ def test_a_fetch_reads_the_log_once_however_many_sources_keep_their_snapshot(
     _manifest(tmp_path, _DATA, terms=f"{TERMS}\narchive = true")
     _serve(monkeypatch, _Response(FIXTURE.encode()), _Response(b"", url=_SNAPSHOT), _Response(FIXTURE.encode()))
     sources = manifest_mod.load_manifest()
-    fetch_mod.fetch(sources)
+    fetcher_mod.fetch(sources)
     reads: list[Path] = []
     last_records = ledger._last_records  # noqa: SLF001
-    monkeypatch.setattr(fetch_mod, "_last_records", lambda log: reads.append(log) or last_records(log))
-    assert [r.archive_url for r in fetch_mod.fetch(sources)] == [_SNAPSHOT]
+    monkeypatch.setattr(fetcher_mod, "_last_records", lambda log: reads.append(log) or last_records(log))
+    assert [r.archive_url for r in fetcher_mod.fetch(sources)] == [_SNAPSHOT]
     assert reads == [LOG]
 
 
@@ -963,10 +965,10 @@ def test_the_download_uses_the_source_budget(
     clock = iter([0, 0, elapsed, elapsed])
     monkeypatch.setattr(time, "monotonic", lambda: next(clock))
     if success:
-        assert len(fetch_mod.fetch(sources)) == 1
+        assert len(fetcher_mod.fetch(sources)) == 1
     else:
         with pytest.raises(ledger.FetchError, match=f"unfinished after {budget} s"):
-            fetch_mod.fetch(sources)
+            fetcher_mod.fetch(sources)
 
 
 def test_redirects_do_not_need_the_redirect_response_body(publisher: str, tmp_path: Path) -> None:
@@ -977,14 +979,14 @@ def test_redirects_do_not_need_the_redirect_response_body(publisher: str, tmp_pa
 
 def test_default_fetch_stays_on_calling_thread(upstream: Path, monkeypatch: pytest.MonkeyPatch):
     caller = threading.get_ident()
-    original_open = fetch_mod._open  # noqa: SLF001
+    original_open = fetcher_mod._open  # noqa: SLF001
 
-    def open_(request: urllib.request.Request, timeout: float) -> fetch_mod._Response:
+    def open_(request: urllib.request.Request, timeout: float) -> fetcher_mod._Response:
         assert threading.get_ident() == caller
         return original_open(request, timeout)
 
-    monkeypatch.setattr(fetch_mod, "_open", open_)
-    assert fetch_mod.fetch(manifest_mod.load_manifest())[0].url == upstream.as_uri()
+    monkeypatch.setattr(fetcher_mod, "_open", open_)
+    assert fetcher_mod.fetch(manifest_mod.load_manifest())[0].url == upstream.as_uri()
 
 
 def test_a_later_fetch_sends_the_validators_record_kept(
@@ -994,7 +996,7 @@ def test_a_later_fetch_sends_the_validators_record_kept(
     _manifest(tmp_path, "https://example.org/example.csv")
     recorded = ledger.record(_source(), upstream, retrieved_at=WHEN, etag='"abc"')
     calls = _serve(monkeypatch, _http_error(304))
-    assert fetch_mod.fetch(manifest_mod.load_manifest()) == [recorded]
+    assert fetcher_mod.fetch(manifest_mod.load_manifest()) == [recorded]
     assert calls[0].get_header("If-none-match") == '"abc"'
 
 
@@ -1005,6 +1007,6 @@ def test_a_failed_source_leaves_the_others_on_the_error(monkeypatch: pytest.Monk
     sources = [{**first, "id": "first"}, {**first, "id": "second"}]
     _serve(monkeypatch, _Response(FIXTURE.encode()), _http_error(404))
     with pytest.raises(ledger.FetchError) as error:
-        fetch_mod.fetch(sources)
+        fetcher_mod.fetch(sources)
     assert [r.source_id for r in error.value.records] == ["first"]
     assert len(error.value.failures) == 1

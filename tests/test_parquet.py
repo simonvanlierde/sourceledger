@@ -12,7 +12,7 @@ import pyarrow.parquet as pq
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from support import build_mod, report_mod
+from support import builder_mod, report_mod
 
 from sourceledger import ledger
 from sourceledger import manifest as manifest_mod
@@ -50,7 +50,7 @@ def test_parquet_build_and_validate(project: Path, capsys: pytest.CaptureFixture
     assert table.schema == dict.fromkeys(
         ["source_id", "source_url", "retrieved_at", "vintage", "raw_sha256", "code", "value"], pl.String
     )
-    rows = list(build_mod.read_output(out))
+    rows = list(builder_mod.read_output(out))
     assert [(row["code"], row["value"]) for row in rows] == [("001", "1.10"), ("002", "")]
     assert {row["source_id"] for row in rows} == {"example"}
     package_path = Path("data/processed/datapackage.json")
@@ -83,7 +83,7 @@ def test_parquet_damage_is_a_validation_problem(damage: bytes | None) -> None:
     else:
         out.write_bytes(damage)
         with pytest.raises(ValueError, match=r"data/processed/example.parquet: not a readable Parquet table"):
-            list(build_mod.read_output(out))
+            list(builder_mod.read_output(out))
     assert main(["validate", "--json"]) == 1
 
 
@@ -105,7 +105,7 @@ def test_missing_extra_has_an_install_hint(monkeypatch: pytest.MonkeyPatch) -> N
         "or uv add 'sourceledger[parquet]' (project)"
     )
     with pytest.raises(ValueError, match="Parquet needs the parquet extra") as caught:
-        build_mod.build(manifest_mod.load_manifest(), output_format="parquet")
+        builder_mod.build(manifest_mod.load_manifest(), output_format="parquet")
     assert str(caught.value) == hint
     assert not Path("data/processed/example.parquet").exists()
 
@@ -135,11 +135,11 @@ def test_parquet_partial_build_and_file_sources() -> None:
     sources = manifest_mod.load_manifest()
     package = Path("data/processed/datapackage.json")
     before = package.read_bytes()
-    assert build_mod.build(sources, only=[], output_format="parquet") == []
+    assert builder_mod.build(sources, only=[], output_format="parquet") == []
     assert package.read_bytes() == before
     assert report_mod.validate(sources, output_format="parquet") == []
     sources[0]["format"] = "file"
-    build_mod.build(sources, processed=Path("files"), output_format="parquet")
+    builder_mod.build(sources, processed=Path("files"), output_format="parquet")
     assert Path("files/example.csv").read_bytes() == Path("input.csv").read_bytes()
     assert report_mod.validate(sources, processed=Path("files"), output_format="parquet") == []
 
@@ -161,16 +161,16 @@ def test_parquet_refuses_extra_row_fields_without_overwriting(tmp_path: Path) ->
     out = tmp_path / "table.parquet"
     out.write_bytes(b"previous build")
     with pytest.raises(ValueError, match="not in the header"):
-        build_mod._write_rows({"id": "test"}, out, {}, ["x"], [{"x": "1", "extra": "2"}])  # noqa: SLF001
+        builder_mod._write_rows({"id": "test"}, out, {}, ["x"], [{"x": "1", "extra": "2"}])  # noqa: SLF001
     assert out.read_bytes() == b"previous build"
 
 
 def test_parquet_fills_missing_cells_and_protects_the_stamp(tmp_path: Path) -> None:
     out = tmp_path / "table.parquet"
-    build_mod._write_rows(  # noqa: SLF001
+    builder_mod._write_rows(  # noqa: SLF001
         {"id": "test"}, out, {"source_id": "test"}, ["x"], [{}, {"x": "1", "source_id": "wrong"}]
     )
-    assert list(build_mod.read_output(out)) == [{"source_id": "test", "x": ""}, {"source_id": "test", "x": "1"}]
+    assert list(builder_mod.read_output(out)) == [{"source_id": "test", "x": ""}, {"source_id": "test", "x": "1"}]
 
 
 def test_parquet_does_not_keep_all_python_rows_beside_the_frame(tmp_path: Path) -> None:
@@ -178,7 +178,7 @@ def test_parquet_does_not_keep_all_python_rows_beside_the_frame(tmp_path: Path) 
     rows = ({"code": str(i), "value": "001.2300", "description": "test", "category": "group"} for i in range(300_000))
     tracemalloc.start()
     try:
-        build_mod._write_rows(  # noqa: SLF001
+        builder_mod._write_rows(  # noqa: SLF001
             {"id": "test"}, tmp_path / "table.parquet", stamp, ["code", "value", "description", "category"], rows
         )
         peak = tracemalloc.get_traced_memory()[1]
@@ -209,8 +209,8 @@ def test_output_format_schema_matches_manifest(tmp_path: Path, output_format: ob
 def test_parquet_round_trips_text(values: list[str], tmp_path_factory: pytest.TempPathFactory) -> None:
     out = tmp_path_factory.mktemp("parquet") / "table.parquet"
     rows = [{"value": value} for value in values]
-    build_mod._write_rows({"id": "test"}, out, {"source_id": "test"}, ["value"], rows)  # noqa: SLF001
-    assert list(build_mod.read_output(out)) == [{"source_id": "test", **row} for row in rows]
+    builder_mod._write_rows({"id": "test"}, out, {"source_id": "test"}, ["value"], rows)  # noqa: SLF001
+    assert list(builder_mod.read_output(out)) == [{"source_id": "test", **row} for row in rows]
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="VmHWM is a Linux process counter")
@@ -223,13 +223,14 @@ def test_parquet_native_memory_is_batched(tmp_path: Path, operation: str) -> Non
 import sys
 from pathlib import Path
 import importlib
-build_mod = importlib.import_module("sourceledger.build")
+builder_mod = importlib.import_module("sourceledger.builder")
 report_mod = importlib.import_module("sourceledger.report")
 size, out, operation = int(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
 stamp = dict.fromkeys(["source_id", "source_url", "retrieved_at", "vintage", "raw_sha256"], "test")
 if operation == "write":
     rows = (dict(code=str(i), value="001.2300", description="test description", category="group") for i in range(size))
-    assert build_mod._write_rows({"id": "test"}, out, stamp, ["code", "value", "description", "category"], rows) == size
+    written = builder_mod._write_rows({"id": "test"}, out, stamp, ["code", "value", "description", "category"], rows)
+    assert written == size
 else:
     assert report_mod._scan(out, stamp) == (True, False)
 print(next(line.split()[1] for line in Path("/proc/self/status").read_text().splitlines() if line.startswith("VmHWM:")))
@@ -252,13 +253,13 @@ def test_parquet_batches_preserve_order_values_and_determinism(tmp_path: Path) -
     expected = [{"source_id": "test", "value": values[i % len(values)]} for i in range(20_001)]
     snapshots = []
     for _ in range(2):
-        count = build_mod._write_rows({"id": "test"}, out, {"source_id": "test"}, ["value"], iter(expected))  # noqa: SLF001
+        count = builder_mod._write_rows({"id": "test"}, out, {"source_id": "test"}, ["value"], iter(expected))  # noqa: SLF001
         assert count == len(expected)
-        assert list(build_mod.read_output(out)) == expected
+        assert list(builder_mod.read_output(out)) == expected
         assert pl.read_parquet(out).to_dicts() == expected
         metadata = pq.read_metadata(out)
         assert [metadata.row_group(i).num_rows for i in range(metadata.num_row_groups)] == [10_000, 10_000, 1]
-        assert [batch.num_rows for batch in build_mod._parquet_batches(out)] == [10_000, 10_000, 1]  # noqa: SLF001
+        assert [batch.num_rows for batch in builder_mod._parquet_batches(out)] == [10_000, 10_000, 1]  # noqa: SLF001
         snapshots.append(out.read_bytes())
     assert snapshots[0] == snapshots[1]
 
@@ -268,7 +269,7 @@ def test_parquet_late_row_error_cleans_temporary_output(tmp_path: Path) -> None:
     out.write_bytes(b"previous build")
     rows = ({"x": "1"} if i < 10_000 else {"extra": "2"} for i in range(10_001))
     with pytest.raises(ValueError, match="not in the header"):
-        build_mod._write_rows({"id": "test"}, out, {}, ["x"], rows)  # noqa: SLF001
+        builder_mod._write_rows({"id": "test"}, out, {}, ["x"], rows)  # noqa: SLF001
     assert out.read_bytes() == b"previous build"
     assert list(tmp_path.iterdir()) == [out]
 
@@ -320,12 +321,12 @@ def test_parquet_writes_parser_cells_as_csv_does(output_format: str) -> None:
         return ["code", "value"], [{"code": 7, "value": None}]
 
     sources = manifest_mod.load_manifest()
-    build_mod.build(sources, parse=loose, output_format=output_format)
-    row = next(build_mod.read_output(Path(f"data/processed/example.{output_format}")))
+    builder_mod.build(sources, parse=loose, output_format=output_format)
+    row = next(builder_mod.read_output(Path(f"data/processed/example.{output_format}")))
     assert (row["code"], row["value"]) == ("7", "")
 
 
 def test_parquet_refuses_rows_of_unequal_width(tmp_path: Path) -> None:
     """A row longer than the others is an error, not cells dropped silently."""
     with pytest.raises(ValueError, match="zip"):
-        build_mod._write_cells({"id": "x"}, tmp_path / "x.parquet", {}, ["a"], [["1"], ["2", "3"]])  # noqa: SLF001
+        builder_mod._write_cells({"id": "x"}, tmp_path / "x.parquet", {}, ["a"], [["1"], ["2", "3"]])  # noqa: SLF001

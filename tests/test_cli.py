@@ -26,7 +26,7 @@ from support import (
     _run,
     _serve,
     _two_sources,
-    fetch_mod,
+    fetcher_mod,
     report_mod,
 )
 
@@ -296,7 +296,7 @@ def test_ctrl_c_under_json_prints_the_report_so_far(
     manifest = Path("sources.toml")
     text = manifest.read_text(encoding="utf-8")
     manifest.write_text(text + text.replace('"example"', '"other"'), encoding="utf-8")
-    fetch_one = fetch_mod._fetch_one  # noqa: SLF001
+    fetch_one = fetcher_mod._fetch_one  # noqa: SLF001
     done: list[str] = []
 
     def once(source: manifest_mod.Source, *args: object) -> ledger.FetchRecord:
@@ -305,7 +305,7 @@ def test_ctrl_c_under_json_prints_the_report_so_far(
         done.append(source["id"])
         return fetch_one(source, *args)  # ty: ignore[invalid-argument-type]
 
-    monkeypatch.setattr(fetch_mod, "_fetch_one", once)
+    monkeypatch.setattr(fetcher_mod, "_fetch_one", once)
     argv = ["fetch", "--json", "--manifest", "sources.toml", "--only", "example", "--only", "other"]
     assert main(argv) == 130
     captured = capsys.readouterr()

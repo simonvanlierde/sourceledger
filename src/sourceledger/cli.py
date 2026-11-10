@@ -23,8 +23,8 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
-from sourceledger.build import DATAPACKAGE, PROCESSED, Parser, build_sources, parse_source
-from sourceledger.fetch import USER_AGENT, fetch_sources
+from sourceledger.builder import DATAPACKAGE, PROCESSED, Parser, build_sources, parse_source
+from sourceledger.fetcher import USER_AGENT, fetch_sources
 from sourceledger.ledger import (
     FETCH_LOG,
     RAW,

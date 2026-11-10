@@ -15,8 +15,8 @@ import pytest
 from sourceledger import manifest as manifest_mod
 from sourceledger.cli import main
 
-build_mod = importlib.import_module("sourceledger.build")
-fetch_mod = importlib.import_module("sourceledger.fetch")
+builder_mod = importlib.import_module("sourceledger.builder")
+fetcher_mod = importlib.import_module("sourceledger.fetcher")
 report_mod = importlib.import_module("sourceledger.report")
 
 
@@ -93,7 +93,7 @@ def _serve(monkeypatch: pytest.MonkeyPatch, *outcomes: _Response | Exception) ->
         outcome.url = outcome.url or request.full_url
         return outcome
 
-    monkeypatch.setattr(fetch_mod, "_open", open_)
+    monkeypatch.setattr(fetcher_mod, "_open", open_)
     return calls
 
 
