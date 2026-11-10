@@ -808,6 +808,25 @@ def test_a_log_line_from_before_archive_url_reads_as_no_snapshot(upstream: Path,
 
 
 @pytest.mark.usefixtures("upstream")
+def test_the_same_bytes_from_a_new_redirect_keep_the_logged_final_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The record keeps what the log says, which the report checks the build against; an old line has no final_url."""
+    _manifest(tmp_path, _DATA)
+    first, second = "https://mirror-a.example.org/data.csv", "https://mirror-b.example.org/data.csv"
+    _serve(monkeypatch, *(_Response(FIXTURE.encode(), url=url) for url in (first, second, second)))
+    sidecar = Path("data/raw/example.csv.fetch.json")
+    assert _run("fetch", "fetch") == [0, 0]
+    assert json.loads(sidecar.read_text(encoding="utf-8"))["final_url"] == first
+    (line,) = [json.loads(text) for text in LOG.read_text(encoding="utf-8").splitlines()]
+    assert line["final_url"] == first
+    del line["final_url"]
+    LOG.write_text(json.dumps(line) + "\n", encoding="utf-8", newline="")
+    assert _run("fetch") == [0]
+    assert json.loads(sidecar.read_text(encoding="utf-8"))["final_url"] == ""
+
+
+@pytest.mark.usefixtures("upstream")
 def test_archive_asks_for_a_snapshot_of_new_bytes_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The snapshot's URL lands in the record and the log; the same bytes keep it, and new bytes get their own."""
     _manifest(tmp_path, _DATA, terms=f"{TERMS}\narchive = true")

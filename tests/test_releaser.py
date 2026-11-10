@@ -291,7 +291,7 @@ def test_a_move_that_fails_part_way_leaves_the_empty_out_dir_empty(monkeypatch: 
 
     def move(src: Path, dst: Path) -> object:
         moves.append(Path(src).name)
-        if len(moves) == 2:  # the second move
+        if Path(src).name == "SHA256SUMS":  # the last move, after data/ and the package
             raise OSError(errno.ENOSPC, "No space left on device")
         return real(src, dst)
 
@@ -576,22 +576,30 @@ def test_the_crate_is_flat_when_codemeta_nests_objects(project: Path) -> None:
     meta = {
         **CODEMETA,
         "author": [{**AUTHOR, "affiliation": [org, shared]}, {"name": "Bea Duck", "affiliation": shared}],
+        "description": {"@value": "Duck counts", "@language": "en"},
         "identifier": doi,
         "license": {"@id": "https://spdx.org/licenses/CC-BY-4.0", "@type": "CreativeWork", "name": "CC BY 4.0"},
     }
     (project / "codemeta.json").write_text(json.dumps(meta), encoding="utf-8")
     sourceledger.release(manifest_mod.load_manifest(), OUT, formats=["ro-crate"])
     graph = json.loads((OUT / "ro-crate-metadata.json").read_text(encoding="utf-8"))["@graph"]
-    assert {e["@id"]: _nested(e) for e in graph if _nested(e)} == {}
+    # A JSON-LD literal stays where it is, and a reference to an entity outside the crate stays a reference.
+    assert {e["@id"]: _nested(e) for e in graph if _nested(e)} == {"./": ["description"]}
+    assert [e for e in graph if e.keys() == {"@id"}] == []
     ids = [e["@id"] for e in graph]
     assert len(ids) == len(set(ids))
     by_id = {e["@id"]: e for e in graph}
-    ada, bea = (by_id[ref["@id"]] for ref in by_id["./"]["author"])
-    (made,) = [ref["@id"] for ref in ada["affiliation"] if ref["@id"] != shared["@id"]]
-    assert by_id[made] == {**org, "@id": made}
+    root = by_id["./"]
+    assert root["description"] == meta["description"]
+    assert root["author"] == [{"@id": AUTHOR["@id"]}, {"@id": "#author-2"}]
+    ada, bea = by_id[AUTHOR["@id"]], by_id["#author-2"]
+    # Numbered in the order met: the licence (1, which keeps its @id), the identifier, the affiliation.
+    assert root["identifier"] == {"@id": "#identifier-2"}
+    assert by_id["#identifier-2"] == {**doi, "@id": "#identifier-2"}
+    assert ada["affiliation"] == [{"@id": "#affiliation-3"}, {"@id": shared["@id"]}]
+    assert by_id["#affiliation-3"] == {**org, "@id": "#affiliation-3"}
     assert bea["affiliation"] == {"@id": shared["@id"]}
     assert by_id[shared["@id"]] == shared
-    assert by_id[by_id["./"]["identifier"]["@id"]]["value"] == doi["value"]
     assert by_id["./"]["license"] == {"@id": "https://spdx.org/licenses/CC-BY-4.0"}
     assert by_id["https://spdx.org/licenses/CC-BY-4.0"]["name"] == "CC BY 4.0"
 
@@ -908,9 +916,12 @@ def test_check_reads_sums_only_from_a_regular_file_of_bounded_size(
 ) -> None:
     """A received SHA256SUMS that is a pipe would hang the check, and a huge one or a link to /dev/zero fill memory."""
     sums = released / "SHA256SUMS"
-    cap = sums.stat().st_size - 1
+    sums.write_text(sums.read_text(encoding="utf-8").rstrip("\n"), encoding="utf-8")  # every byte counts
+    cap = sums.stat().st_size
     monkeypatch.setattr(releaser, "_SUMS_MAX_BYTES", cap)
-    assert releaser._sums_problems(released) == [f"release/SHA256SUMS is larger than {cap:,} bytes"]  # noqa: SLF001
+    assert releaser._sums_problems(released) == []  # noqa: SLF001
+    monkeypatch.setattr(releaser, "_SUMS_MAX_BYTES", cap - 1)
+    assert releaser._sums_problems(released) == [f"release/SHA256SUMS is larger than {cap - 1:,} bytes"]  # noqa: SLF001
     sums.unlink()
     os.mkfifo(sums)
     assert releaser._sums_problems(released) == ["release/SHA256SUMS is not a regular file"]  # noqa: SLF001

@@ -234,8 +234,12 @@ def test_headers_on_a_plain_http_url_are_a_manifest_error(tmp_path: Path, capsys
 def test_a_url_with_a_user_name_or_password_is_refused(tmp_path: Path, url: str) -> None:
     """The url goes into the log, the fetch record, datapackage.json and the RO-Crate, all published."""
     _manifest(tmp_path, url)
-    with pytest.raises(ValueError, match=r"^example: the url in sources\.toml holds a user name or password; "):
+    with pytest.raises(ValueError, match="user name or password") as refused:
         manifest_mod.load_manifest()
+    assert str(refused.value) == (
+        "example: the url in sources.toml holds a user name or password; "
+        'send it in a header from an environment variable, as headers = { Authorization = "env:NAME" }'
+    )
 
 
 @pytest.mark.usefixtures("upstream")

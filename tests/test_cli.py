@@ -569,6 +569,11 @@ def test_entry_makes_both_streams_utf8_and_stdout_lf_and_main_leaves_them(monkey
     assert exit_.value.code == 0
     assert out.calls == [{"encoding": "utf-8", "newline": "\n"}]
     assert err.calls == [{"encoding": "utf-8"}]
+    # A stream with nothing to reconfigure, such as a StringIO a caller put there, is left as it is.
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    with pytest.raises(SystemExit) as exit_:
+        cli.entry()
+    assert exit_.value.code == 0
 
 
 @pytest.mark.parametrize(
