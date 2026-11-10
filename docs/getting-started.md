@@ -138,8 +138,9 @@ sourceledger validate
 ```
 
 `record` checks and copies the file into `data/raw/`, and logs it as recorded, not
-fetched. The bytes are the ones you fetched last, so it reports `unchanged`. Validation
-reports `0 problems`, and every row now says it was retrieved at `2026-11-05T09:30:00Z`.
+fetched. The bytes are the ones you fetched last, so it reports `relogged`: the same bytes,
+logged again because they came in another way. After `build`, validation reports
+`0 problems`, and every row now says it was retrieved at `2026-11-05T09:30:00Z`.
 [Recipes](recipes.md#record-a-file-another-tool-downloaded) shows the code for pooch, DVC,
 dlt and your own fetcher.
 

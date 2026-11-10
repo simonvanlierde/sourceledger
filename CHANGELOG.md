@@ -54,6 +54,7 @@ recorded file needs 0.5.0 to build. Details under Changed.
 
 - `output_format` inside a `[[source]]` table, where a line appended to `sources.toml` lands, is refused. Before, it was ignored and `build` wrote CSV.
 - `sourceledger status | head` and other early-closing readers end the command quietly instead of with a `BrokenPipeError` traceback.
+- `fetch` and `record` print `relogged`, and `relogged: true` under `--json`, when the same bytes come in another way, such as a fetch after a `record`, and say to run `build`. Before, they printed `unchanged` while the outputs went stale, and `validate` then failed.
 - `fetch --json` and `record --json` give the fields of the log line, as the reference says, without an empty `recorded_at` and `parameters` for a fetched file.
 - `fetch` and `record` remove the `.part` temp files that a killed run left in `data/raw/`. Before, each download or record cut short by a kill stayed on disk.
 - `fetch` and `record` take the `data/raw/.lock` lock on Windows too, so a second run is refused there as on Linux and macOS. The test suite and CI now run on Windows.

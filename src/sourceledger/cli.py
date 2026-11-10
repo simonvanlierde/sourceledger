@@ -21,7 +21,7 @@ import tomllib
 from datetime import datetime
 from importlib.metadata import version
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from sourceledger.ledger import (
     DATAPACKAGE,
@@ -43,6 +43,7 @@ from sourceledger.ledger import (
     _revision_records,
     _select,
     _status_records,
+    _version,
     _without_query,
     attribution,
     implemented,
@@ -366,23 +367,31 @@ def _sources(run: _Run, ids: list[str] | None = None) -> list[Source]:
     return sources
 
 
-def _new(record: FetchRecord, before: dict[str, str]) -> bool:
+def _new(record: FetchRecord, before: dict[str, dict[str, Any]]) -> bool:
     """Whether the record's bytes differ from the last ones `before` logged for its source."""
-    return before.get(record.source_id) != record.sha256
+    return before.get(record.source_id, {}).get("sha256") != record.sha256
 
 
-def _fetch_line(record: FetchRecord, before: dict[str, str]) -> str:
-    """One line per fetched source; `new` when its bytes differ from the last ones `before` logged."""
-    marker = "new" if _new(record, before) else "unchanged"
+def _relogged(record: FetchRecord, before: dict[str, dict[str, Any]]) -> bool:
+    """Same bytes, logged again because they came in another way, such as fetched after a record."""
+    last = before.get(record.source_id)
+    return last is not None and not _new(record, before) and _version(last) != _version(_fields(record))
+
+
+def _fetch_line(record: FetchRecord, before: dict[str, dict[str, Any]]) -> str:
+    """One line per source: `new` bytes, the same bytes `relogged` another way, or `unchanged`."""
+    marker = "new" if _new(record, before) else "relogged" if _relogged(record, before) else "unchanged"
     return (
         f"{record.source_id}  {marker:<9}  {record.bytes:>9,} B  {record.sha256[:12]}  {record.vintage}  {record.url}"
     )
 
 
-def _report_records(run: _Run, records: list[FetchRecord], before: dict[str, str]) -> None:
-    run.result["records"] = [{**_fields(r), "new": _new(r, before)} for r in records]
+def _report_records(run: _Run, records: list[FetchRecord], before: dict[str, dict[str, Any]]) -> None:
+    run.result["records"] = [{**_fields(r), "new": _new(r, before), "relogged": _relogged(r, before)} for r in records]
     for record in records:
         run.say(_fetch_line(record, before))
+    if relogged := [r.source_id for r in records if _relogged(r, before)]:
+        run.say(f"run build: the outputs of {', '.join(relogged)} name the earlier log line")
 
 
 def _problems(count: int) -> str:
@@ -420,7 +429,7 @@ def _fetch_stage(run: _Run) -> list[str]:
         for source in todo:
             run.say(f"would fetch {source['id']} from {source['url']}")
         return []
-    before: dict[str, str] = {}
+    before: dict[str, dict[str, Any]] = {}
     done: list[FetchRecord] = []
     try:
         _fetch(
@@ -434,7 +443,7 @@ def _fetch_stage(run: _Run) -> list[str]:
 def _record_stage(run: _Run) -> list[str]:
     args = run.args
     (source,) = _select(_sources(run, [args.id]), [args.id])
-    before: dict[str, str] = {}
+    before: dict[str, dict[str, Any]] = {}
     result = _record_file(
         source,
         args.path,
@@ -450,7 +459,9 @@ def _record_stage(run: _Run) -> list[str]:
     )
     if args.dry_run:
         run.result["dry_run"] = True
-        run.result["records"] = [{**dataclasses.asdict(result), "new": _new(result, before)}]
+        run.result["records"] = [
+            {**_fields(result), "new": _new(result, before), "relogged": _relogged(result, before)}
+        ]
         state = "new" if _new(result, before) else "unchanged"
         what = f"{state}, {result.bytes:,} B, sha256 {result.sha256}"
         run.say(f"would record {source['id']} from {args.path.as_posix()}: {what}")

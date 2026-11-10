@@ -903,11 +903,11 @@ def _fetch(
     log: Path = FETCH_LOG,
     user_agent: str = USER_AGENT,
     only: Collection[str] | None = None,
-    before: dict[str, str] | None = None,
+    before: dict[str, dict[str, Any]] | None = None,
     progress: Callable[[str], None] | None = None,
     done: list[FetchRecord] | None = None,
 ) -> list[FetchRecord]:
-    """Fetch and optionally retain the pre-fetch hashes from the same locked history read.
+    """Fetch and optionally retain the pre-fetch log lines from the same locked history read.
 
     `progress`, when given, is called before each source with its id and place, as `example (1 of 3)`.
     `done`, when given, collects the records as they come, so a caller still has them after Ctrl-C.
@@ -920,7 +920,7 @@ def _fetch(
     with _lock(raw):
         logged = _last_records(log)
         if before is not None:
-            before.update((sid, record["sha256"]) for sid, record in logged.items())
+            before.update(logged)
         todo = implemented(sources)
         for number, source in enumerate(todo, 1):
             if progress:
@@ -1073,7 +1073,7 @@ def _record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before
     parameters: dict[str, str | int] | None,
     raw: Path,
     log: Path,
-    before: dict[str, str] | None = None,
+    before: dict[str, dict[str, Any]] | None = None,
     dry_run: bool = False,
 ) -> FetchRecord:
     """`record()`, filling `before` with the hashes logged before it, read under the lock as `_fetch` does.
@@ -1098,7 +1098,7 @@ def _record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before
     with contextlib.nullcontext() if dry_run else _lock(raw):
         logged = _last_records(log)
         if before is not None:
-            before.update((key, fields["sha256"]) for key, fields in logged.items())
+            before.update(logged)
         temp = None
         try:
             digest, size, temp = _take_in(source, path, None if dry_run else raw)

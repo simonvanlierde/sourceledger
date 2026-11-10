@@ -3523,7 +3523,7 @@ def test_the_record_stage_records_one_file(upstream: Path, capsys: pytest.Captur
     assert (line["parameters"], line["last_modified"]) == ({"country": "NL", "query": "a=b"}, "x")
     assert line["retrieved_at"] == "2026-11-05T09:30:00Z"
     assert main(["record", "example", str(upstream)]) == 0
-    assert capsys.readouterr().out.startswith("example  unchanged")
+    assert capsys.readouterr().out.startswith("example  relogged")
 
 
 def test_the_record_stage_reads_the_log_under_the_lock(
@@ -3918,3 +3918,20 @@ def test_scan_reports_rows_and_a_stale_stamp(tmp_path: Path, text: str, stamp: s
     out = tmp_path / "out.csv"
     out.write_bytes(text.encode())
     assert ledger._scan(out, {"source_id": stamp}) == scanned  # noqa: SLF001
+
+
+def test_a_fetch_after_a_record_of_the_same_bytes_says_to_rebuild(
+    upstream: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The fetch replaces the record in the log, so the outputs built from the record are stale."""
+    assert main(["record", "example", str(upstream)]) == 0
+    assert _run("build", "validate") == [0, 0]
+    capsys.readouterr()
+    assert main(["fetch"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("example  relogged")
+    assert "run build: the outputs of example name the earlier log line" in out
+    assert main(["fetch", "--json"]) == 0
+    (fetched,) = json.loads(capsys.readouterr().out)["records"]
+    assert (fetched["new"], fetched["relogged"]) == (False, False)
+    assert _run("validate", "build", "validate") == [1, 0, 0]

@@ -107,8 +107,8 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   file within the source's `max_bytes`. The library function is `record()`. The report and
   `datapackage.json` show the output as recorded, not fetched, and `status` shows the record
   time when there is no download time. A later `fetch` of the same bytes logs a fetch over
-  the record and prints `unchanged`, but the outputs then name the record: run `build`
-  again before `validate`. `--dry-run` makes every check and hashes the file,
+  the record and prints `relogged` with a reminder to run `build`, since the outputs still
+  name the record. `--dry-run` makes every check and hashes the file,
   then prints what it would record and writes nothing.
 - `revisions OLD_LOG` lists the sources whose bytes changed since an earlier copy of the
   log. Copy the log before you fetch (`cp data/fetches.jsonl before.jsonl`), then run
@@ -181,7 +181,7 @@ still appear on stderr. `init`, `build`, `attribution` and `report` do not accep
 
 | Command | Result field | Meaning |
 | --- | --- | --- |
-| `fetch` | `records` | One fetch record per source fetched, with the fields of a line in `data/fetches.jsonl` and `new`: `true` when its bytes differ from the last ones logged. A run where some sources failed lists the ones that worked. |
+| `fetch` | `records` | One fetch record per source fetched, with the fields of a line in `data/fetches.jsonl` and `new`: `true` when its bytes differ from the last ones logged, and `relogged`: `true` when the same bytes were logged again because they came in another way (fetched after a record, or recorded with other details), so the outputs need a `build`. A run where some sources failed lists the ones that worked. |
 | `record` | `records` | The one record, as for `fetch`. |
 | `status` | `sources` | One object per source, in manifest order. |
 | `validate` | `problems` | The same list of problem messages the Python function returns. |
