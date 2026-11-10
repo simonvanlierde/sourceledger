@@ -20,7 +20,7 @@ Upgrade note for scripts that call the CLI: exit code 3 now means a stage could 
 
 Upgrade note for Python callers and manifests: `read_output()` now yields rows instead of
 returning a list, so wrap it in `list()` where the code indexes or counts them. `sources.toml`
-refuses top-level keys other than `output_format` and `[[source]]`. A dataset with a
+refuses top-level keys other than `output_format`, `release_formats` and `[[source]]`. A dataset with a
 recorded file needs 0.5.0 to build. Details under Changed.
 
 ### Added
@@ -31,10 +31,11 @@ recorded file needs 0.5.0 to build. Details under Changed.
   Writing and validation use batches of at most 10,000 rows through PyArrow, including full-column decoding to detect corruption.
 - `load_output_format()` reads the project's `output_format`, for library callers to pass to `build` and `validate`. `validate` in the wrong format names the setting instead of asking you to delete the outputs.
 - `entry()` runs the command for a project with its own reader, as `sourceledger` does: point the console script at a function that calls it with your `parse` and `prog` ([recipe](docs/recipes.md#write-a-custom-reader)). After Ctrl-C it ends by SIGINT, so a shell loop around it stops.
+- [`release OUT_DIR`](docs/reference.md#release-a-dataset), and `release()` in the library, write the folder you publish from a build that validates: `data/` with the outputs of the sources whose `redistribute` is `true`, a `datapackage.json` without the others, and a `SHA256SUMS` in the format of `sha256sum -b`. With `release_formats = ["ro-crate", "croissant"]` in `sources.toml`, it also writes `ro-crate-metadata.json` (RO-Crate 1.3) and `croissant.json` (Croissant 1.1), with the dataset's name, authors, licence, version and date from `codemeta.json`; a format not asked for is reported as skipped. `load_release_formats()` reads the key, for library callers to pass to `release`. `release --check DIR` checks a folder: every file against `SHA256SUMS`, and each metadata file with its official validator, rocrate-validator or mlcroissant, from the new `sourceledger[release]` extra. The report names each check that ran and its version. Without the extra, a check that is needed exits 3 with the install line. Above 100 files, the Zenodo limit, it warns. `ReleaseError`, `RestrictedSourceError` and `ValidatorFailed` are `ValueError`s, and `ValidatorMissing` an `OSError`, so code that catches the base classes still works.
 
 ### Changed
 
-- **Breaking:** `sources.toml` accepts only `output_format` and `[[source]]` at the top level. A misspelt key such as `[[sources]]` is refused, with the intended key when one is close; it used to read as a manifest with no sources, so `build` wrote an empty `datapackage.json` over a good one. A project that kept its own table there, for its reader's settings, moves it into its own file or into each `[[source]]`, whose other keys stay allowed.
+- **Breaking:** `sources.toml` accepts only `output_format`, `release_formats` and `[[source]]` at the top level. A misspelt key such as `[[sources]]` is refused, with the intended key when one is close; it used to read as a manifest with no sources, so `build` wrote an empty `datapackage.json` over a good one. A project that kept its own table there, for its reader's settings, moves it into its own file or into each `[[source]]`, whose other keys stay allowed.
 - **Breaking:** `read_output()` is a generator that yields one row at a time, CSV row by row and Parquet in batches of at most 10,000 rows, so reading a table of 1.5 million rows no longer holds them all in one list. Wrap the call in `list()` where the code indexes the rows, takes their length, or reads them twice. Every error, a missing file included, now raises on the first `next()`, and an unfinished iterator keeps the file open, which on Windows blocks replacing the output.
 - Windows is supported and tested in CI. 0.4.0 said it was not.
 - The code behind the public names moved from `sourceledger.ledger` into `manifest`, `ledger`, `fetcher`, `builder` and `report` modules. Import from `sourceledger` itself: the submodules may change in any release, as the [stability policy](README.md#stability) says.
@@ -64,6 +65,7 @@ recorded file needs 0.5.0 to build. Details under Changed.
 
 ### Security
 
+- `release` never ships the data of a source with `redistribute = false`: it takes the file list from `sources.toml`, not from `data/processed/`, and after writing it hashes every file in the folder and refuses one that has the bytes of a restricted raw file or output, whatever its name. Before, `build` copied such files into `data/processed/` and only the docs said to leave them out of a release.
 - The release workflow publishes only a tag signed with a key listed in `.github/allowed_signers` on `main`. Before, it published from any pushed `v*` tag, signed or not. See [checking a release](docs/secure-use.md#check-a-sourceledger-release).
 - `fetch` keeps a redirect's final URL without its query and fragment, which can hold a signature, as signed download links from cloud storage do. Before, the full URL went into `fetches.jsonl`, the fetch record and `datapackage.json`.
 - A redirect from a public host to a non-HTTP URL, such as `ftp://` on an internal address, is refused. Before, urllib followed it past the check that refuses inward redirects.

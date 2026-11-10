@@ -106,9 +106,10 @@ file into `data/processed/`, even when `redistribute = false`. That flag records
 terms; it does not prevent private local processing. A successful `validate` or `verify`
 checks integrity and does not clear the dataset for publication.
 
-Before you publish a dataset, check the sources marked `redistribute = false`. Leave their
-raw files out of the release. Your outputs still hold their values, so check the terms
-for those too.
+Before you publish a dataset, check the sources marked `redistribute = false`.
+[`release`](reference.md#release-a-dataset) leaves their files out, raw copies and tables
+alike, and refuses a folder in which a file has their bytes under another name. Outputs built
+from several sources can still hold their values, so check the terms for those too.
 
 ## Check a dataset you downloaded
 
