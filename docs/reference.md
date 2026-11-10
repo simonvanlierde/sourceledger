@@ -61,10 +61,10 @@ Each `[[source]]` table takes these keys:
 
 | Key | Required | Meaning |
 | --- | --- | --- |
-| `id` | yes | ASCII letters, digits, `_` and `-`. Names the raw file (`id` plus the URL's extension) and the output. |
+| `id` | yes | ASCII letters, digits, `_` and `-`. Names the raw file (`id` plus the URL's extension) and the output. Unique ignoring case, and not a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`, `LPT1` to `LPT9`), since either would name the wrong file on some system. |
 | `name` | no | A title for people. The data package and `attribution` show it in place of the id. |
 | `status` | yes | `"implemented"`, read by every stage, or `"unimplemented"`: a source you know about but don't read yet. `validate` fails if one of those has output. |
-| `url` | for implemented sources | What `fetch` downloads. Change it and `build` refuses the old download until you fetch again. A user name or password in it is refused: send it in `headers`. |
+| `url` | for implemented sources | What `fetch` downloads. Change it and `build` refuses the old download until you fetch again. A user name or password in it is refused: send it in `headers`. Outside the host it must be ASCII: percent-encode other characters as UTF-8, as `d%C3%A4.csv` for `dä.csv`. A non-ASCII host is fine. |
 | `terms`, `terms_url` | for implemented sources | The publisher's reuse terms in their words, and where they are stated. |
 | `license` | for implemented sources | The same terms as an [SPDX id](https://spdx.org/licenses/), such as `"CC-BY-4.0"`, or `"LicenseRef-<name>"` for terms with none. |
 | `redistribute` | for implemented sources | `true` if the terms let you republish the raw file, `false` if not. |
@@ -80,6 +80,7 @@ Each `[[source]]` table takes these keys:
 
 Without `format`, the URL extension selects JSON (`.json`) or Excel (`.xlsx`); other extensions select CSV.
 CSV and JSON can be gzipped; decompression stays within `max_bytes`.
+CSV and JSON input must be UTF-8, with or without a byte-order mark. `build` refuses any other encoding, names the source and the first bad byte, and says to re-save the file as UTF-8.
 JSON input must be an array of objects. Numbers keep their spelling: `1e5` stays `1e5`, and `1.10` stays `1.10`.
 `format = "file"` keeps archives, rasters and other files unchanged, without unpacking or parsing them.
 

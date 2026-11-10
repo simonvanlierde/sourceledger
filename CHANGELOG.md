@@ -45,6 +45,8 @@ Details are under Changed.
 
 ### Changed
 
+- **Breaking:** `sources.toml` refuses two ids that differ only in case, such as `Pudl` and `pudl`, since on Windows and macOS they name the same file. It also refuses a Windows device name as an id, such as `CON`, `NUL` or `COM1`, in any case. Rename the source, as `con_data`.
+- **Breaking:** `sources.toml` refuses a `url` with a non-ASCII character outside its host. Percent-encode it as UTF-8, as `d%C3%A4.csv` for `dä.csv`. A non-ASCII host such as `bücher.example` is still accepted. Before, `fetch` failed with only `'ascii' codec can't encode character`.
 - **Breaking:** options go after the stage name. `sourceledger --manifest x status` now exits 2, where 0.4.0 took it. A stage that takes no operand refuses one: `sourceledger status extra` and `build foo` exit 2 instead of ignoring it. Option prefixes are no longer accepted. `validate --j` used to run as `--json`, so write the full option name.
 - **Breaking:** `sources.toml` accepts only `output_format`, `release_formats` and `[[source]]` at the top level. A misspelt key such as `[[sources]]` is refused, with the intended key when one is close. Before, it read as a manifest with no sources, so `build` wrote an empty `datapackage.json` over a good one. A project that kept its own table there, for its reader's settings, moves it into its own file or into each `[[source]]`, whose other keys stay allowed. `output_format` and `release_formats` are refused inside a `[[source]]`.
 - **Breaking:** `read_output()` is a generator that yields one row at a time, so reading a table of 1.5 million rows no longer holds them all in one list. It reads CSV row by row and Parquet in batches of at most 10,000 rows. Wrap the call in `list()` where the code indexes the rows, takes their length, or reads them twice. Every error, a missing file included, now raises on the first `next()`. An unfinished iterator keeps the file open, which on Windows blocks replacing the output.
@@ -65,6 +67,11 @@ Details are under Changed.
 
 ### Fixed
 
+- `build` names the source when a raw CSV or JSON file is not UTF-8, such as Latin-1, cp1252 or UTF-16. It gives the first bad byte and says to re-save the file as UTF-8. Before, it stopped with a bare `UnicodeDecodeError`.
+- `build` names the source when a JSON file holds an unpaired surrogate escape such as `"\ud800"`. Before, it stopped with a bare `UnicodeEncodeError`.
+- `attribution` keeps no-break and narrow no-break spaces in names and terms, such as `10 000 €`. Only ASCII whitespace is joined onto one line.
+- The HTML report marks the source name, vintage, licence and terms with `dir="auto"`, so right-to-left text, or a U+202E, no longer reorders the text around it.
+- The data package name drops accents: a project folder named `Données-Ünï` gives `donnees-uni`. Before, each accented letter became a hyphen.
 - `sourceledger status | head` and other early-closing readers end the command quietly instead of with a `BrokenPipeError` traceback.
 - `fetch` and `record` print `relogged`, and `relogged: true` under `--json`, when the same bytes come in another way, such as a fetch after a `record`, and say to run `build`. Before, they printed `unchanged` while the outputs went stale, and `validate` then failed.
 - `fetch --json` and `record --json` give the fields of the log line, as the reference says, without an empty `recorded_at` and `parameters` for a fetched file.
