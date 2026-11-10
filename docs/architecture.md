@@ -127,6 +127,9 @@ It exits 1 if it finds any problem.
 - `report` reads the manifest, fetch log, package and outputs to create a
   [standalone HTML provenance report](reference.md#html-provenance-report).
 - `init` writes a starter `sources.toml`.
+- `release` copies the outputs of the sources that may be republished into a new folder,
+  with `datapackage.json`, the metadata asked for and `SHA256SUMS`, then checks it. It reads
+  the manifest, the records, the outputs and `codemeta.json`.
 
 ## Where the code lives
 
@@ -137,6 +140,8 @@ It exits 1 if it finds any problem.
 - `src/sourceledger/builder.py`: the readers, the outputs and `datapackage.json`.
 - `src/sourceledger/report.py`: `validate`, `status`, `attribution`, `verify` and the
   standalone HTML provenance report.
+- `src/sourceledger/releaser.py`: `release` and its checks. It runs the RO-Crate and
+  Croissant validators, from the release extra, each in its own process.
 - `src/sourceledger/cli.py`: the command line. One argparse subcommand per stage; it runs
   that stage and reports expected errors in one shape, with the
   [exit codes](reference.md#options-output-and-exit-codes) the reference lists. JSON

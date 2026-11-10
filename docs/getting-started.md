@@ -148,5 +148,20 @@ Keep `sources.toml` and the fetch log in version control. Keep the raw and proce
 files out of git; [what to commit](https://github.com/simonvanlierde/sourceledger#what-to-commit)
 explains why.
 
+## Release the dataset
+
+When the build validates, write the folder you publish, then check it as a recipient would:
+
+```sh
+sourceledger release release-v1
+sourceledger release --check release-v1
+```
+
+`release` runs `validate` first and stops if it finds a problem. The folder holds
+`data/co2.csv`, a `datapackage.json` that points into `data/`, and `SHA256SUMS`, so
+`sha256sum -c SHA256SUMS` works inside it too. A source with `redistribute = false` would be
+left out and listed as `excluded`. To add RO-Crate and Croissant metadata, see
+[release a dataset](reference.md#release-a-dataset).
+
 For your own sources, use the [manifest and command reference](reference.md).
 To check a dataset someone sent you, follow [offline verification](secure-use.md#check-a-dataset-you-downloaded).

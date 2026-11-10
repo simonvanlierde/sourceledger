@@ -11,7 +11,16 @@ from sourceledger.builder import Parser, build, parse_csv, parse_json, parse_sou
 from sourceledger.cli import entry, main
 from sourceledger.fetcher import USER_AGENT, fetch
 from sourceledger.ledger import FetchError, FetchRecord, record, revisions, verified
-from sourceledger.manifest import Source, load_manifest, load_output_format
+from sourceledger.manifest import Source, load_manifest, load_output_format, load_release_formats
+from sourceledger.releaser import (
+    ReleaseError,
+    RestrictedSourceError,
+    ValidatorCouldNotRun,
+    ValidatorFailed,
+    ValidatorMissing,
+    check_release,
+    release,
+)
 from sourceledger.report import attribution, report, status, validate, verify
 
 __all__ = [
@@ -19,13 +28,20 @@ __all__ = [
     "FetchError",
     "FetchRecord",
     "Parser",
+    "ReleaseError",
+    "RestrictedSourceError",
     "Source",
+    "ValidatorCouldNotRun",
+    "ValidatorFailed",
+    "ValidatorMissing",
     "attribution",
     "build",
+    "check_release",
     "entry",
     "fetch",
     "load_manifest",
     "load_output_format",
+    "load_release_formats",
     "main",
     "parse_csv",
     "parse_json",
@@ -33,6 +49,7 @@ __all__ = [
     "parse_xlsx",
     "read_output",
     "record",
+    "release",
     "report",
     "revisions",
     "status",

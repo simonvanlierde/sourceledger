@@ -44,7 +44,15 @@ once per column chunk; the same table was smaller than its raw file. Use Parquet
 When switching formats, move old outputs out of `data/processed/` before rebuilding; `validate` reports them as unclaimed files.
 Library callers pass `output_format="parquet"` to both `build` and `validate`; `load_manifest` returns only source tables.
 
-`output_format` and `[[source]]` are the only top-level keys. Any other, such as a misspelt
+Set `release_formats` there too to have `release` write the optional metadata files:
+
+```toml
+release_formats = ["ro-crate", "croissant"]
+```
+
+Without it, `release` writes neither; see [release a dataset](#release-a-dataset).
+
+`output_format`, `release_formats` and `[[source]]` are the only top-level keys. Any other, such as a misspelt
 `[[sources]]`, is refused, with the intended name when one is close, so a typo never reads as
 an empty manifest.
 A source table may hold extra keys for your own reader.
@@ -136,8 +144,8 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 | --- | --- | --- |
 | `--manifest PATH` | all but `revisions` and `verify` | Read this manifest instead of `./sources.toml`. The data folder stays `data/` in the current directory. |
 | `--only ID` | `fetch`, `build`, `validate` | Work on just this source; repeat it for more. `build --only` keeps the other sources' entries in `datapackage.json` as the last build wrote them, and `validate --only` skips the checks that cover the whole output. |
-| `--dry-run` | `fetch`, `record`, `build` | Say what would happen and write nothing: no download, no log line, no output. `build --dry-run` still checks each raw file against its fetch record, and `record --dry-run` still checks and hashes the file. |
-| `--json` | `fetch`, `record`, `validate`, `status`, `revisions`, `verify` | Print one JSON object on stdout instead of text; see [JSON reports](#json-reports). |
+| `--dry-run` | `fetch`, `record`, `build`, `release` | Say what would happen and write nothing: no download, no log line, no output. `build --dry-run` still checks each raw file against its fetch record, `record --dry-run` still checks and hashes the file, and `release --dry-run` still runs `validate`. |
+| `--json` | `fetch`, `record`, `validate`, `status`, `revisions`, `verify`, `release` | Print one JSON object on stdout instead of text; see [JSON reports](#json-reports). |
 
 Results go to stdout: fetch lines, outputs written, and the problems `validate` and
 `verify` find, followed by their count. Errors and warnings go to stderr. An error is
@@ -156,9 +164,9 @@ every system, also when redirected to a file on Windows.
 | Exit code | Meaning |
 | --- | --- |
 | 0 | Done, with nothing to report. `revisions` exits 0 when sources changed: your downstream checks decide what a revision breaks. `report` exits 0 when it writes a report, even one that lists problems. |
-| 1 | Problems found: `validate` or `verify` found at least one. |
+| 1 | Problems found: `validate` or `verify` found at least one, or `release` refused its input or found a problem in the folder. |
 | 2 | Usage error: an unknown stage or option, a missing argument, or an `--only` or `record` id that is not in `sources.toml`, or a `--retrieved-at` that is not an ISO 8601 time. Nothing is written. |
-| 3 | Could not run: a missing or invalid file, a failed download, another fetch holding the lock, or an unexpected error such as a project's parser failing, printed as one `error:` line with its type. When some sources fail to fetch, the others are still written and logged. |
+| 3 | Could not run: a missing or invalid file, a failed download, another fetch holding the lock, a validator `release` needs that is not installed or that stopped without a result, or an unexpected error such as a project's parser failing, printed as one `error:` line with its type. When some sources fail to fetch, the others are still written and logged. |
 | 130 | Interrupted with Ctrl-C. What finished before is kept, and the `help:` line repeats the command to finish. With `--json` the report still prints, and `fetch` lists the sources fetched before. The command then ends by SIGINT, as Ctrl-C does, so a shell loop around it stops too; on Windows it exits 130. `main()` returns 130, so a project's own command calls `sourceledger.entry()` instead, which ends by SIGINT ([custom readers](recipes.md#write-a-custom-reader)). |
 
 ## JSON reports
@@ -187,6 +195,8 @@ still appear on stderr. `init`, `build`, `attribution` and `report` do not accep
 | `validate` | `problems` | The same list of problem messages the Python function returns. |
 | `verify` | `problems` | The same list of problem messages the Python function returns. |
 | `revisions` | `revisions` | One object per changed source, in current-log order. New sources are excluded, as in text output. |
+| `release` | `files`, `excluded`, `formats`, `validators` | The paths in the folder, the ids left out, `"written"` or `"skipped"` for each optional format, and the `file`, `name` and `version` of each check that ran. A refused release has `problems` and `validators` instead. |
+| `release --check` | `problems`, `validators` | The problems found, and each check that ran. |
 
 With `--dry-run`, the object also has `"dry_run": true`. `fetch --dry-run` lists
 `would_fetch`, one `{"source_id", "url"}` object per source, in place of `records`.
@@ -232,6 +242,66 @@ stage runs: they print the text error on stderr and exit 2. The
 
 These JSON structures are part of the CLI contract. Read fields by name; JSON object key
 order and whitespace are not significant. The [stability policy](https://github.com/simonvanlierde/sourceledger/blob/main/README.md#stability) applies.
+
+## Release a dataset
+
+`release OUT_DIR` writes the folder you publish, from a build that `validate` passes:
+
+```sh
+sourceledger release release-v1
+sourceledger release --check release-v1
+```
+
+It runs `validate` first and stops with exit code 1 if it finds a problem. `OUT_DIR` must be
+new or empty. The folder holds:
+
+- `data/`: the output of each implemented source whose `redistribute` is `true`. The list
+  comes from `sources.toml`, not from the files in `data/processed/`, so a source with
+  `redistribute = false` is left out, whether it is a copied file or a table, and listed as
+  excluded.
+- `datapackage.json`: the one `build` wrote, without the excluded sources, each path under
+  `data/`. `verify` checks the folder against it.
+- `ro-crate-metadata.json` ([RO-Crate 1.3](https://w3id.org/ro/crate/1.3)) and
+  `croissant.json` ([Croissant 1.1](https://docs.mlcommons.org/croissant/)), only when
+  `release_formats` asks for them; otherwise each is reported as skipped. The RO-Crate lists
+  each shipped file with its SHA-256, and every source with its URL, licence, terms and
+  download time, an excluded one marked as such. The Croissant lists each file with the same
+  SHA-256, and the columns of each table.
+- `SHA256SUMS`: every other file, written last, in the format of `sha256sum -b`, so
+  `sha256sum -c SHA256SUMS` checks the folder without sourceledger.
+
+The dataset's name, description, authors, licence, version, identifier, `datePublished` and
+`url` come from `codemeta.json` in the current directory, the project's CodeMeta file; `release`
+does not write it. RO-Crate needs
+`name`, `description`, `license` and `datePublished`, and Croissant `name`, `description`,
+`license` and `url`. A missing one stops `release` with exit code 1, naming it.
+
+After writing, `release` hashes every file in the folder, and refuses with exit code 1 when
+one has the bytes of a restricted source's raw file or output, whatever its name. Then it runs
+the same checks as `release --check DIR`, which checks a folder that exists:
+
+| File | Check |
+| --- | --- |
+| `SHA256SUMS` | Every listed file is there with its SHA-256, and no file is unlisted. Built in. |
+| `ro-crate-metadata.json` | `rocrate-validator validate`, profile `ro-crate-1.3`. It downloads the RO-Crate context, so it needs the network. |
+| `croissant.json` | `mlcroissant validate --jsonld`. |
+
+Each validator runs in its own process and every finding is a problem, with exit code 1. A
+validator that stops without findings, such as roc-validator offline, or that runs past 10
+minutes, exits 3: the folder was not checked. The
+report names each check that ran, with its version. The two validators come with the release
+extra: `uv tool install 'sourceledger[release]'`, or `uv add 'sourceledger[release]'` in a
+project. When a metadata file is there but its validator is not, `release` exits 3 with the
+install line. The folder is written beside `OUT_DIR` and moved into place only once every
+check passes, so a refused release leaves nothing at `OUT_DIR`.
+
+Above 100 files, `release` warns: Zenodo takes at most 100 files a record, so zip the folder
+yourself. It does not upload, and it writes no `.zenodo.json`, DataCite fields, dataset card
+or licence files. In Python, `release()` returns the fields of the `--json` report and raises
+`ReleaseError`, a `ValueError`, for refused input and findings: `RestrictedSourceError` when a
+restricted file reached the folder and `ValidatorFailed` when a validator reported findings.
+`ValidatorMissing` and `ValidatorCouldNotRun` are `OSError`s. `check_release(DIR)` is
+`release --check DIR`: it returns the problems and the checks that ran.
 
 ## HTML provenance report
 

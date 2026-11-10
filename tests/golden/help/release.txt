@@ -1,0 +1,15 @@
+usage: sourceledger release [-h] [--manifest PATH] [--dry-run] [--json]
+                            [--check DIR]
+                            [OUT_DIR]
+
+Write and check a release folder: data, metadata, SHA256SUMS.
+
+positional arguments:
+  OUT_DIR          the new folder to write
+
+options:
+  -h, --help       show this help message and exit
+  --manifest PATH  the manifest to read (default: sources.toml)
+  --dry-run        say what would happen, and write nothing
+  --json           print one JSON object instead of text
+  --check DIR      check an existing release folder instead of writing one

@@ -20,6 +20,7 @@ stages:
     revisions    list the sources whose bytes changed since an earlier log
     verify       check a published dataset against its datapackage.json
     report       write a standalone HTML provenance report to stdout
+    release      write and check a release folder: data, metadata, SHA256SUMS
 
 a first run:
   sourceledger init        write a starter sources.toml

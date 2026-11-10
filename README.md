@@ -14,6 +14,8 @@ CSV, JSON, Excel or binary files. List the sources and reuse terms in `sources.t
 - `fetch` downloads the files and records their URLs, dates and SHA-256 checksums.
 - `build` writes tables with provenance columns, or copies file sources unchanged.
 - `validate` checks the outputs against the downloads and the manifest.
+- `release` writes the folder to publish, without the sources whose terms forbid it, and
+  checks it.
 
 Each table row identifies its download. A `datapackage.json` describes the outputs.
 The [documentation website](https://simonvanlierde.com/sourceledger/) follows a source through a publisher's revision.
@@ -25,8 +27,8 @@ uv tool install sourceledger
 ```
 
 For a Python project that imports the library, use `uv add sourceledger` instead.
-Use `sourceledger[xlsx]` in either command to read Excel files, or `sourceledger[parquet]`
-to write Parquet outputs.
+Use `sourceledger[xlsx]` in either command to read Excel files, `sourceledger[parquet]`
+to write Parquet outputs, or `sourceledger[release]` to check RO-Crate and Croissant metadata.
 Python 3.12 or later is required; Linux, macOS and Windows are supported.
 This README follows `main`, including [unreleased features](CHANGELOG.md#unreleased).
 
@@ -55,7 +57,7 @@ sourceledger validate
 ```
 
 `sourceledger fetch --help` lists one stage's options, and `--dry-run` on `fetch`, `record`
-and `build` shows what they would write. Exit code 1 means `validate` found problems, 2 a
+and `build` shows what they would write. Exit code 1 means `validate` or `release` found problems, 2 a
 usage error and 3 that a stage could not run; see [options and exit codes](docs/reference.md#options-output-and-exit-codes).
 
 For [Parquet outputs](docs/reference.md#sourcestoml), set `output_format = "parquet"`
@@ -110,11 +112,8 @@ cheap. Older fetch logs stay readable. A record written by `record()`, or with
 
 ### Roadmap
 
-- A `release` stage that writes the metadata for a dataset release (RO-Crate and Croissant
-  when asked for, and a `SHA256SUMS` file), checks each with its official validator, and
-  keeps the data of `redistribute = false` sources out of the release.
-- An error class per kind of failure, under `ValueError` and `OSError`, once the release
-  stage needs to tell them apart. This will not break code that catches the base classes.
+- An error class per kind of failure in the other stages, under `ValueError` and `OSError`,
+  once a caller needs to tell them apart. This will not break code that catches the base classes.
 - A review by [pyOpenSci](https://www.pyopensci.org) once the project has users besides
   its own template.
 

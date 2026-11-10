@@ -136,6 +136,12 @@ def test_the_publisher_revision_tutorial_runs(tmp_path: Path, monkeypatch: pytes
     assert _shell(_block(guide, "## Record a file another tool downloaded", "sh")) == [0] * 5
     rows = list(builder_mod.read_output(Path("data/processed/co2.csv")))
     assert {row["retrieved_at"] for row in rows} == {"2026-11-05T09:30:00Z"}
+    assert _shell(_block(guide, "## Release the dataset", "sh")) == [0, 0]
+    assert sorted(p.relative_to("release-v1").as_posix() for p in Path("release-v1").rglob("*.*")) == [
+        "data/co2.csv",
+        "datapackage.json",
+    ]
+    assert report_mod.verify(Path("release-v1")) == []
 
 
 def _shell(script: str) -> list[int]:

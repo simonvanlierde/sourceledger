@@ -80,7 +80,9 @@ type Source = dict[str, Any]
 
 # The formats `build._PARSERS` reads; a test keeps the two in step.
 _FORMATS = ("csv", "json", "xlsx")
-_MANIFEST_KEYS = frozenset({"output_format", "source"})
+_MANIFEST_KEYS = frozenset({"output_format", "release_formats", "source"})
+# The optional metadata files `release` writes when `release_formats` asks for them.
+RELEASE_FORMATS = ("ro-crate", "croissant")
 
 
 def load_manifest(path: Path = MANIFEST) -> list[Source]:
@@ -95,6 +97,7 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
         msg = f"sources.toml: {key!r} is not a sources.toml key{hint}"
         raise ValueError(msg)
     _check_output_format(manifest.get("output_format", "csv"))
+    _check_release_formats(manifest.get("release_formats", []))
     sources = manifest.get("source", [])
     if not isinstance(sources, list) or not all(isinstance(s, dict) and isinstance(s.get("id"), str) for s in sources):
         msg = "sources.toml: every [[source]] needs a string id"
@@ -137,9 +140,10 @@ def load_manifest(path: Path = MANIFEST) -> list[Source]:
 
 def _check_placement(source: Source) -> None:
     """Refuse a project-wide key that an appended line put in the last [[source]] table, where it does nothing."""
-    if "output_format" in source:  # noqa: PLR2004
-        msg = f"source {source['id']!r} in sources.toml sets output_format; put it above the first [[source]]"
-        raise ValueError(msg)
+    for key in ("output_format", "release_formats"):
+        if key in source:
+            msg = f"source {source['id']!r} in sources.toml sets {key}; put it above the first [[source]]"
+            raise ValueError(msg)
 
 
 def _check_text(source: Source) -> None:
@@ -162,6 +166,23 @@ def load_output_format(path: Path = MANIFEST) -> str:
         output_format = tomllib.load(fh).get("output_format", "csv")
     _check_output_format(output_format)
     return output_format
+
+
+def _check_release_formats(formats: object) -> None:
+    """Refuse a `release_formats` that is not a list of known formats, each named once."""
+    if not (
+        isinstance(formats, list) and all(f in RELEASE_FORMATS for f in formats) and len(set(formats)) == len(formats)
+    ):
+        msg = f"release_formats in sources.toml must list each of {list(RELEASE_FORMATS)} at most once"
+        raise ValueError(msg)
+
+
+def load_release_formats(path: Path = MANIFEST) -> list[str]:
+    """The project's `release_formats` from sources.toml, empty when unset: pass it to `release`."""
+    with path.open("rb") as fh:
+        formats = tomllib.load(fh).get("release_formats", [])
+    _check_release_formats(formats)
+    return formats
 
 
 def init(path: Path = MANIFEST) -> None:

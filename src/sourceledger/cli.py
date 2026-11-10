@@ -1,8 +1,8 @@
 """The command line: `<project> STAGE`, one subcommand per stage, with the project's own parser.
 
-Exit codes: 0 done, 1 problems found (validate, verify), 2 usage error, 3 could not run
-(a missing or bad file, a failed download, a held lock), 130 interrupted. Errors go to
-stderr as `error: <what>` and, when there is a next step, `help: <what to do>`.
+Exit codes: 0 done, 1 problems found (validate, verify, release), 2 usage error, 3 could not run
+(a missing or bad file, a failed download, a held lock, a validator missing or not finishing),
+130 interrupted. Errors go to stderr as `error: <what>` and, when there is a next step, `help: <what to do>`.
 """
 
 from __future__ import annotations
@@ -45,9 +45,11 @@ from sourceledger.manifest import (
     init,
     load_manifest,
     load_output_format,
+    load_release_formats,
     output_name,
     select,
 )
+from sourceledger.releaser import ReleaseError, check_release, release
 from sourceledger.report import attribution, one_line, report, status, status_records, validate, verify
 
 if TYPE_CHECKING:
@@ -72,6 +74,7 @@ _STAGES = {
     "revisions": "list the sources whose bytes changed since an earlier log",
     "verify": "check a published dataset against its datapackage.json",
     "report": "write a standalone HTML provenance report to stdout",
+    "release": "write and check a release folder: data, metadata, SHA256SUMS",
 }
 
 _EPILOG = """\
@@ -162,6 +165,7 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
         "revisions": [json_option],
         "verify": [json_option],
         "report": [manifest_option],
+        "release": [manifest_option, dry_run_option, json_option],
     }
     sub = {
         name: stages.add_parser(name, help=text, description=text[0].upper() + text[1:] + ".", parents=parents[name])
@@ -184,9 +188,14 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
     sub["record"].add_argument(
         "--parameter", action="append", default=[], metavar="NAME=VALUE", help="request metadata (repeatable)"
     )
-    sub["record"].set_defaults(check=_check_parameters)
+    sub["record"].set_defaults(check_args=_check_parameters)
     sub["revisions"].add_argument("path", type=Path, metavar="OLD_LOG", help="an earlier copy of data/fetches.jsonl")
     sub["verify"].add_argument("path", type=Path, metavar="DIR", help="the folder of a published dataset")
+    sub["release"].add_argument("path", type=Path, nargs="?", metavar="OUT_DIR", help="the new folder to write")
+    sub["release"].add_argument(
+        "--check", type=Path, metavar="DIR", help="check an existing release folder instead of writing one"
+    )
+    sub["release"].set_defaults(check_args=_check_release_args)
     for name, stage_parser in sub.items():
         stage_parser.set_defaults(parser=stage_parser, run=_HANDLERS[name])
     return parser
@@ -203,6 +212,16 @@ def _time(text: str) -> str:
         msg = f"{text!r} needs a time zone, such as 2026-11-05T09:30:00Z"
         raise argparse.ArgumentTypeError(msg)
     return text
+
+
+def _check_release_args(args: argparse.Namespace) -> None:
+    """Exit with a usage error unless exactly one of OUT_DIR and --check is given, and --check without --dry-run."""
+    if (args.path is None) == (args.check is None):
+        args.parser.error("pass OUT_DIR to write a release, or --check DIR to check one")
+    if args.check is not None and args.dry_run:
+        args.parser.error("--check writes nothing; drop --dry-run")
+    if args.check is not None and args.manifest != args.parser.get_default("manifest"):
+        args.parser.error("--check reads no manifest; drop --manifest")
 
 
 def _check_parameters(args: argparse.Namespace) -> None:
@@ -248,7 +267,7 @@ def main(  # the entry point: parse, run one stage, report it
     user_agent: str = USER_AGENT,
     manifest: Path = MANIFEST,
 ) -> int:
-    """Run one stage: init, fetch, record, build, validate, status, attribution, revisions, verify or report.
+    """Run one stage: init, fetch, record, build, validate, status, attribution, revisions, verify, report or release.
 
     `sourceledger STAGE --help` lists each stage's options. A project's own entry point calls
     this with its `parse`, its name as `prog`, and that name as `user_agent`. `manifest` is the
@@ -266,8 +285,8 @@ def main(  # the entry point: parse, run one stage, report it
     args, extra = _parser(prog, manifest).parse_known_args(argv)
     if extra:  # reported by the stage's parser, so the usage and help name the stage
         args.parser.error(f"unrecognized arguments: {' '.join(extra)}")
-    if check := getattr(args, "check", None):
-        check(args)
+    if check_args := getattr(args, "check_args", None):
+        check_args(args)
     # Retries and recovered fetch logs are reported as warnings, on stderr.
     logging.basicConfig(format=f"{prog}: %(message)s", level=logging.WARNING)
     return _main(_Run(args, argv, parse, prog, user_agent))
@@ -315,11 +334,19 @@ def _main(run: _Run) -> int:
     return code
 
 
+# What to do about the file or folder a stage will not overwrite.
+_EXISTS_HELP = {
+    "init": "edit it, or pass --manifest PATH to write one elsewhere",
+    "release": "pass a new OUT_DIR, or move that folder away",
+}
+
+
 # What to pass instead of a stage's PATH operand that is missing.
 _MISSING_PATH_HELP = {
     "record": "pass the file another tool downloaded",
     "revisions": f"pass an earlier copy of {FETCH_LOG.as_posix()}",
     "verify": f"pass the folder that holds the dataset's {DATAPACKAGE}",
+    "release": "pass the release folder to check",
 }
 
 
@@ -337,14 +364,15 @@ def _help(error: Exception, run: _Run) -> str | None:
     """What to do about an error the CLI knows the cause of; None for the rest."""
     missing = Path(error.filename) if isinstance(error, FileNotFoundError) and error.filename else None
     # The stage's own path first: one named like the manifest is still the path the user passed.
-    if missing and (path := getattr(run.args, "path", None)) and missing in (path, path / DATAPACKAGE):
+    path = getattr(run.args, "check", None) or getattr(run.args, "path", None)
+    if missing and path and missing in (path, path / DATAPACKAGE):
         return _MISSING_PATH_HELP[run.args.stage]
     if missing == run.args.manifest:
         return f"run `{run.prog} init` to write one, or pass --manifest PATH"
     if missing == FETCH_LOG:
         return f"run `{run.prog} fetch` first; it writes the log"
     if isinstance(error, FileExistsError):
-        return "edit it, or pass --manifest PATH to write one elsewhere"
+        return _EXISTS_HELP.get(run.args.stage)
     # A held lock: BlockingIOError on POSIX, PermissionError on Windows.
     if isinstance(error.__cause__, (BlockingIOError, PermissionError)):
         return "wait for the other fetch or record to finish, then run this again"
@@ -523,6 +551,41 @@ def _verify_stage(run: _Run) -> list[str]:
     return _report_problems(run, verify(run.args.path))
 
 
+def _release_stage(run: _Run) -> list[str]:
+    if run.args.check is not None:
+        problems, run.result["validators"] = check_release(run.args.check)
+        for ran in run.result["validators"]:
+            run.say(f"checked {ran['file']} with {ran['name']} {ran['version']}")
+        return _report_problems(run, problems)
+    sources = load_manifest(run.args.manifest)
+    if run.args.dry_run:
+        run.result["dry_run"] = True
+    try:
+        result = release(
+            sources,
+            run.args.path,
+            formats=load_release_formats(run.args.manifest),
+            output_format=load_output_format(run.args.manifest),
+            dry_run=run.args.dry_run,
+        )
+    except ReleaseError as error:  # refused input or findings: the stage's result, as for --check
+        run.result["validators"] = getattr(error, "ran", [])
+        return _report_problems(run, error.problems)
+    run.result.update(result)
+    verb = "would write" if run.args.dry_run else "wrote"
+    out = run.args.path.as_posix()
+    for name in result["files"]:
+        run.say(f"{verb} {out}/{name}")
+    for sid in result["excluded"]:
+        run.say(f"excluded {sid}: redistribute is not true")
+    for fmt, state in result["formats"].items():
+        if state == "skipped":  # noqa: PLR2004
+            run.say(f"skipped {fmt}: not in release_formats")
+    for ran in result["validators"]:
+        run.say(f"checked {ran['file']} with {ran['name']} {ran['version']}")
+    return []
+
+
 def _report_stage(run: _Run) -> list[str]:
     print(report(load_manifest(run.args.manifest)), end="")
     return []
@@ -539,4 +602,5 @@ _HANDLERS: dict[str, Callable[[_Run], list[str]]] = {
     "revisions": _revisions_stage,
     "verify": _verify_stage,
     "report": _report_stage,
+    "release": _release_stage,
 }
