@@ -138,8 +138,25 @@ gh attestation verify sourceledger-0.3.1-py3-none-any.whl --repo simonvanlierde/
 ```
 
 Both fail unless the file is byte for byte the one this repository's workflow built.
-From 0.3.1, the same provenance is also attached to each GitHub release as
-`sourceledger-<version>.sigstore.json`.
+From 0.5.0, each GitHub release asset has its provenance beside it as `<asset>.intoto.jsonl`,
+so you can check a downloaded file without asking GitHub:
+
+```sh
+gh attestation verify sourceledger-0.5.0-py3-none-any.whl --repo simonvanlierde/sourceledger \
+  --bundle sourceledger-0.5.0-py3-none-any.whl.intoto.jsonl
+```
+
+0.3.1 to 0.4.0 attached one bundle for all files, `sourceledger-<version>.sigstore.json`.
+
+From 0.5.0, a release also carries a CycloneDX SBOM, `sourceledger-<version>.tar.gz.cdx.json`.
+sourceledger has no required dependencies, so it lists only the package itself; the optional
+`parquet` and `release` extras are not in it. Its attestation,
+`sourceledger-<version>.tar.gz.sbom.intoto.jsonl`, ties it to the sdist:
+
+```sh
+gh attestation verify sourceledger-0.5.0.tar.gz --repo simonvanlierde/sourceledger \
+  --bundle sourceledger-0.5.0.tar.gz.sbom.intoto.jsonl --predicate-type https://cyclonedx.org/bom
+```
 
 Release tags from 0.3.0 on are signed with the SSH key in
 [`.github/allowed_signers`](https://github.com/simonvanlierde/sourceledger/blob/main/.github/allowed_signers),

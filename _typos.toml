@@ -2,3 +2,7 @@
 # Deliberate in tests/test_report.py and tests/test_builder.py: a mistyped status, and UTF-8 bytes of "café".
 # Also the 12-digit checksums that `fetch` prints, which the docs quote.
 extend-ignore-re = ["unimplmented", "caf\\\\xc3\\\\xa9", "\\b[0-9a-f]{12}\\b"]
+
+[default.extend-words]
+# The in-toto provenance bundle suffix, `<asset>.intoto.jsonl`.
+intoto = "intoto"
