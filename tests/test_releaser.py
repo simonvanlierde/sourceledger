@@ -1,5 +1,6 @@
 """The release stage: what reaches the folder, what never does, and the checks on it."""
 
+import contextlib
 import errno
 import hashlib
 import importlib
@@ -16,6 +17,7 @@ import pytest
 import sourceledger
 from sourceledger import manifest as manifest_mod
 from sourceledger.cli import main
+from sourceledger.manifest import implemented
 
 releaser = importlib.import_module("sourceledger.releaser")
 
@@ -158,7 +160,7 @@ def test_flipping_redistribute_after_build_keeps_the_file_out(
     assert main(["build"]) == 0
     _write_manifest(project, secret_shared=False)
     assert _release(str(OUT)) == 1
-    assert "describes an earlier build of data/processed/secret.bin" in capsys.readouterr().err
+    assert "describes an earlier build of data/processed/secret.bin" in capsys.readouterr().out
     assert not OUT.exists()
     assert main(["build"]) == 0
     assert _release(str(OUT)) == 0
@@ -174,10 +176,36 @@ def test_the_hash_pass_refuses_restricted_bytes_under_any_name(
     Path("data/processed/open.csv").unlink()
     assert [main(["fetch"]), main(["build"])] == [0, 0]
     assert _release(str(OUT)) == 1
-    err = capsys.readouterr().err
-    assert err == "error: release/data/open.bin would hold the bytes of secret, whose redistribute is not true\n"
+    out = capsys.readouterr().out
+    assert out.endswith(
+        "\nrelease/data/open.bin would hold the bytes of secret, whose redistribute is not true\n1 problem\n"
+    )
     assert not OUT.exists()
     assert [p.name for p in project.iterdir() if p.name.startswith(".")] == []
+
+
+@pytest.mark.usefixtures("project", "stand_ins")
+def test_the_hash_pass_holds_when_the_file_list_ships_everything(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The banned bytes come from the manifest, not from the split that chose what to ship."""
+    monkeypatch.setattr(releaser, "_split", lambda sources: (implemented(sources), []))
+    assert _release(str(OUT)) == 1
+    assert capsys.readouterr().out == (
+        "release/data/secret.bin would hold the bytes of secret, whose redistribute is not true\n1 problem\n"
+    )
+    assert not OUT.exists()
+
+
+def test_the_released_package_is_written_as_build_writes_it(project: Path) -> None:
+    """Text outside ASCII stays as it is, in UTF-8, with build's indent and line end."""
+    text = (project / "sources.toml").read_text(encoding="utf-8").replace("Open duck counts", "Enten der Dünen")
+    (project / "sources.toml").write_text(text, encoding="utf-8")
+    assert main(["build"]) == 0
+    sourceledger.release(manifest_mod.load_manifest(), OUT)
+    released = (OUT / "datapackage.json").read_bytes()
+    assert "Enten der Dünen".encode() in released
+    assert released == (json.dumps(json.loads(released), indent=2, ensure_ascii=False) + "\n").encode()
 
 
 # What the default path writes, and how it reports.
@@ -298,9 +326,10 @@ def test_release_refuses_a_build_that_does_not_validate(capsys: pytest.CaptureFi
     Path("data/processed/open.csv").write_text("changed\n", encoding="utf-8")
     Path("data/processed/secret.bin").unlink()
     assert _release(str(OUT), "--json") == 1
-    messages = [error["message"] for error in _json(capsys)["errors"]]
-    assert len(messages) == 3
-    assert any("secret.bin is missing" in m for m in messages)
+    report = _json(capsys)
+    assert (report["errors"], report["validators"]) == ([], [])
+    assert len(report["problems"]) == 3
+    assert any("secret.bin is missing" in m for m in report["problems"])
     assert not OUT.exists()
 
 
@@ -339,8 +368,8 @@ def test_a_copy_of_a_restricted_tables_output_is_refused(project: Path, capsys: 
     Path("data/processed/open.csv").unlink()
     assert [main(["fetch"]), main(["build"])] == [0, 0]
     assert _release(str(OUT)) == 1
-    assert capsys.readouterr().err == (
-        "error: release/data/open.bin would hold the bytes of secret, whose redistribute is not true\n"
+    assert capsys.readouterr().out.endswith(
+        "\nrelease/data/open.bin would hold the bytes of secret, whose redistribute is not true\n1 problem\n"
     )
 
 
@@ -363,11 +392,19 @@ def test_the_hash_pass_names_the_source_of_raw_and_built_bytes(project: Path) ->
     assert str(refused.value) == "; ".join(refused.value.problems)
 
 
-@pytest.mark.parametrize("formats", ["ro-crate", ["zip"], {"ro-crate"}])
+@pytest.mark.parametrize("formats", ["ro-crate", ["zip"], {"ro-crate", "zip"}])
 @pytest.mark.usefixtures("project")
-def test_release_takes_a_list_of_known_formats(formats: object) -> None:
-    with pytest.raises(ValueError, match="formats must be a list drawn from"):
+def test_release_takes_a_collection_of_known_formats(formats: object) -> None:
+    with pytest.raises(ValueError, match="formats must be drawn from"):
         sourceledger.release(manifest_mod.load_manifest(), OUT, formats=formats)  # ty: ignore[invalid-argument-type]  # the wrong types under test
+
+
+@pytest.mark.usefixtures("project", "stand_ins")
+@pytest.mark.parametrize("formats", [{"croissant", "ro-crate"}, frozenset({"croissant"}), {"croissant": 1}.keys()])
+def test_release_takes_formats_in_any_collection(formats: object) -> None:
+    result = sourceledger.release(manifest_mod.load_manifest(), OUT, formats=formats, dry_run=True)  # ty: ignore[invalid-argument-type]
+    assert result["formats"] == {"ro-crate": "written" if "ro-crate" in formats else "skipped", "croissant": "written"}  # ty: ignore[unsupported-operator]
+    assert result["files"][-2:] == ["croissant.json", "SHA256SUMS"]
 
 
 # The descriptive fields and the two optional files.
@@ -380,7 +417,7 @@ def test_the_metadata_takes_the_codemeta_fields(project: Path) -> None:
     text = (OUT / "ro-crate-metadata.json").read_bytes()
     assert text.startswith(b'{\n  "@context": "https://w3id.org/ro/crate/1.3/context",\n  "@graph": [\n    {\n')
     assert text.endswith(b"\n  ]\n}\n")
-    assert b"D\\u00fcnen" in text
+    assert "Dünen".encode() in text
     crate = json.loads(text)
     graph = {entity["@id"]: entity for entity in crate["@graph"]}
     assert graph["ro-crate-metadata.json"] == {
@@ -534,7 +571,8 @@ def test_a_field_a_format_needs_must_be_in_codemeta(
     (project / "codemeta.json").write_text(json.dumps({**CODEMETA, **change}), encoding="utf-8")
     _write_manifest(project, formats='"ro-crate", "croissant"')
     assert _release(str(OUT), "--json") == 1
-    assert [error["message"] for error in _json(capsys)["errors"]] == expected
+    report = _json(capsys)
+    assert (report["problems"], report["errors"]) == (expected, [])
     assert not OUT.exists()
 
 
@@ -543,7 +581,10 @@ def test_codemeta_must_be_a_json_object_and_exist(project: Path, capsys: pytest.
     _write_manifest(project, formats='"croissant"')
     (project / "codemeta.json").write_text("[]", encoding="utf-8")
     assert _release(str(OUT)) == 1
-    assert capsys.readouterr().err == "error: codemeta.json is not a JSON object\n"
+    assert capsys.readouterr().out == "codemeta.json is not a JSON object\n1 problem\n"
+    (project / "codemeta.json").write_text('{"name": ', encoding="utf-8")
+    assert _release(str(OUT)) == 1
+    assert capsys.readouterr().out.startswith("codemeta.json is not valid JSON: Expecting value")
     (project / "codemeta.json").unlink()
     assert _release(str(OUT)) == 3
     assert capsys.readouterr().err.startswith("error: codemeta.json is missing\n")
@@ -557,6 +598,8 @@ def test_a_missing_validator_exits_3_before_writing(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setitem(releaser._VALIDATORS, releaser._CROISSANT, ("no-such-validator-dist", ("-c", "pass")))  # noqa: SLF001
+    # Checked before the folder is written, not found missing after.
+    monkeypatch.setattr(releaser, "_part_folder", lambda _: pytest.fail("wrote before checking the validators"))
     _write_manifest(Path.cwd(), formats='"croissant"')
     assert _release(str(OUT)) == 3
     assert capsys.readouterr().err == (
@@ -564,6 +607,7 @@ def test_a_missing_validator_exits_3_before_writing(
         "uv tool install 'sourceledger[release]'\n"
     )
     assert not OUT.exists()
+    assert _release(str(OUT), "--dry-run") == 3
     with pytest.raises(sourceledger.ValidatorMissing):
         sourceledger.release(manifest_mod.load_manifest(), OUT, formats=["croissant"])
 
@@ -575,20 +619,24 @@ def test_each_validator_reports_its_own_findings(
     """Both fail: the second still runs, each finding is one line, and nothing reaches OUT_DIR."""
     stand_ins(
         rocrate="import sys; print('no licence|no date', end=''); sys.exit(1)",
-        croissant="import sys; sys.exit(3)",
+        croissant="import sys; print('no url', end=''); sys.exit(1)",
     )
     _write_manifest(Path.cwd(), formats='"ro-crate", "croissant"')
     assert _release(str(OUT), "--json") == 1
-    assert [error["message"] for error in _json(capsys)["errors"]] == [
+    report = _json(capsys)
+    assert report["problems"] == [
         "ro-crate-metadata.json: no licence",
         "ro-crate-metadata.json: no date",
-        "croissant.json: sourceledger exited 3: with no output",
+        "croissant.json: no url",
     ]
+    assert report["errors"] == []
+    assert [v["file"] for v in report["validators"]] == ["SHA256SUMS", "ro-crate-metadata.json", "croissant.json"]
     assert not OUT.exists()
     with pytest.raises(sourceledger.ValidatorFailed) as failed:
         sourceledger.release(manifest_mod.load_manifest(), OUT, formats=["croissant"])
     assert isinstance(failed.value, sourceledger.ReleaseError)
-    assert failed.value.problems == ["croissant.json: sourceledger exited 3: with no output"]
+    assert failed.value.problems == ["croissant.json: no url"]
+    assert [v["file"] for v in failed.value.ran] == ["SHA256SUMS", "croissant.json"]
 
 
 @pytest.mark.usefixtures("project")
@@ -600,21 +648,61 @@ def test_a_validator_that_writes_bytes_outside_utf8_still_reports(stand_ins: Cal
     assert failed.value.problems == ["croissant.json: bad \ufffd", "croissant.json: x"]
 
 
+@pytest.mark.usefixtures("project")
+def test_a_validator_that_could_not_run_exits_3(
+    stand_ins: Callable[..., None], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A crash or an offline run reported no findings: that is a check that did not happen, not a problem."""
+    divider = "\u2500" * 20
+    stand_ins(croissant=f"import sys; sys.stderr.write('ConnectionError: offline\\n{divider}\\n'); sys.exit(2)")
+    _write_manifest(Path.cwd(), formats='"croissant"')
+    assert _release(str(OUT)) == 3
+    assert capsys.readouterr().err == "error: croissant.json: sourceledger exited 2: ConnectionError: offline\n"
+    assert not OUT.exists()
+    assert not Path(".release.part").exists()
+
+
+@pytest.mark.usefixtures("project")
+def test_a_validator_that_hangs_is_stopped_and_exits_3(
+    stand_ins: Callable[..., None], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(releaser, "_TIMEOUT_S", 0.5)
+    stand_ins(croissant="import time; time.sleep(60)")
+    _write_manifest(Path.cwd(), formats='"croissant"')
+    assert _release(str(OUT)) == 3
+    assert capsys.readouterr().err == "error: croissant.json: sourceledger did not finish in 0.5 s\n"
+    assert not OUT.exists()
+
+
 def _done(returncode: int, stdout: str = "", stderr: str = "") -> subprocess.CalledProcessError:
     return subprocess.CalledProcessError(returncode, [], stdout.encode(), stderr.encode())
 
 
+def _could_not_run(dist: str, failed: subprocess.CalledProcessError) -> str:
+    with pytest.raises(sourceledger.ValidatorCouldNotRun) as error:
+        releaser._findings("x.json", dist, failed)  # noqa: SLF001
+    return str(error.value)
+
+
 def test_the_rocrate_findings_come_from_its_json_report() -> None:
     report = {"passed": False, "issues": [{"message": "No license.", "check": {"identifier": "ro-crate-1.3_13.3"}}]}
-    assert releaser._findings("roc-validator", _done(1, json.dumps(report))) == [  # noqa: SLF001
+    assert releaser._findings("x.json", "roc-validator", _done(1, json.dumps(report))) == [  # noqa: SLF001
         "No license. (ro-crate-1.3_13.3)"
     ]
-    assert releaser._findings("roc-validator", _done(2, "[ERROR] no network\n\n", "trace\nURLError\n")) == [  # noqa: SLF001
-        "roc-validator exited 2: URLError"
-    ]
-    assert releaser._findings("roc-validator", _done(1, '{"issues": [{"message": "m"}]}')) == [  # noqa: SLF001
-        'roc-validator exited 1: {"issues": [{"message": "m"}]}'
-    ]
+    # Exit 2 is roc-validator's own error exit, report or not.
+    assert _could_not_run("roc-validator", _done(2, json.dumps(report))) == (
+        f"x.json: roc-validator exited 2: {json.dumps(report)}"
+    )
+    assert _could_not_run("roc-validator", _done(2, "[ERROR] no network\n\n", "trace\nURLError\n")) == (
+        "x.json: roc-validator exited 2: URLError"
+    )
+    assert _could_not_run("roc-validator", _done(1, '{"issues": [{"message": "m"}]}')) == (
+        'x.json: roc-validator exited 1: {"issues": [{"message": "m"}]}'
+    )
+    # rich draws dividers; the line above one says what went wrong.
+    assert _could_not_run("roc-validator", _done(2, "ConnectionError: offline\n\u2500\u2500\u2500\n \u2502 \n")) == (
+        "x.json: roc-validator exited 2: ConnectionError: offline"
+    )
 
 
 def test_the_croissant_findings_are_its_errors_without_its_warnings() -> None:
@@ -625,15 +713,16 @@ def test_the_croissant_findings_are_its_errors_without_its_warnings() -> None:
         "Found the following 1 warning(s) during the validation:\n"
         "  -  citeAs is recommended\n"
     )
-    assert releaser._findings("mlcroissant", _done(1, "", stderr)) == [  # noqa: SLF001
+    assert releaser._findings("x.json", "mlcroissant", _done(1, "", stderr)) == [  # noqa: SLF001
         "`license` should have type Text, but got int",
         "no name",
     ]
-    assert releaser._findings("mlcroissant", _done(1, "", "Traceback\nKeyError: 'x'\n")) == [  # noqa: SLF001
-        "mlcroissant exited 1: KeyError: 'x'"
-    ]
+    assert _could_not_run("mlcroissant", _done(1, "", "Traceback\nKeyError: 'x'\n")) == (
+        "x.json: mlcroissant exited 1: KeyError: 'x'"
+    )
+    assert _could_not_run("mlcroissant", _done(3, "\n", " \n")) == "x.json: mlcroissant exited 3: with no output"
     last = "Found the following 1 error(s) during the validation:\n  -  no url"
-    assert releaser._findings("mlcroissant", _done(1, "", last)) == ["no url"]  # noqa: SLF001
+    assert releaser._findings("x.json", "mlcroissant", _done(1, "", last)) == ["no url"]  # noqa: SLF001
 
 
 @pytest.fixture
@@ -682,6 +771,7 @@ def test_check_runs_only_the_validators_of_the_files_there(
         ),
         (lambda d: (d / "data/extra.csv").write_bytes(b"x"), "release/data/extra.csv is not listed in SHA256SUMS"),
         (lambda d: (d / "SHA256SUMS").unlink(), "release/SHA256SUMS is missing"),
+        (lambda d: (d / "SHA256SUMS").write_bytes(b"\xff *x\n"), "release/SHA256SUMS is not UTF-8 text"),
         (
             lambda d: (d / "SHA256SUMS").write_text("abc *x\n", encoding="utf-8"),
             "release/SHA256SUMS: line 1 is not `<sha256> *<path>`",
@@ -723,10 +813,23 @@ def test_check_reads_text_mode_sums_too(released: Path) -> None:
     assert releaser._sums_problems(released) == []  # noqa: SLF001
 
 
+def test_check_refuses_a_listed_symlink_out_of_the_folder(released: Path) -> None:
+    """A link inside the folder that points out of it is not a file of the release, whatever its hash."""
+    outside = Path("sources.toml")
+    try:
+        (released / "data/link").symlink_to(Path("../..") / outside)
+    except OSError:  # Windows without Developer Mode
+        pytest.skip("this host cannot make symlinks")
+    sums = released / "SHA256SUMS"
+    digest = hashlib.sha256(outside.read_bytes()).hexdigest()
+    sums.write_text(sums.read_text(encoding="utf-8") + f"{digest} *data/link\n", encoding="utf-8")
+    assert releaser._sums_problems(released) == ["release/SHA256SUMS: 'data/link' is not a file in release"]  # noqa: SLF001
+
+
 def test_check_of_a_missing_folder_says_what_to_pass(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     missing = tmp_path / "nowhere"
     with pytest.raises(FileNotFoundError) as error:
-        releaser.check_release(missing)
+        sourceledger.check_release(missing)
     assert (error.value.errno, str(error.value)) == (errno.ENOENT, f"[Errno 2] no such folder: {str(missing)!r}")
     assert _release("--check", str(missing)) == 3
     assert (
@@ -740,6 +843,7 @@ def test_check_of_a_missing_folder_says_what_to_pass(tmp_path: Path, capsys: pyt
         ([], "pass OUT_DIR to write a release, or --check DIR to check one"),
         (["out", "--check", "out"], "pass OUT_DIR to write a release, or --check DIR to check one"),
         (["--check", "out", "--dry-run"], "--check writes nothing; drop --dry-run"),
+        (["--check", "out", "--manifest", "other.toml"], "--check reads no manifest; drop --manifest"),
     ],
 )
 def test_release_needs_one_folder(argv: list[str], message: str, capsys: pytest.CaptureFixture[str]) -> None:
@@ -794,3 +898,20 @@ def test_rocrate_validator_passes_the_crate_and_finds_a_broken_one(
     (OUT / "ro-crate-metadata.json").write_text(json.dumps(crate), encoding="utf-8")
     assert _release("--check", str(OUT), "--json") == 1
     assert any("`license`" in p and "ro-crate-1.3_" in p for p in _json(capsys)["problems"])
+
+
+@pytest.mark.skipif(not all(_HAS.values()), reason="needs the release extra")
+@pytest.mark.parametrize(
+    ("name", "text", "package"),
+    [("ro-crate-metadata.json", "not json", "rocrate_validator"), ("croissant.json", "{}", "mlcroissant")],
+)
+def test_check_runs_no_code_planted_in_the_folder(tmp_path: Path, name: str, text: str, package: str) -> None:
+    """A received folder can hold a package named like a validator; the check must import the installed one."""
+    folder, marker = tmp_path / "received", tmp_path / "planted-code-ran"
+    (folder / package).mkdir(parents=True)
+    (folder / package / "__init__.py").write_text(f"open({str(marker)!r}, 'w').close()\n", encoding="utf-8")
+    (folder / f"{package}.py").write_text(f"open({str(marker)!r}, 'w').close()\n", encoding="utf-8")
+    (folder / name).write_text(text, encoding="utf-8")
+    with contextlib.suppress(OSError):  # the stand-in folder need not pass
+        releaser.check_release(folder)
+    assert not marker.exists()

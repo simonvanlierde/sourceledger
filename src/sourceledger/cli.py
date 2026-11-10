@@ -1,8 +1,8 @@
 """The command line: `<project> STAGE`, one subcommand per stage, with the project's own parser.
 
 Exit codes: 0 done, 1 problems found (validate, verify, release), 2 usage error, 3 could not run
-(a missing or bad file, a failed download, a held lock, a missing validator), 130 interrupted. Errors go to
-stderr as `error: <what>` and, when there is a next step, `help: <what to do>`.
+(a missing or bad file, a failed download, a held lock, a validator missing or not finishing),
+130 interrupted. Errors go to stderr as `error: <what>` and, when there is a next step, `help: <what to do>`.
 """
 
 from __future__ import annotations
@@ -220,6 +220,8 @@ def _check_release_args(args: argparse.Namespace) -> None:
         args.parser.error("pass OUT_DIR to write a release, or --check DIR to check one")
     if args.check is not None and args.dry_run:
         args.parser.error("--check writes nothing; drop --dry-run")
+    if args.check is not None and args.manifest != args.parser.get_default("manifest"):
+        args.parser.error("--check reads no manifest; drop --manifest")
 
 
 def _check_parameters(args: argparse.Namespace) -> None:
@@ -306,9 +308,6 @@ def _main(run: _Run) -> int:
                 f"the other sources were fetched and logged; run `{run.prog} fetch` again to retry",
             )
         code = EXIT_FAILED
-    except ReleaseError as error:  # refused input or findings, before the ValueError it is
-        errors = [(problem, None) for problem in error.problems]
-        code = EXIT_PROBLEMS
     # OSError: a missing file, a failed download or a held lock. ValueError: a bad manifest,
     # a download that fails its checks, or a stale fetch. csv.Error: a source that is not CSV.
     except (OSError, ValueError, csv.Error) as error:
@@ -559,15 +558,19 @@ def _release_stage(run: _Run) -> list[str]:
             run.say(f"checked {ran['file']} with {ran['name']} {ran['version']}")
         return _report_problems(run, problems)
     sources = load_manifest(run.args.manifest)
-    result = release(
-        sources,
-        run.args.path,
-        formats=load_release_formats(run.args.manifest),
-        output_format=load_output_format(run.args.manifest),
-        dry_run=run.args.dry_run,
-    )
     if run.args.dry_run:
         run.result["dry_run"] = True
+    try:
+        result = release(
+            sources,
+            run.args.path,
+            formats=load_release_formats(run.args.manifest),
+            output_format=load_output_format(run.args.manifest),
+            dry_run=run.args.dry_run,
+        )
+    except ReleaseError as error:  # refused input or findings: the stage's result, as for --check
+        run.result["validators"] = getattr(error, "ran", [])
+        return _report_problems(run, error.problems)
     run.result.update(result)
     verb = "would write" if run.args.dry_run else "wrote"
     out = run.args.path.as_posix()

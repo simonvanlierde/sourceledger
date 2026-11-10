@@ -166,7 +166,7 @@ every system, also when redirected to a file on Windows.
 | 0 | Done, with nothing to report. `revisions` exits 0 when sources changed: your downstream checks decide what a revision breaks. `report` exits 0 when it writes a report, even one that lists problems. |
 | 1 | Problems found: `validate` or `verify` found at least one, or `release` refused its input or found a problem in the folder. |
 | 2 | Usage error: an unknown stage or option, a missing argument, or an `--only` or `record` id that is not in `sources.toml`, or a `--retrieved-at` that is not an ISO 8601 time. Nothing is written. |
-| 3 | Could not run: a missing or invalid file, a failed download, another fetch holding the lock, a validator `release` needs that is not installed, or an unexpected error such as a project's parser failing, printed as one `error:` line with its type. When some sources fail to fetch, the others are still written and logged. |
+| 3 | Could not run: a missing or invalid file, a failed download, another fetch holding the lock, a validator `release` needs that is not installed or that stopped without a result, or an unexpected error such as a project's parser failing, printed as one `error:` line with its type. When some sources fail to fetch, the others are still written and logged. |
 | 130 | Interrupted with Ctrl-C. What finished before is kept, and the `help:` line repeats the command to finish. With `--json` the report still prints, and `fetch` lists the sources fetched before. The command then ends by SIGINT, as Ctrl-C does, so a shell loop around it stops too; on Windows it exits 130. `main()` returns 130, so a project's own command calls `sourceledger.entry()` instead, which ends by SIGINT ([custom readers](recipes.md#write-a-custom-reader)). |
 
 ## JSON reports
@@ -195,7 +195,7 @@ still appear on stderr. `init`, `build`, `attribution` and `report` do not accep
 | `validate` | `problems` | The same list of problem messages the Python function returns. |
 | `verify` | `problems` | The same list of problem messages the Python function returns. |
 | `revisions` | `revisions` | One object per changed source, in current-log order. New sources are excluded, as in text output. |
-| `release` | `files`, `excluded`, `formats`, `validators` | The paths in the folder, the ids left out, `"written"` or `"skipped"` for each optional format, and the `file`, `name` and `version` of each check that ran. |
+| `release` | `files`, `excluded`, `formats`, `validators` | The paths in the folder, the ids left out, `"written"` or `"skipped"` for each optional format, and the `file`, `name` and `version` of each check that ran. A refused release has `problems` and `validators` instead. |
 | `release --check` | `problems`, `validators` | The problems found, and each check that ran. |
 
 With `--dry-run`, the object also has `"dry_run": true`. `fetch --dry-run` lists
@@ -286,7 +286,9 @@ the same checks as `release --check DIR`, which checks a folder that exists:
 | `ro-crate-metadata.json` | `rocrate-validator validate`, profile `ro-crate-1.3`. It downloads the RO-Crate context, so it needs the network. |
 | `croissant.json` | `mlcroissant validate --jsonld`. |
 
-Each validator runs in its own process and every finding is a problem, with exit code 1. The
+Each validator runs in its own process and every finding is a problem, with exit code 1. A
+validator that stops without findings, such as roc-validator offline, or that runs past 10
+minutes, exits 3: the folder was not checked. The
 report names each check that ran, with its version. The two validators come with the release
 extra: `uv tool install 'sourceledger[release]'`, or `uv add 'sourceledger[release]'` in a
 project. When a metadata file is there but its validator is not, `release` exits 3 with the
@@ -298,7 +300,8 @@ yourself. It does not upload, and it writes no `.zenodo.json`, DataCite fields, 
 or licence files. In Python, `release()` returns the fields of the `--json` report and raises
 `ReleaseError`, a `ValueError`, for refused input and findings: `RestrictedSourceError` when a
 restricted file reached the folder and `ValidatorFailed` when a validator reported findings.
-`ValidatorMissing` is an `OSError`.
+`ValidatorMissing` and `ValidatorCouldNotRun` are `OSError`s. `check_release(DIR)` is
+`release --check DIR`: it returns the problems and the checks that ran.
 
 ## HTML provenance report
 

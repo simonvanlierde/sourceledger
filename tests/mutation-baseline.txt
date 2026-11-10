@@ -124,6 +124,7 @@ sourceledger.manifest.x_init__mutmut_8  codec names are case-insensitive, and th
 sourceledger.manifest.x_load_manifest__mutmut_15  only close[0] is used, and the best match comes first whatever n is
 sourceledger.manifest.x_load_manifest__mutmut_16  0.6 is get_close_matches' default cutoff
 sourceledger.manifest.x_load_manifest__mutmut_24  only close[0] is used, and the best match comes first whatever n is
+sourceledger.releaser.x__write_json__mutmut_5  None is falsy, as False is
 sourceledger.report.x__package_problems__mutmut_15  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.report.x__package_problems__mutmut_17  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.report.x__scan__mutmut_17  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14

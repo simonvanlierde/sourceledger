@@ -20,7 +20,7 @@ from sourceledger.manifest import RELEASE_FORMATS, Source, implemented, output_n
 from sourceledger.report import leaves_folder, validate
 
 if TYPE_CHECKING:
-    from collections.abc import Collection
+    from collections.abc import Collection, Iterable
 
 _logger = logging.getLogger("sourceledger")
 
@@ -59,7 +59,7 @@ _REQUIRED = {
 }
 
 
-# Each check's PyPI distribution and its arguments after `python`, run in the folder. Every
+# Each check's PyPI distribution and its arguments after `python -I`, run in the folder. Every
 # one runs in its own interpreter, so one that crashes does not stop the others.
 _VALIDATORS = {
     _ROCRATE: (
@@ -85,6 +85,15 @@ _VALIDATORS = {
 _INSTALL = "uv tool install 'sourceledger[release]'"
 
 
+# Seconds a validator may take. roc-validator downloads the RO-Crate context; a stalled
+# network must not hold the release forever.
+_TIMEOUT_S = 600
+
+
+# A line of rich's box drawing, which roc-validator prints around its messages.
+_DIVIDER = re.compile(r"[\s\u2500-\u257f]*")
+
+
 # mlcroissant logs its errors as "Found the following N error(s) during the validation:"
 # and one indented "  -  <what is wrong>" line each, then its warnings the same way.
 _CROISSANT_ERRORS = re.compile(r"error\(s\) during the validation:\n((?:[ \t]+-[ \t]+.+\n?)*)")
@@ -106,18 +115,26 @@ class RestrictedSourceError(ReleaseError):
 
 
 class ValidatorFailed(ReleaseError):  # noqa: N818  # the names decision 0006 gives
-    """A check of the release folder reported findings, one per problem."""
+    """A check of the release folder reported findings, one per problem; `ran` names each check that ran."""
+
+    def __init__(self, problems: list[str], ran: list[dict[str, str]]) -> None:
+        super().__init__(problems)
+        self.ran = ran
 
 
 class ValidatorMissing(OSError):  # noqa: N818
     """A check the release needs is not installed: the `release` extra is missing."""
 
 
+class ValidatorCouldNotRun(OSError):  # noqa: N818
+    """A check stopped without reporting findings, such as offline or past its time limit, so it did not check."""
+
+
 def release(
     sources: list[Source],
     out_dir: Path,
     *,
-    formats: Collection[str] = (),
+    formats: Iterable[str] = (),
     raw: Path = RAW,
     processed: Path = PROCESSED,
     codemeta: Path = CODEMETA,
@@ -128,21 +145,25 @@ def release(
 
     The folder gets `data/` with the output of every implemented source whose `redistribute` is
     true, `datapackage.json` without the others, `ro-crate-metadata.json` and `croissant.json`
-    when `formats` asks for them, and `SHA256SUMS`, written last. The descriptive fields come
-    from `codemeta`. The folder is written beside `out_dir` and moved into place only once every
-    check passed, so a refused release leaves nothing at `out_dir`. `dry_run` checks the input
-    and returns what would be written, without writing.
+    when `formats` (any iterable of their names) asks for them, and `SHA256SUMS`, written last.
+    The descriptive fields come from `codemeta`. The folder is written beside `out_dir` and moved
+    into place only once every check passed, so a refused release leaves nothing at `out_dir`.
+    `dry_run` checks the input and returns what would be written, without writing.
 
     The result has `files` (paths in the folder), `excluded` (source ids), `formats` (each
     optional format "written" or "skipped") and `validators` (`file`, `name`, `version` of each
     check that ran). Raises ReleaseError when `validate` finds problems or codemeta.json lacks a
     field a format needs, RestrictedSourceError when a restricted source's bytes reached the
     folder, ValidatorFailed when a check reports findings, ValidatorMissing when a check a format
-    needs is not installed, and FileExistsError when `out_dir` exists and is not empty.
+    needs is not installed, ValidatorCouldNotRun when a check stopped without reporting, and
+    FileExistsError when `out_dir` exists and is not empty.
     """
-    if not (isinstance(formats, list | tuple) and set(formats) <= set(RELEASE_FORMATS)):
-        msg = f"formats must be a list drawn from {list(RELEASE_FORMATS)}, not {formats!r}"
+    # A str is an iterable of str too, and would be read one letter at a time.
+    wanted = set(formats)
+    if isinstance(formats, str) or not wanted <= set(RELEASE_FORMATS):
+        msg = f"formats must be drawn from {list(RELEASE_FORMATS)}, not {formats!r}"
         raise ValueError(msg)
+    formats = [fmt for fmt in RELEASE_FORMATS if fmt in wanted]
     if problems := validate(sources, raw=raw, processed=processed, output_format=output_format):
         raise ReleaseError(problems)
     if out_dir.exists() and (not out_dir.is_dir() or any(out_dir.iterdir())):
@@ -153,7 +174,7 @@ def release(
     described = _described(codemeta, formats)
     shipped, excluded = _split(sources)
     files = [f"{_DATA}/{output_name(s, output_format)}" for s in shipped]
-    files += [DATAPACKAGE, *(_FILES[fmt] for fmt in RELEASE_FORMATS if fmt in formats), SUMS]
+    files += [DATAPACKAGE, *(_FILES[fmt] for fmt in formats), SUMS]
     result: dict[str, Any] = {
         "files": files,
         "excluded": [s["id"] for s in excluded],
@@ -169,10 +190,10 @@ def release(
     folder = _part_folder(out_dir)
     try:
         _write(folder, sources, described, formats, raw=raw, processed=processed, output_format=output_format)
-        _refuse_restricted(folder, out_dir, excluded, raw, processed, output_format)
+        _refuse_restricted(folder, out_dir, sources, raw, processed, output_format)
         problems, result["validators"] = check_release(folder)
         if problems:
-            raise ValidatorFailed(problems)
+            raise ValidatorFailed(problems, result["validators"])
         if out_dir.exists():
             out_dir.rmdir()  # empty, as checked above; Windows cannot rename onto it
         folder.rename(out_dir)
@@ -232,8 +253,9 @@ def check_release(folder: Path) -> tuple[list[str], list[dict[str, str]]]:
     """Check a release folder: SHA256SUMS against the files, then each metadata file with its validator.
 
     Returns one string per problem, and the `file`, `name` and `version` of each check that ran.
-    Raises FileNotFoundError when `folder` is not a folder, and ValidatorMissing when a metadata
-    file is there but its validator is not installed.
+    Raises FileNotFoundError when `folder` is not a folder, ValidatorMissing when a metadata
+    file is there but its validator is not installed, and ValidatorCouldNotRun when a validator
+    stopped without reporting findings or ran past its time limit.
     """
     if not folder.is_dir():
         raise FileNotFoundError(errno.ENOENT, "no such folder", str(folder))
@@ -243,10 +265,15 @@ def check_release(folder: Path) -> tuple[list[str], list[dict[str, str]]]:
     ran = [{"file": SUMS, "name": "sourceledger", "version": _VERSION}]
     for name in present:
         dist, args = _VALIDATORS[name]
+        # -I: the folder is someone else's, and a module planted in it must not shadow the validator.
+        command = [sys.executable, "-I", *args]
         try:
-            subprocess.run([sys.executable, *args], cwd=folder, capture_output=True, check=True)  # noqa: S603  # a fixed command line, with this interpreter
+            subprocess.run(command, cwd=folder, capture_output=True, check=True, timeout=_TIMEOUT_S)  # noqa: S603  # a fixed command line, with this interpreter
         except subprocess.CalledProcessError as failed:
-            problems += [f"{name}: {finding}" for finding in _findings(dist, failed)]
+            problems += [f"{name}: {finding}" for finding in _findings(name, dist, failed)]
+        except subprocess.TimeoutExpired:
+            msg = f"{name}: {dist} did not finish in {_TIMEOUT_S} s"
+            raise ValidatorCouldNotRun(msg) from None
         ran.append({"file": name, "name": dist, "version": versions[name]})
     return problems, ran
 
@@ -275,14 +302,20 @@ def _croissant_findings(_stdout: str, stderr: str) -> list[str]:
     return [line.strip().removeprefix("-").strip() for line in match[1].splitlines()] if match else []
 
 
-def _findings(dist: str, failed: subprocess.CalledProcessError) -> list[str]:
-    """What a failed validator reported, one line per finding, or else its last line of output."""
+def _findings(name: str, dist: str, failed: subprocess.CalledProcessError) -> list[str]:
+    """What a validator of `name` reported, one line per finding; ValidatorCouldNotRun when it reported none.
+
+    Both validators exit 1 for findings. Any other exit, or exit 1 without findings (a crash),
+    means the check did not happen; the error then carries the last line that says something,
+    from stderr first.
+    """
     # Decoded here, not by subprocess: a validator writes in its own locale, and a stray byte must not hide a finding.
     stdout, stderr = failed.stdout.decode(errors="replace"), failed.stderr.decode(errors="replace")
-    if findings := _FINDINGS[dist](stdout, stderr):
+    if failed.returncode == 1 and (findings := _FINDINGS[dist](stdout, stderr)):
         return findings
-    lines = [line.strip() for line in (stdout + stderr).splitlines() if line.strip()]
-    return [f"{dist} exited {failed.returncode}: {lines[-1] if lines else 'with no output'}"]
+    said = [line.strip() for line in (stdout + "\n" + stderr).splitlines() if not _DIVIDER.fullmatch(line)]
+    msg = f"{name}: {dist} exited {failed.returncode}: {said[-1] if said else 'with no output'}"
+    raise ValidatorCouldNotRun(msg)
 
 
 _FINDINGS = {"roc-validator": _rocrate_findings, "mlcroissant": _croissant_findings}
@@ -292,7 +325,10 @@ def _described(codemeta: Path, formats: Collection[str]) -> dict[str, Any]:
     """The dataset's descriptive fields from codemeta.json; ReleaseError naming each field a format lacks."""
     if not formats:
         return {}
-    meta = json.loads(codemeta.read_bytes())
+    try:
+        meta = json.loads(codemeta.read_bytes())
+    except ValueError as error:  # also bytes outside UTF-8
+        raise ReleaseError([f"{codemeta.as_posix()} is not valid JSON: {error}"]) from None
     if not isinstance(meta, dict):
         msg = f"{codemeta.as_posix()} is not a JSON object"
         raise ReleaseError([msg])
@@ -322,8 +358,8 @@ def _package(processed: Path, shipped: list[Source]) -> dict[str, Any]:
 
 
 def _write_json(path: Path, document: object) -> None:
-    """`document` indented by 2, with LF line ends and other than ASCII escaped, as every JSON reader takes it."""
-    path.write_bytes((json.dumps(document, indent=2) + "\n").encode())
+    """`document` as UTF-8 indented by 2, with LF line ends, as `build` writes datapackage.json."""
+    path.write_bytes((json.dumps(document, indent=2, ensure_ascii=False) + "\n").encode())
 
 
 def _files(folder: Path) -> list[str]:
@@ -344,6 +380,8 @@ def _sums_problems(folder: Path) -> list[str]:
         text = path.read_bytes().decode()
     except FileNotFoundError:
         return [f"{path.as_posix()} is missing"]
+    except UnicodeDecodeError:
+        return [f"{path.as_posix()} is not UTF-8 text"]
     problems, listed = [], set()
     for number, line in enumerate(text.splitlines(), 1):
         match = re.fullmatch(r"([0-9a-f]{64}) [ *](.+)", line)
@@ -366,14 +404,17 @@ def _sums_problems(folder: Path) -> list[str]:
 
 
 def _refuse_restricted(
-    folder: Path, shown: Path, excluded: list[Source], raw: Path, processed: Path, output_format: str
+    folder: Path, shown: Path, sources: list[Source], raw: Path, processed: Path, output_format: str
 ) -> None:
-    """RestrictedSourceError when any file in `folder` has the bytes of an excluded source's raw file or output.
+    """RestrictedSourceError when any file in `folder` has the bytes of a restricted source's raw file or output.
 
-    Each problem names the file as it would be under `shown`.
+    The restricted sources are read from `sources` here, not taken from `_split`, so a bug that
+    ships one cannot also clear it. Each problem names the file as it would be under `shown`.
     """
     banned = {}
-    for source in excluded:
+    for source in implemented(sources):
+        if source.get("redistribute") is True:
+            continue
         record = current_record(source, raw)
         banned[record.sha256] = source["id"]
         out = processed / output_name(source, output_format)
