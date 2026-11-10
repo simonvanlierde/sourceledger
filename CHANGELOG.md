@@ -8,6 +8,8 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-10
+
 Upgrade note for scripts that call the CLI: exit code 3 now means a stage could not run
 (it was 1), errors on stderr read `error: ...` and `help: ...` instead of `STAGE: ...`,
 `validate` and `verify` print their problems on stdout, and `--json` reports have a
@@ -308,7 +310,8 @@ Upgrade steps:
   vintage or pin.
 - Manifest key `vintage`. The key `release` is still read, with a warning.
 
-[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/simonvanlierde/sourceledger/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.2.0...v0.3.0
