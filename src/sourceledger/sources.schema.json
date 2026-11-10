@@ -10,6 +10,12 @@
       "enum": ["csv", "parquet"],
       "description": "The project's table output format. CSV unless set; Parquet needs the parquet extra."
     },
+    "release_formats": {
+      "type": "array",
+      "items": { "enum": ["ro-crate", "croissant"] },
+      "uniqueItems": true,
+      "description": "The optional metadata files release writes beside SHA256SUMS. None unless set."
+    },
     "source": {
       "type": "array",
       "items": { "$ref": "#/$defs/source" }

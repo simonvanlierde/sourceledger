@@ -108,13 +108,35 @@ def test_a_misspelt_top_level_key_is_refused_before_any_write(
     assert not (tmp_path / "data").exists()
 
 
-def test_output_format_inside_a_source_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Appended below the sources, the line belongs to the last [[source]] and would build CSV."""
-    text = '[[source]]\nid = "a"\nstatus = "unimplemented"\noutput_format = "parquet"\n'
+@pytest.mark.parametrize(("key", "value"), [("output_format", '"parquet"'), ("release_formats", '["ro-crate"]')])
+def test_a_project_key_inside_a_source_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: str, value: str
+) -> None:
+    """Appended below the sources, the line belongs to the last [[source]], where it would do nothing."""
+    text = f'[[source]]\nid = "a"\nstatus = "unimplemented"\n{key} = {value}\n'
     (tmp_path / "sources.toml").write_text(text, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(ValueError, match=r"^source 'a' in sources.toml sets output_format; put it above"):
+    with pytest.raises(ValueError, match=rf"^source 'a' in sources.toml sets {key}; put it above"):
         manifest_mod.load_manifest()
+
+
+@pytest.mark.parametrize("value", ['"ro-crate"', '["zip"]', '["croissant", "croissant"]', "[1]", "[[]]"])
+def test_release_formats_lists_known_formats_once(tmp_path: Path, value: str) -> None:
+    path = tmp_path / "sources.toml"
+    path.write_text(f"release_formats = {value}\n", encoding="utf-8")
+    message = r"^release_formats in sources.toml must list each of \['ro-crate', 'croissant'\] at most once$"
+    with pytest.raises(ValueError, match=message):
+        manifest_mod.load_manifest(path)
+    with pytest.raises(ValueError, match=message):
+        manifest_mod.load_release_formats(path)
+
+
+def test_release_formats_is_empty_unless_set(tmp_path: Path) -> None:
+    path = tmp_path / "sources.toml"
+    path.write_text("", encoding="utf-8")
+    assert manifest_mod.load_release_formats(path) == []
+    path.write_text('release_formats = ["croissant", "ro-crate"]\n', encoding="utf-8")
+    assert manifest_mod.load_release_formats(path) == ["croissant", "ro-crate"]
 
 
 def test_an_unknown_top_level_key_with_no_close_match_gets_no_hint(
@@ -128,7 +150,7 @@ def test_an_unknown_top_level_key_with_no_close_match_gets_no_hint(
 
 def test_the_schema_closes_the_top_level() -> None:
     assert SCHEMA["additionalProperties"] is False
-    assert set(SCHEMA["properties"]) == {"output_format", "source"}
+    assert set(SCHEMA["properties"]) == {"output_format", "release_formats", "source"}
 
 
 @pytest.mark.usefixtures("upstream")
@@ -258,6 +280,11 @@ _GOOD = f'[[source]]\nid = "a"\nstatus = "implemented"\nurl = "https://example.o
         _GOOD.replace("https://", "HTTPS://") + 'headers = { Authorization = "env:TOKEN" }\n',
         _GOOD.replace('url = "https://example.org/a.csv"\n', ""),
         _GOOD + 'release = "2024"\n',
+        'release_formats = ["ro-crate", "croissant"]\n' + _GOOD,
+        "release_formats = []\n" + _GOOD,
+        'release_formats = ["ro-crate", "ro-crate"]\n' + _GOOD,
+        'release_formats = ["zip"]\n' + _GOOD,
+        'release_formats = "ro-crate"\n' + _GOOD,
     ],
 )
 def test_the_schema_and_the_loader_agree(tmp_path: Path, text: str) -> None:

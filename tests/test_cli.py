@@ -1028,3 +1028,13 @@ def test_recording_the_same_file_again_returns_the_kept_log_line(
     assert json.loads(sidecar.read_text(encoding="utf-8")) == {
         k: v for k, v in recorded.items() if k not in ("new", "relogged")
     }
+
+
+@pytest.mark.usefixtures("project")
+def test_a_file_in_the_way_of_a_folder_has_no_help_line(capsys: pytest.CaptureFixture[str]) -> None:
+    """The help for a file a stage will not overwrite belongs to init and release, not to fetch."""
+    Path("data").mkdir()
+    Path("data/raw").write_text("not a folder", encoding="utf-8")
+    assert main(["fetch"]) == 3
+    err = capsys.readouterr().err
+    assert err == "error: [Errno 17] File exists: 'data/raw'\n"

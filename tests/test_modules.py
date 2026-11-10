@@ -10,7 +10,7 @@ from sourceledger import manifest
 
 SRC = Path(manifest.__file__).parent
 # A module imports only from a lower level. `fetch` and `build` do not import each other.
-LEVEL = {"manifest": 0, "ledger": 1, "fetcher": 2, "builder": 2, "report": 3, "cli": 4}
+LEVEL = {"manifest": 0, "ledger": 1, "fetcher": 2, "builder": 2, "report": 3, "releaser": 4, "cli": 5}
 NETWORK = {"socket", "ssl", "http", "urllib.request", "urllib.error", "urllib.response"}
 
 
@@ -35,7 +35,7 @@ def test_a_module_imports_only_from_a_lower_level(module: str) -> None:
                 assert LEVEL[sibling.split(".")[0]] < LEVEL[module], f"{module} imports {name}"
 
 
-@pytest.mark.parametrize("module", ["manifest", "ledger", "builder", "report"])
+@pytest.mark.parametrize("module", ["manifest", "ledger", "builder", "report", "releaser"])
 def test_only_fetch_and_the_cli_reach_the_network(module: str) -> None:
     for node in _imports(module):
         for name in _modules(node):
@@ -47,6 +47,14 @@ def test_the_cli_uses_only_public_names_of_the_package() -> None:
         if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("sourceledger."):
             private = [alias.name for alias in node.names if alias.name.startswith("_")]
             assert not private, f"cli imports {private} from {node.module}"
+
+
+def test_no_module_is_named_after_a_public_name() -> None:
+    """A module named like a function it exports, such as `release`, hides the function behind the module."""
+    import sourceledger  # noqa: PLC0415
+
+    # report.py predates the rule: until it is renamed, `sourceledger.report` is the function, not the module.
+    assert set(LEVEL) & set(sourceledger.__all__) == {"report"}
 
 
 def test_the_manifest_knows_the_formats_build_reads() -> None:

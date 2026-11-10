@@ -40,12 +40,17 @@ xlsx = [
 parquet = [
     "pyarrow>=23",
 ]
+release = [
+    "mlcroissant>=1.1.1",
+    "roc-validator>=0.13.1",
+]
 
 [dependency-groups]
 dev = [
   "frictionless>=5.20",
   "hypothesis>=6.170.13",
   "jsonschema>=4.26",
+  "mlcroissant>=1.1.1",
   "mutmut>=3.8.1",
   "openpyxl>=3.1",
   "polars>=1.35",
@@ -53,6 +58,7 @@ dev = [
   "pytest>=9.2.0",
   "pytest-codspeed>=5.0.3",
   "pytest-cov>=7.1.0",
+  "roc-validator>=0.13.1",
   "ruff>=0.17.3",
   "ty>=0.0.93",
 ]
