@@ -45,12 +45,13 @@ from sourceledger.manifest import (
     init,
     load_manifest,
     load_output_format,
+    load_package_name,
     load_release_formats,
     output_name,
     printable,
     select,
 )
-from sourceledger.releaser import ReleaseError, check_release, release
+from sourceledger.releaser import CODEMETA, ReleaseError, check_release, release
 from sourceledger.report import attribution, one_line, report, status, status_records, validate, verify
 
 if TYPE_CHECKING:
@@ -201,6 +202,13 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
     sub["release"].add_argument(
         "--check", type=Path, metavar="DIR", help="check an existing release folder instead of writing one"
     )
+    sub["release"].add_argument(
+        "--codemeta",
+        type=Path,
+        default=CODEMETA,
+        metavar="PATH",
+        help="read the dataset's name, licence and authors from this CodeMeta file (default: ./codemeta.json)",
+    )
     sub["release"].set_defaults(check_args=_check_release_args)
     for name, stage_parser in sub.items():
         stage_parser.set_defaults(parser=stage_parser, run=_HANDLERS[name])
@@ -228,6 +236,8 @@ def _check_release_args(args: argparse.Namespace) -> None:
         args.parser.error("--check writes nothing; drop --dry-run")
     if args.check is not None and args.manifest != args.parser.get_default("manifest"):
         args.parser.error("--check reads no manifest; drop --manifest")
+    if args.check is not None and args.codemeta != CODEMETA:
+        args.parser.error("--check reads no codemeta.json; drop --codemeta")
 
 
 def _check_parameters(args: argparse.Namespace) -> None:
@@ -240,6 +250,7 @@ def _check_parameters(args: argparse.Namespace) -> None:
 
 
 def entry(
+    argv: list[str] | None = None,
     *,
     parse: Parser = parse_source,
     prog: str = "sourceledger",
@@ -249,7 +260,8 @@ def entry(
     """The `sourceledger` command: run `main` with these arguments, and exit as the shell expects.
 
     A project's own command points its console script at a function that calls this with its
-    `parse`, `prog`, `user_agent` and `manifest`, as for `main`.
+    `parse`, `prog`, `user_agent` and `manifest`, as for `main`. `argv` is the arguments,
+    `sys.argv[1:]` when None, so a test can run the command and catch its SystemExit.
     A shell loop stops on Ctrl-C only when the command was killed by the signal; an exit code of
     130 alone does not stop it, so after Ctrl-C this dies of SIGINT. `main` itself returns 130.
     A reader that closes the pipe early, such as `head`, ends the command quietly by SIGPIPE.
@@ -261,7 +273,7 @@ def entry(
     for stream, newline in ((sys.stdout, {"newline": "\n"}), (sys.stderr, {})):
         if reconfigure := getattr(stream, "reconfigure", None):
             reconfigure(encoding="utf-8", **newline)
-    code = main(parse=parse, prog=prog, user_agent=user_agent, manifest=manifest)
+    code = main(argv=argv, parse=parse, prog=prog, user_agent=user_agent, manifest=manifest)
     if code == EXIT_INTERRUPTED and sys.platform != "win32":  # noqa: PLR2004
         sys.stdout.flush()
         sys.stderr.flush()
@@ -376,8 +388,11 @@ def _help(error: Exception, run: _Run) -> str | None:
         return _MISSING_PATH_HELP[run.args.stage]
     if missing == run.args.manifest:
         return f"run `{run.prog} init` to write one, or pass --manifest PATH"
-    if missing == FETCH_LOG:
-        return f"run `{run.prog} fetch` first; it writes the log"
+    if missing and (missing == FETCH_LOG or missing.name.endswith(".fetch.json")):
+        writes = (
+            "; it writes the log" if missing == FETCH_LOG else f", or `{run.prog} record` for a file you fetch yourself"
+        )
+        return f"run `{run.prog} fetch` first{writes}"
     if isinstance(error, FileExistsError):
         return _EXISTS_HELP.get(run.args.stage)
     # A held lock: BlockingIOError on POSIX, PermissionError on Windows.
@@ -516,7 +531,10 @@ def _build_stage(run: _Run) -> list[str]:
             run.say(f"would write {(PROCESSED / output_name(source, output_format)).as_posix()}")
         run.say(f"would write {(PROCESSED / DATAPACKAGE).as_posix()}")
         return []
-    for out, count in build_sources(sources, parse=run.parse, only=run.args.only, output_format=output_format):
+    name = load_package_name(run.args.manifest)
+    for out, count in build_sources(
+        sources, parse=run.parse, only=run.args.only, output_format=output_format, name=name
+    ):
         size = f"{out.stat().st_size} bytes" if count is None else f"{count} row{'' if count == 1 else 's'}"
         run.say(f"{size} -> {out.as_posix()}")
     run.say(f"package -> {(PROCESSED / DATAPACKAGE).as_posix()}")
@@ -574,24 +592,31 @@ def _release_stage(run: _Run) -> list[str]:
             run.args.path,
             formats=load_release_formats(run.args.manifest),
             output_format=load_output_format(run.args.manifest),
+            codemeta=run.args.codemeta,
             dry_run=run.args.dry_run,
         )
     except ReleaseError as error:  # refused input or findings: the stage's result, as for --check
         run.result["validators"] = getattr(error, "ran", [])
         return _report_problems(run, error.problems)
     run.result.update(result)
+    _say_release(run, result)
+    return []
+
+
+def _say_release(run: _Run, result: dict[str, Any]) -> None:
     verb = "would write" if run.args.dry_run else "wrote"
     out = run.args.path.as_posix()
     for name in result["files"]:
         run.say(f"{verb} {out}/{name}")
     for sid in result["excluded"]:
         run.say(f"excluded {sid}: redistribute is not true")
+    if not any(name.startswith("data/") for name in result["files"]):
+        run.say("nothing to ship: no implemented source has redistribute = true, so data/ is empty")
     for fmt, state in result["formats"].items():
         if state == "skipped":  # noqa: PLR2004
             run.say(f"skipped {fmt}: not in release_formats")
     for ran in result["validators"]:
         run.say(f"checked {ran['file']} with {ran['name']} {ran['version']}")
-    return []
 
 
 def _report_stage(run: _Run) -> list[str]:

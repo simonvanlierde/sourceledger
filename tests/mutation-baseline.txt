@@ -11,7 +11,8 @@ sourceledger.builder.x__json_text__mutmut_11  None is falsy, as False is
 sourceledger.builder.x__json_text__mutmut_25  None is falsy, as False is
 sourceledger.builder.x__listed__mutmut_3  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.builder.x__listed__mutmut_5  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.builder.x__package_name__mutmut_24  the name is lower-cased first, so there is no X to strip
+sourceledger.builder.x__package_name__mutmut_12  None and "" are both not a dict, so neither names the project
+sourceledger.builder.x__package_name__mutmut_48  the name is lower-cased first, so there is no X to strip
 sourceledger.builder.x__parquet_batches__mutmut_4  threads change speed, not the batches read
 sourceledger.builder.x__parquet_batches__mutmut_6  threads change speed, not the batches read
 sourceledger.builder.x__parquet_batches__mutmut_7  threads change speed, not the batches read
@@ -25,7 +26,7 @@ sourceledger.builder.x__write_cells__mutmut_58  the default text encoding is UTF
 sourceledger.builder.x__write_cells__mutmut_59  newline=None translates "\n" to os.linesep, which is "\n" on Linux, where the job runs
 sourceledger.builder.x__write_cells__mutmut_61  codec names are case-insensitive: "UTF-8" is utf-8
 sourceledger.builder.x_build_sources__mutmut_1  every caller passes output_format
-sourceledger.builder.x_build_sources__mutmut_12  earlier is read only when `only` is set
+sourceledger.builder.x_build_sources__mutmut_13  earlier is read only when `only` is set
 sourceledger.builder.x_build_sources__mutmut_2  every caller passes output_format
 sourceledger.builder.x_build_sources__mutmut_80  None is falsy, as False is
 sourceledger.builder.x_json_bytes__mutmut_4  None is falsy, as False is

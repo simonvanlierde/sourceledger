@@ -7,6 +7,7 @@ import io
 import json
 import sys
 import tempfile
+from collections.abc import Callable
 from datetime import datetime
 from email.message import Message
 from pathlib import Path
@@ -110,7 +111,9 @@ _columns = st.lists(
 )
 
 
-def _built(name: str, payload: bytes, parse: builder_mod.Parser) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+def _built(
+    name: str, payload: bytes, parse: Callable[[manifest_mod.Source, bytes], tuple[list[str], list[dict[str, str]]]]
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     """The rows `parse` reads from `payload`, and the rows read back after a fetch and build of it."""
     with tempfile.TemporaryDirectory() as folder:
         root = Path(folder)

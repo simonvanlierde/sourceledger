@@ -466,14 +466,15 @@ def test_output_is_utf8_with_lf_in_any_locale(tmp_path: Path) -> None:
 def test_the_command_dies_of_sigint_after_ctrl_c() -> None:
     """A shell loop stops on Ctrl-C only when the command died of SIGINT, not when it exited 130."""
     result = subprocess.run(
-        [sys.executable, "-c", "from sourceledger import cli; cli.main = lambda **_: 130; cli.entry()"], check=False
+        [sys.executable, "-c", "from sourceledger import cli; cli.main = lambda *_, **__: 130; cli.entry()"],
+        check=False,
     )
     assert result.returncode == -2  # SIGINT
 
 
 def test_the_command_exits_with_mains_code() -> None:
     result = subprocess.run(
-        [sys.executable, "-c", "from sourceledger import cli; cli.main = lambda **_: 3; cli.entry()"], check=False
+        [sys.executable, "-c", "from sourceledger import cli; cli.main = lambda *_, **__: 3; cli.entry()"], check=False
     )
     assert result.returncode == 3
 
@@ -574,6 +575,10 @@ def test_entry_makes_both_streams_utf8_and_stdout_lf_and_main_leaves_them(monkey
     with pytest.raises(SystemExit) as exit_:
         cli.entry()
     assert exit_.value.code == 0
+    # argv given beats sys.argv, so a project's tests need not patch it.
+    with pytest.raises(SystemExit) as exit_:
+        cli.entry(["status", "--bogus"])
+    assert exit_.value.code == 2
 
 
 @pytest.mark.parametrize(
@@ -603,6 +608,7 @@ def test_entry_runs_the_sourceledger_command_by_default(monkeypatch: pytest.Monk
     with pytest.raises(SystemExit):
         cli.entry()
     assert seen == {
+        "argv": None,
         "parse": builder_mod.parse_source,
         "prog": "sourceledger",
         "user_agent": sourceledger.USER_AGENT,
@@ -615,9 +621,10 @@ def test_entry_passes_a_projects_arguments_to_main(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(cli, "main", lambda **kwargs: seen.update(kwargs) or 0)
     monkeypatch.setattr(signal, "signal", lambda *_: None)
     with pytest.raises(SystemExit) as exit_:
-        cli.entry(prog="my-dataset", user_agent="my-dataset/1", manifest=tmp_path / "s.toml")
+        cli.entry(["status"], prog="my-dataset", user_agent="my-dataset/1", manifest=tmp_path / "s.toml")
     assert exit_.value.code == 0
     assert seen == {
+        "argv": ["status"],
         "parse": builder_mod.parse_source,
         "prog": "my-dataset",
         "user_agent": "my-dataset/1",
@@ -663,8 +670,10 @@ def test_a_missing_input_is_one_line_and_a_failed_exit(capsys: pytest.CaptureFix
     """Building before fetching names the missing file instead of printing a traceback."""
     assert _run("build") == [3]
     err = capsys.readouterr().err
-    assert "example.csv.fetch.json is missing" in err
-    assert len(err.strip().splitlines()) == 1
+    assert err == (
+        "error: data/raw/example.csv.fetch.json is missing\n"
+        "help: run `sourceledger fetch` first, or `sourceledger record` for a file you fetch yourself\n"
+    )
 
 
 def test_a_failed_download_is_one_line_and_a_failed_exit(

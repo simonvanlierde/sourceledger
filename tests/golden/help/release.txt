@@ -1,5 +1,5 @@
 usage: sourceledger release [-h] [--manifest PATH] [--dry-run] [--json]
-                            [--check DIR]
+                            [--check DIR] [--codemeta PATH]
                             [OUT_DIR]
 
 Write and check a release folder: data, metadata, SHA256SUMS.
@@ -13,3 +13,5 @@ options:
   --dry-run        say what would happen, and write nothing
   --json           print one JSON object instead of text
   --check DIR      check an existing release folder instead of writing one
+  --codemeta PATH  read the dataset's name, licence and authors from this
+                   CodeMeta file (default: ./codemeta.json)

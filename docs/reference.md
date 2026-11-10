@@ -41,6 +41,7 @@ The default is `output_format = "csv"`. `format = "file"` sources keep their ori
 Every CSV row repeats the five provenance columns, so a CSV output of a narrow table is many times the size of
 its raw file: a two-column table of 200,000 rows came out 14 times larger. Parquet stores those repeated values
 once per column chunk; the same table was smaller than its raw file. Use Parquet for large tables.
+`data/processed/` holds only build outputs and `datapackage.json`: `validate` reports any other file there, so keep a project's own files elsewhere, as `data/extra/`.
 When switching formats, move old outputs out of `data/processed/` before rebuilding; `validate` reports them as unclaimed files.
 Library callers pass `output_format="parquet"` to both `build` and `validate`; `load_manifest` returns only source tables.
 
@@ -52,7 +53,18 @@ release_formats = ["ro-crate", "croissant"]
 
 Without it, `release` writes neither; see [release a dataset](#release-a-dataset).
 
-`output_format`, `release_formats` and `[[source]]` are the only top-level keys. Any other, such as a misspelt
+Set `name` there to name the data package in `datapackage.json`:
+
+```toml
+name = "co2-annual"
+```
+
+It takes lower case letters, digits, `.`, `_` and `-`. Without it, `build` uses the `[project]`
+name in `./pyproject.toml`, or else the current folder's name, made lower case. The folder
+differs between clones, worktrees and CI, so set `name` or keep a `pyproject.toml` when the
+file must be the same everywhere. Library callers pass `name=` to `build`; `load_package_name` reads it.
+
+`name`, `output_format`, `release_formats` and `[[source]]` are the only top-level keys. Any other, such as a misspelt
 `[[sources]]`, is refused, with the intended name when one is close, so a typo never reads as
 an empty manifest.
 A source table may hold extra keys for your own reader.
@@ -276,9 +288,13 @@ new or empty. The folder holds:
   `sha256sum -c SHA256SUMS` checks the folder without sourceledger.
 
 The dataset's name, description, authors, licence, version, identifier, `datePublished` and
-`url` come from `codemeta.json` in the current directory, the project's CodeMeta file.
+`url` come from `codemeta.json` in the current directory, the project's CodeMeta file, or
+from the file `--codemeta PATH` names (`codemeta=` in the library).
+Its `license` becomes the dataset's licence. When the data has another licence than the code,
+as when the code is MIT and the data CC-BY-4.0, keep a CodeMeta file for the dataset and pass
+it with `--codemeta`.
 `release` does not write it, and reads it only when `release_formats` asks for a format.
-If the file is missing then, `release` exits 1 and names `codemeta.json`.
+If the file is missing then, `release` exits 1 and names it.
 Both CodeMeta 2 and 3 files work: CodeMeta 3's `id` and `type` are written as `@id` and `@type`, so an author's ORCID stays its `@id`.
 
 RO-Crate needs `name`, `description`, `license` and `datePublished`. Croissant needs `name`,
@@ -301,7 +317,7 @@ version.
 
 The two validators come with the release extra: `uv tool install 'sourceledger[release]'`, or
 `uv add 'sourceledger[release]'` in a project. When a metadata file is there but its validator
-is not, `release` exits 3 with the install line.
+is not, `release` exits 3 with both install lines. It reads `codemeta.json` first, so a missing field shows before that.
 
 The folder is written beside `OUT_DIR` and moved into place only once every check passes, so a
 refused release leaves nothing at `OUT_DIR`. A killed `release` leaves `.OUT_DIR.part` beside

@@ -9,6 +9,7 @@ import itertools
 import json
 import re
 import shutil
+import tomllib
 import unicodedata
 import zipfile
 import zlib
@@ -35,6 +36,7 @@ from sourceledger.manifest import (
     _MAX_BYTES,
     FILE_FORMAT,
     Source,
+    _check_name,
     _check_output_format,
     implemented,
     output_name,
@@ -65,8 +67,9 @@ _PARQUET_BATCH_ROWS = 10_000
 _GZIP_MAGIC = b"\x1f\x8b"
 
 
-# Reads one raw file as its columns and rows. `parse_source` is the default.
-type Parser = Callable[[Source, bytes], tuple[list[str], list[dict[str, str]]]]
+# Reads one raw file as its columns and rows. `parse_source` is the default. A cell may be any
+# value: None is written as "", anything else through str().
+type Parser = Callable[[Source, bytes], tuple[list[str], Iterable[Mapping[str, object]]]]
 
 
 def parse_source(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
@@ -305,7 +308,11 @@ def _sheet_rows(source: Source, workbook: Any) -> list[tuple[int, tuple[object, 
         workbook.close()
 
 
-_PARSERS: dict[str, Parser] = {"csv": parse_csv, "json": parse_json, "xlsx": parse_xlsx}
+_PARSERS: dict[str, Callable[[Source, bytes], tuple[list[str], list[dict[str, str]]]]] = {
+    "csv": parse_csv,
+    "json": parse_json,
+    "xlsx": parse_xlsx,
+}
 
 
 def _stamp(record: FetchRecord) -> dict[str, str]:
@@ -327,6 +334,7 @@ def build(
     parse: Parser = parse_source,
     only: Collection[str] | None = None,
     output_format: str = "csv",
+    name: str | None = None,
 ) -> list[Path]:
     """Write implemented sources to `processed`: unchanged files, or tables stamped with their fetch records.
 
@@ -336,7 +344,9 @@ def build(
     string schema. Parquet needs the parquet extra and writes batches of at most 10,000 rows.
     Then writes `processed/datapackage.json`, a Frictionless Data Package (v2) describing every
     output: its columns, size and SHA-256, its source URL and licence, and its fetch record.
-    The same records give the same file, byte for byte.
+    The package is called `name`; without one, the `[project]` name in ./pyproject.toml, or else
+    the current folder's name, either made lower case. The same records and name give the same
+    file, byte for byte.
 
     `only` restricts the build to those source ids. The package keeps each other source's
     entry as the last build wrote it. Raises ValueError for an id the manifest does not have,
@@ -345,7 +355,7 @@ def build(
     return [
         out
         for out, _count in build_sources(
-            sources, raw=raw, processed=processed, parse=parse, only=only, output_format=output_format
+            sources, raw=raw, processed=processed, parse=parse, only=only, output_format=output_format, name=name
         )
     ]
 
@@ -358,9 +368,11 @@ def build_sources(
     parse: Parser = parse_source,
     only: Collection[str] | None = None,
     output_format: str = "csv",
+    name: str | None = None,
 ) -> list[tuple[Path, int | None]]:
     """Build outputs with row counts for tables, or None for unchanged file copies."""
     _check_output_format(output_format)
+    _check_name(name)
     selected = {s["id"] for s in select(sources, only)}
     earlier = {} if only is None else _listed(processed / DATAPACKAGE)
     processed.mkdir(parents=True, exist_ok=True)
@@ -378,7 +390,7 @@ def build_sources(
         record, fields, count = _build_one(source, raw, out, parse)
         written.append((out, count))
         resources.append(_resource(source, record, fields, out))
-    package = {"$schema": _DATAPACKAGE_PROFILE, "name": _package_name(), "resources": resources}
+    package = {"$schema": _DATAPACKAGE_PROFILE, "name": name or _package_name(), "resources": resources}
     _write_atomic(processed / DATAPACKAGE, json_bytes(package))
     return written
 
@@ -513,8 +525,18 @@ def _by_name(package: object) -> dict[str, Any]:
 
 
 def _package_name() -> str:
-    """The project directory's name, lower-cased and without accents, as Data Package names should be."""
-    letters = "".join(c for c in unicodedata.normalize("NFKD", Path.cwd().name) if not unicodedata.combining(c))
+    """The project's name, from ./pyproject.toml or else the folder, lower-cased and without accents."""
+    try:
+        with Path("pyproject.toml").open("rb") as fh:
+            project = tomllib.load(fh).get("project")
+    except FileNotFoundError:
+        project = None
+    except tomllib.TOMLDecodeError as error:
+        msg = f"pyproject.toml: {error}; fix it, or set name in sources.toml"
+        raise ValueError(msg) from None
+    named = project.get("name") if isinstance(project, dict) else None
+    text = named if isinstance(named, str) and named.strip() else Path.cwd().name
+    letters = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
     return re.sub(r"[^a-z0-9._-]+", "-", letters.lower()).strip("-") or "dataset"
 
 

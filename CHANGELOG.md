@@ -34,6 +34,10 @@ Details are under Changed.
 
 ### Added
 
+- A top-level [`name`](docs/reference.md#sourcestoml) in `sources.toml` names the data package in `datapackage.json`. Without it, `build` uses the `[project]` name in `pyproject.toml`, and only then the folder's name, so another clone, worktree or CI checkout writes the same file. `load_package_name` reads it, and `build` takes `name=`.
+- `release --codemeta PATH` reads the dataset's CodeMeta file in place of `./codemeta.json`. Its `license` is the dataset's licence, so a project whose data is not under the code's licence keeps a separate file.
+- `entry()` takes `argv`, as `main()` does, so a project's tests can run its command without patching `sys.argv`.
+- A custom reader may return any mappings as rows, with numbers or None as cells: the `Parser` type now says so.
 - [`record`](docs/reference.md#other-commands), and `record()` in the library, take in a file that another tool such as pooch, DVC or your own script downloaded. It copies the file into `data/raw/`, checks the `sha256` pin, and writes the same log line and fetch record as `fetch`, with a `recorded_at` time and optional request `parameters`, stored as text in name order. The download time is the one the other tool reports, or empty. `datapackage.json` and the HTML report show these outputs as recorded, not fetched, and `status` shows the record time when there is no download time. A recorded URL other than the source's loses its query, and a parameter named like a credential (`api_key`, `apiKey`, `authKey`, `sessionid`, `sig`) is refused, since both are published with the dataset. Recording the same bytes again leaves the fetch record as logged; from another URL or download time it adds a log line, and `validate` reports a `datapackage.json` built before such a record. For a source with `archive = true`, `record` keeps the snapshot a fetch logged for the same bytes and asks for no new one. A dataset with a recorded file needs this version to build: 0.4.0 refuses its fetch records.
 - `sourceledger STAGE --help` lists only that stage's options. `--dry-run` on `fetch`, `record` and `build` says what they would do and writes nothing. `fetch`, `record` and `verify` accept `--json`. On a terminal, `fetch` shows which source it is fetching.
 - [Parquet outputs](docs/reference.md#sourcestoml) through `sourceledger[parquet]` and the project-wide `output_format = "parquet"` setting. Tables use zstd compression and an explicit string schema, with the same provenance columns and validation as CSV. `build` and `validate` accept `output_format=` in the library, and `read_output` reads either format. `output_format` inside a `[[source]]` table, where a line appended to `sources.toml` lands, is refused, as is `release_formats`.
@@ -67,6 +71,10 @@ Details are under Changed.
 
 ### Fixed
 
+- `build` before `fetch` says to run `fetch` first, or `record` for a file you fetch yourself, as a missing log already did.
+- `validate` says that `data/processed/` holds only build outputs when it finds another file there, and where to keep it instead.
+- `release` reads `codemeta.json` before it looks for the validators, so a missing field shows before you install them. The install line gives `uv add` for a project as well as `uv tool install`.
+- `release` says when nothing ships because no source has `redistribute = true`.
 - `build` names the source when a raw CSV or JSON file is not UTF-8, such as Latin-1, cp1252 or UTF-16. It gives the first bad byte and says to re-save the file as UTF-8. Before, it stopped with a bare `UnicodeDecodeError`.
 - `build` names the source when a JSON file holds an unpaired surrogate escape such as `"\ud800"`. Before, it stopped with a bare `UnicodeEncodeError`.
 - `attribution` keeps no-break and narrow no-break spaces in names and terms, such as `10 000 €`. Only ASCII whitespace is joined onto one line.

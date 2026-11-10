@@ -85,7 +85,7 @@ _VALIDATORS = {
 }
 
 
-_INSTALL = "uv tool install 'sourceledger[release]'"
+_INSTALL = "uv add 'sourceledger[release]' (project) or uv tool install 'sourceledger[release]' (CLI)"
 
 
 # Seconds a validator may take. roc-validator downloads the RO-Crate context; a stalled
@@ -172,9 +172,10 @@ def release(
     if out_dir.exists() and (not out_dir.is_dir() or any(out_dir.iterdir())):
         msg = f"{out_dir.as_posix()} already exists; a release goes into a new folder"
         raise FileExistsError(msg)
+    # codemeta.json first: a missing field is cheaper to learn before installing the validators.
+    described = _described(codemeta, formats)
     for fmt in formats:
         _validator_version(_FILES[fmt])
-    described = _described(codemeta, formats)
     shipped, excluded = _split(sources)
     files = [f"{_DATA}/{output_name(s, output_format)}" for s in shipped]
     files += [DATAPACKAGE, *(_FILES[fmt] for fmt in formats), SUMS]
