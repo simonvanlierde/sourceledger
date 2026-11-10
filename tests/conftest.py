@@ -2,6 +2,7 @@
 
 import http.server
 import threading
+import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, tzinfo
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Self
 
 import pytest
 from hypothesis import settings
+from support import FIXTURE, _manifest, _run, fetch_mod
 
 from sourceledger import ledger
 
@@ -89,6 +91,7 @@ class _FrozenDatetime(datetime, metaclass=_AnyDatetime):
 def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> datetime:
     """Fetch and record times are `NOW`, so their records compare byte for byte."""
     monkeypatch.setattr(ledger, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(fetch_mod, "datetime", _FrozenDatetime)
     return NOW
 
 
@@ -113,3 +116,32 @@ def golden(request: pytest.FixtureRequest) -> Callable[[str, str], None]:
 # which in CI is Hypothesis's derandomized "ci" profile: derandomize=False makes each weekly
 # run draw new inputs, and print_blob prints how to replay a failure.
 settings.register_profile("long", max_examples=10_000, derandomize=False, print_blob=True)
+
+
+@pytest.fixture
+def upstream(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A fixture source file and a manifest that points at it. The test runs inside the project directory."""
+    source = tmp_path / "upstream" / "example.csv"
+    source.parent.mkdir()
+    source.write_text(FIXTURE, encoding="utf-8", newline="")
+    _manifest(tmp_path, source.as_uri())
+    monkeypatch.chdir(tmp_path)
+    return source
+
+
+@pytest.fixture(autouse=True)
+def sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Each wait between fetch attempts, recorded instead of slept."""
+    waits: list[float] = []
+    monkeypatch.setattr(time, "sleep", waits.append)
+    return waits
+
+
+@pytest.fixture
+def big(upstream: Path) -> int:
+    """The upstream file grown to about 2 MB and fetched: its size."""
+    upstream.write_text(
+        "year,value,note\n" + "".join(f"{i},{i * 0.5},row {i}\n" for i in range(100_000)), encoding="utf-8"
+    )
+    assert _run("fetch") == [0]
+    return upstream.stat().st_size

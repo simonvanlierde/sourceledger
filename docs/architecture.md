@@ -6,8 +6,9 @@ description: The three main stages, the files each one reads and writes, and whe
 # How sourceledger works
 
 sourceledger turns a list of public sources into a dataset in three stages: `fetch`,
-`build` and `validate`. Each stage is a function in `sourceledger.ledger` and a command
-in `sourceledger.cli`. The stages talk to each other only through files on disk, so you
+`build` and `validate`. Each stage is a function in its own module (see
+[Where the code lives](#where-the-code-lives)) and a command in `sourceledger.cli`. The
+stages talk to each other only through files on disk, so you
 can run them in separate CI jobs, or days apart. `record` takes the place of `fetch` for
 a file another tool downloaded.
 
@@ -128,9 +129,13 @@ It exits 1 if it finds any problem.
 
 ## Where the code lives
 
-- `src/sourceledger/ledger.py`: the pipeline stages, readers, fetch logic and integrity checks.
-- `src/sourceledger/report.py`: the standalone HTML provenance report; it reuses the
-  pipeline's fetch records and integrity checks.
+- `src/sourceledger/manifest.py`: `sources.toml` and the checks on it.
+- `src/sourceledger/ledger.py`: the fetch log, the sidecar records and `record()`.
+- `src/sourceledger/fetch.py`: the HTTP(S) fetcher. It is the only module that opens a
+  network connection.
+- `src/sourceledger/build.py`: the readers, the outputs and `datapackage.json`.
+- `src/sourceledger/report.py`: `validate`, `status`, `attribution`, `verify` and the
+  standalone HTML provenance report.
 - `src/sourceledger/cli.py`: the command line. One argparse subcommand per stage; it runs
   that stage and reports expected errors in one shape, with the
   [exit codes](reference.md#options-output-and-exit-codes) the reference lists. JSON

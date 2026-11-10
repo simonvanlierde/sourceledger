@@ -2,47 +2,101 @@
 # Add one only for a change no test could see. Mutant numbers shift when their function
 # changes: rerun and recheck each line then. Example line:
 # mypkg.core.x_parse__mutmut_3  the default is the same value as the fallback
+sourceledger.build.x__build_one__mutmut_56  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.build.x__checked_rows__mutmut_9  a row of exactly `width` fields is refused by the `!=` guard above, so `>` and `>=` pick the same word
+sourceledger.build.x__format__mutmut_11  every source that reaches here has a url
+sourceledger.build.x__format__mutmut_6  every source that reaches here has a url
+sourceledger.build.x__format__mutmut_8  every source that reaches here has a url
+sourceledger.build.x__json_text__mutmut_11  None is falsy, as False is
+sourceledger.build.x__json_text__mutmut_25  None is falsy, as False is
+sourceledger.build.x__listed__mutmut_3  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.build.x__listed__mutmut_5  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.build.x__package_name__mutmut_13  the name is lower-cased first, so there is no X to strip
+sourceledger.build.x__parquet_batches__mutmut_4  threads change speed, not the batches read
+sourceledger.build.x__parquet_batches__mutmut_6  threads change speed, not the batches read
+sourceledger.build.x__parquet_batches__mutmut_7  threads change speed, not the batches read
+sourceledger.build.x__write_cells__mutmut_25  pyarrow reads compression names case-insensitively and reports ZSTD for both
+sourceledger.build.x__write_cells__mutmut_33  a non-empty list of str infers the string type that the schema names
+sourceledger.build.x__write_cells__mutmut_35  a non-empty list of str infers the string type that the schema names
+sourceledger.build.x__write_cells__mutmut_55  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14
+sourceledger.build.x__write_cells__mutmut_56  newline=None translates "\n" to os.linesep, which is "\n" on Linux, where the job runs
+sourceledger.build.x__write_cells__mutmut_58  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14
+sourceledger.build.x__write_cells__mutmut_59  newline=None translates "\n" to os.linesep, which is "\n" on Linux, where the job runs
+sourceledger.build.x__write_cells__mutmut_61  codec names are case-insensitive: "UTF-8" is utf-8
+sourceledger.build.x_build_sources__mutmut_1  every caller passes output_format
+sourceledger.build.x_build_sources__mutmut_12  earlier is read only when `only` is set
+sourceledger.build.x_build_sources__mutmut_2  every caller passes output_format
+sourceledger.build.x_build_sources__mutmut_80  None is falsy, as False is
+sourceledger.build.x_parse_csv__mutmut_18  StringIO's default newline translates nothing either
+sourceledger.build.x_parse_csv__mutmut_23  _checked_rows already refuses every row whose length differs from the header, so zip never sees unequal lengths
+sourceledger.build.x_parse_csv__mutmut_26  _checked_rows already refuses every row whose length differs from the header, so zip never sees unequal lengths
+sourceledger.build.x_parse_csv__mutmut_27  _checked_rows already refuses every row whose length differs from the header, so zip never sees unequal lengths
+sourceledger.build.x_parse_csv__mutmut_9  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.build.x_parse_json__mutmut_15  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.build.x_parse_xlsx__mutmut_31  read-only mode changes memory use, not the cells read
+sourceledger.build.x_parse_xlsx__mutmut_34  read-only mode changes memory use, not the cells read
+sourceledger.build.x_parse_xlsx__mutmut_37  read-only mode changes memory use, not the cells read
+sourceledger.build.x_read_output__mutmut_4  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14
+sourceledger.build.x_read_output__mutmut_6  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14
+sourceledger.build.x_read_output__mutmut_9  codec names are case-insensitive: "UTF-8" is utf-8
+sourceledger.cli.x__check_parameters__mutmut_8  rpartition and partition return the same separator: "=" when present, "" when not
+sourceledger.cli.x__parser__mutmut_109  add_help=None is falsy, the same as False
+sourceledger.cli.x__parser__mutmut_17  importlib.metadata matches distribution names case-insensitively, so the same version comes back
+sourceledger.cli.x__parser__mutmut_33  json=None and json=False are both falsy for every check on args.json
+sourceledger.cli.x__parser__mutmut_34  revisions and verify, the stages without --manifest, never read the manifest path
+sourceledger.cli.x__parser__mutmut_55  add_help=None is falsy, the same as False
+sourceledger.cli.x__parser__mutmut_74  add_help=None is falsy, the same as False
+sourceledger.cli.x__parser__mutmut_90  add_help=None is falsy, the same as False
 sourceledger.cli.x_main__mutmut_10  help text: tests check what the CLI does, not its wording
+sourceledger.cli.x_main__mutmut_41  level=None leaves basicConfig's default, WARNING
 sourceledger.cli.x_main__mutmut_43  help text: tests check what the CLI does, not its wording
+sourceledger.fetch.x__archive__mutmut_18  HTTP header names are case-insensitive
+sourceledger.fetch.x__archive__mutmut_19  HTTP header names are case-insensitive
+sourceledger.fetch.x__archive__mutmut_30  HTTP header names are case-insensitive
+sourceledger.fetch.x__archive__mutmut_32  HTTP header names are case-insensitive
+sourceledger.fetch.x__archive__mutmut_34  HTTP header names are case-insensitive
+sourceledger.fetch.x__archive__mutmut_35  HTTP header names are case-insensitive
+sourceledger.fetch.x__conditional__mutmut_4  HTTP header names are case-insensitive
+sourceledger.fetch.x__conditional__mutmut_5  HTTP header names are case-insensitive
+sourceledger.fetch.x__conditional__mutmut_7  HTTP header names are case-insensitive
+sourceledger.fetch.x__conditional__mutmut_8  HTTP header names are case-insensitive
+sourceledger.fetch.x__content_length__mutmut_7  HTTP header names are case-insensitive
+sourceledger.fetch.x__content_length__mutmut_8  HTTP header names are case-insensitive
+sourceledger.fetch.x__content_length__mutmut_9  HTTP header names are case-insensitive
+sourceledger.fetch.x__download__mutmut_11  HTTP header names are case-insensitive
+sourceledger.fetch.x__download__mutmut_22  temp-file name only; the file is renamed or deleted in the same call
+sourceledger.fetch.x__download__mutmut_23  temp-file name only; the file is renamed or deleted in the same call
+sourceledger.fetch.x__download__mutmut_25  temp-file name only; the file is renamed or deleted in the same call
+sourceledger.fetch.x__download__mutmut_26  temp-file name only; the file is renamed or deleted in the same call
+sourceledger.fetch.x__download__mutmut_29  temp-file name only; the file is renamed or deleted in the same call
+sourceledger.fetch.x__download__mutmut_30  temp-file name only; the file is renamed or deleted in the same call
+sourceledger.fetch.x__download__mutmut_46  cleanup after an error that is raised anyway; the file always exists there
+sourceledger.fetch.x__download__mutmut_48  cleanup after an error that is raised anyway; the file always exists there
+sourceledger.fetch.x__download__mutmut_8  HTTP header names are case-insensitive
+sourceledger.fetch.x__download__mutmut_9  HTTP header names are case-insensitive
+sourceledger.fetch.x__get__mutmut_34  the loop raises on attempt _ATTEMPTS, so the range's end is never reached
+sourceledger.fetch.x__get__mutmut_49  source only names the timeout message
+sourceledger.fetch.x__get__mutmut_5  HTTP header names are case-insensitive
+sourceledger.fetch.x__get__mutmut_6  HTTP header names are case-insensitive
+sourceledger.fetch.x__get__mutmut_8  HTTP header names are case-insensitive
+sourceledger.fetch.x__get__mutmut_9  HTTP header names are case-insensitive
+sourceledger.fetch.x__keep__mutmut_71  a naive local now() goes through astimezone(UTC) in _timestamp and names the same instant
+sourceledger.fetch.x__keep__mutmut_78  download.headers is an email Message, whose lookup ignores header-name case
+sourceledger.fetch.x__keep__mutmut_79  download.headers is an email Message, whose lookup ignores header-name case
+sourceledger.fetch.x__keep__mutmut_86  download.headers is an email Message, whose lookup ignores header-name case
+sourceledger.fetch.x__keep__mutmut_87  download.headers is an email Message, whose lookup ignores header-name case
+sourceledger.fetch.x__retry_after__mutmut_10  HTTP header names are case-insensitive
+sourceledger.fetch.x__retry_after__mutmut_11  HTTP header names are case-insensitive
+sourceledger.fetch.x__retry_after__mutmut_12  HTTP header names are case-insensitive
+sourceledger.fetch.x__retry_after__mutmut_9  HTTP header names are case-insensitive
+sourceledger.fetch.xǁ_NoRedirectInwardǁredirect_request__mutmut_18  None is falsy, as False is
+sourceledger.fetch.xǁ_NoRedirectInwardǁredirect_request__mutmut_28  only for a URL without a host, which never reaches a connection
+sourceledger.fetch.xǁ_NoRedirectInwardǁredirect_request__mutmut_3  the base class ignores fp, msg and headers
+sourceledger.fetch.xǁ_NoRedirectInwardǁredirect_request__mutmut_5  the base class ignores fp, msg and headers
+sourceledger.fetch.xǁ_NoRedirectInwardǁredirect_request__mutmut_6  the base class ignores fp, msg and headers
+sourceledger.fetch.xǁ_PeerCheckǁconnect__mutmut_4  only for a URL without a host, which never reaches a connection
+sourceledger.fetch.xǁ_PeerCheckǁconnect__mutmut_9  None is falsy, as False is
 sourceledger.ledger.x__append__mutmut_19  start equals end only after a final newline, where both branches write the same
-sourceledger.ledger.x__archive__mutmut_18  HTTP header names are case-insensitive
-sourceledger.ledger.x__archive__mutmut_19  HTTP header names are case-insensitive
-sourceledger.ledger.x__archive__mutmut_30  HTTP header names are case-insensitive
-sourceledger.ledger.x__archive__mutmut_32  HTTP header names are case-insensitive
-sourceledger.ledger.x__archive__mutmut_34  HTTP header names are case-insensitive
-sourceledger.ledger.x__archive__mutmut_35  HTTP header names are case-insensitive
-sourceledger.ledger.x__build__mutmut_1  every caller passes output_format
-sourceledger.ledger.x__build__mutmut_12  earlier is read only when `only` is set
-sourceledger.ledger.x__build__mutmut_2  every caller passes output_format
-sourceledger.ledger.x__build__mutmut_80  None is falsy, as False is
-sourceledger.ledger.x__build_one__mutmut_56  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x__conditional__mutmut_4  HTTP header names are case-insensitive
-sourceledger.ledger.x__conditional__mutmut_5  HTTP header names are case-insensitive
-sourceledger.ledger.x__conditional__mutmut_7  HTTP header names are case-insensitive
-sourceledger.ledger.x__conditional__mutmut_8  HTTP header names are case-insensitive
-sourceledger.ledger.x__content_length__mutmut_7  HTTP header names are case-insensitive
-sourceledger.ledger.x__content_length__mutmut_8  HTTP header names are case-insensitive
-sourceledger.ledger.x__content_length__mutmut_9  HTTP header names are case-insensitive
-sourceledger.ledger.x__download__mutmut_11  HTTP header names are case-insensitive
-sourceledger.ledger.x__download__mutmut_22  temp-file name only; the file is renamed or deleted in the same call
-sourceledger.ledger.x__download__mutmut_23  temp-file name only; the file is renamed or deleted in the same call
-sourceledger.ledger.x__download__mutmut_25  temp-file name only; the file is renamed or deleted in the same call
-sourceledger.ledger.x__download__mutmut_26  temp-file name only; the file is renamed or deleted in the same call
-sourceledger.ledger.x__download__mutmut_29  temp-file name only; the file is renamed or deleted in the same call
-sourceledger.ledger.x__download__mutmut_30  temp-file name only; the file is renamed or deleted in the same call
-sourceledger.ledger.x__download__mutmut_46  cleanup after an error that is raised anyway; the file always exists there
-sourceledger.ledger.x__download__mutmut_48  cleanup after an error that is raised anyway; the file always exists there
-sourceledger.ledger.x__download__mutmut_8  HTTP header names are case-insensitive
-sourceledger.ledger.x__download__mutmut_9  HTTP header names are case-insensitive
-sourceledger.ledger.x__format__mutmut_11  every source that reaches here has a url
-sourceledger.ledger.x__format__mutmut_6  every source that reaches here has a url
-sourceledger.ledger.x__format__mutmut_8  every source that reaches here has a url
-sourceledger.ledger.x__get__mutmut_34  the loop raises on attempt _ATTEMPTS, so the range's end is never reached
-sourceledger.ledger.x__get__mutmut_49  source only names the timeout message
-sourceledger.ledger.x__get__mutmut_5  HTTP header names are case-insensitive
-sourceledger.ledger.x__get__mutmut_6  HTTP header names are case-insensitive
-sourceledger.ledger.x__get__mutmut_8  HTTP header names are case-insensitive
-sourceledger.ledger.x__get__mutmut_9  HTTP header names are case-insensitive
 sourceledger.ledger.x__history_batches__mutmut_1  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.ledger.x__history_batches__mutmut_15  batch size only: the records read are the same
 sourceledger.ledger.x__history_batches__mutmut_16  batch size only: the records read are the same
@@ -50,106 +104,52 @@ sourceledger.ledger.x__history_batches__mutmut_25  batch size only: the records 
 sourceledger.ledger.x__history_batches__mutmut_26  batch size only: the records read are the same
 sourceledger.ledger.x__history_batches__mutmut_4  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.ledger.x__history_batches__mutmut_8  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x__json_text__mutmut_11  None is falsy, as False is
-sourceledger.ledger.x__json_text__mutmut_25  None is falsy, as False is
 sourceledger.ledger.x__last_line_start__mutmut_13  reads more at once; finds the same newline
 sourceledger.ledger.x__last_line_start__mutmut_3  differs only for a one-byte first line, which is not JSON
 sourceledger.ledger.x__last_records__mutmut_19  the line is the batch's last, so both end the loop
-sourceledger.ledger.x__listed__mutmut_3  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x__listed__mutmut_5  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x__package_name__mutmut_13  the name is lower-cased first, so there is no X to strip
-sourceledger.ledger.x__package_problems__mutmut_15  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x__package_problems__mutmut_17  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x__parquet_batches__mutmut_4  threads change speed, not the batches read
-sourceledger.ledger.x__parquet_batches__mutmut_6  threads change speed, not the batches read
-sourceledger.ledger.x__parquet_batches__mutmut_7  threads change speed, not the batches read
+sourceledger.ledger.x__log_new_version__mutmut_20  `logged[id]` is read only before that id's own log line, and ids are unique, so the stored value is never read
 sourceledger.ledger.x__record__mutmut_5  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.ledger.x__record__mutmut_8  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x__retry_after__mutmut_10  HTTP header names are case-insensitive
-sourceledger.ledger.x__retry_after__mutmut_11  HTTP header names are case-insensitive
-sourceledger.ledger.x__retry_after__mutmut_12  HTTP header names are case-insensitive
-sourceledger.ledger.x__retry_after__mutmut_9  HTTP header names are case-insensitive
-sourceledger.ledger.x_init__mutmut_2  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x_init__mutmut_4  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x_init__mutmut_8  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x_parse_csv__mutmut_18  StringIO's default newline translates nothing either
-sourceledger.ledger.x_parse_csv__mutmut_9  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x_parse_json__mutmut_15  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x_parse_xlsx__mutmut_31  read-only mode changes memory use, not the cells read
-sourceledger.ledger.x_parse_xlsx__mutmut_34  read-only mode changes memory use, not the cells read
-sourceledger.ledger.x_parse_xlsx__mutmut_37  read-only mode changes memory use, not the cells read
-sourceledger.ledger.x_status__mutmut_3  an empty source list prints nothing, whatever the width
-sourceledger.ledger.x_status__mutmut_6  an empty source list prints nothing, whatever the width
-sourceledger.ledger.x_validate__mutmut_19  the first addition to an empty list
-sourceledger.ledger.x_verify__mutmut_5  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x_verify__mutmut_7  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.xǁ_NoRedirectInwardǁredirect_request__mutmut_18  None is falsy, as False is
-sourceledger.ledger.xǁ_NoRedirectInwardǁredirect_request__mutmut_28  only for a URL without a host, which never reaches a connection
-sourceledger.ledger.xǁ_NoRedirectInwardǁredirect_request__mutmut_3  the base class ignores fp, msg and headers
-sourceledger.ledger.xǁ_NoRedirectInwardǁredirect_request__mutmut_5  the base class ignores fp, msg and headers
-sourceledger.ledger.xǁ_NoRedirectInwardǁredirect_request__mutmut_6  the base class ignores fp, msg and headers
-sourceledger.ledger.xǁ_PeerCheckǁconnect__mutmut_4  only for a URL without a host, which never reaches a connection
-sourceledger.ledger.xǁ_PeerCheckǁconnect__mutmut_9  None is falsy, as False is
+sourceledger.ledger.x__recorded_url__mutmut_17  for the source's own URL `_served_from` returns "" anyway, the same as the else branch
+sourceledger.ledger.x__version__mutmut_21  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
+sourceledger.ledger.x__version__mutmut_22  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
+sourceledger.ledger.x__version__mutmut_23  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
+sourceledger.ledger.x__version__mutmut_24  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
+sourceledger.ledger.x_record_file__mutmut_69  `temp` is only tested for truthiness and "" and None are both falsy
+sourceledger.ledger.x_without_query__mutmut_1  urlunsplit treats a None query like ""
+sourceledger.ledger.x_without_query__mutmut_2  urlunsplit treats a None fragment like ""
+sourceledger.manifest.x_init__mutmut_2  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.manifest.x_init__mutmut_4  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.manifest.x_init__mutmut_8  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.manifest.x_load_manifest__mutmut_15  only close[0] is used, and the best match comes first whatever n is
+sourceledger.manifest.x_load_manifest__mutmut_16  0.6 is get_close_matches' default cutoff
+sourceledger.manifest.x_load_manifest__mutmut_24  only close[0] is used, and the best match comes first whatever n is
+sourceledger.report.x__package_problems__mutmut_15  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.report.x__package_problems__mutmut_17  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.report.x__scan__mutmut_17  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14
+sourceledger.report.x__scan__mutmut_19  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14
+sourceledger.report.x__scan__mutmut_22  codec names are case-insensitive: "UTF-8" is utf-8
+sourceledger.report.x__url__mutmut_16  [-1] of rsplit is the same for any maxsplit of 1 or more, and for the default (all splits)
+sourceledger.report.x__url__mutmut_19  [-1] of rsplit is the same for any maxsplit of 1 or more
+sourceledger.report.x_report__mutmut_127  fallback for a key build always writes (path is checked to be a string above)
+sourceledger.report.x_report__mutmut_129  fallback for a key build always writes (path is checked to be a string above)
 sourceledger.report.x_report__mutmut_132  fallback for a key build always writes
+sourceledger.report.x_report__mutmut_133  fallback for a key build always writes (path is checked to be a string above)
+sourceledger.report.x_report__mutmut_164  _url treats None like "", so the default is the same
 sourceledger.report.x_report__mutmut_166  fallback for a key build always writes
 sourceledger.report.x_report__mutmut_176  fallback for a key build always writes
 sourceledger.report.x_report__mutmut_178  fallback for a key build always writes
 sourceledger.report.x_report__mutmut_18  TODO: changes the page; the record PR's report goldens kill it
 sourceledger.report.x_report__mutmut_181  TODO: changes the page; the record PR's report goldens kill it
 sourceledger.report.x_report__mutmut_182  report label case; the record PR's report goldens pin it
+sourceledger.report.x_report__mutmut_202  _url treats None like "", so the default is the same
 sourceledger.report.x_report__mutmut_204  report label case; the record PR's report goldens pin it
 sourceledger.report.x_report__mutmut_237  report label case; the record PR's report goldens pin it
+sourceledger.report.x_report__mutmut_239  dict.get without a default returns None, which _url treats like ""
 sourceledger.report.x_report__mutmut_3  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.report.x_report__mutmut_6  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.cli.x__check_parameters__mutmut_8  rpartition and partition return the same separator: "=" when present, "" when not
-sourceledger.cli.x__parser__mutmut_17  importlib.metadata matches distribution names case-insensitively, so the same version comes back
-sourceledger.cli.x__parser__mutmut_33  json=None and json=False are both falsy for every check on args.json
-sourceledger.cli.x__parser__mutmut_34  revisions and verify, the stages without --manifest, never read the manifest path
-sourceledger.cli.x__parser__mutmut_55  add_help=None is falsy, the same as False
-sourceledger.cli.x__parser__mutmut_74  add_help=None is falsy, the same as False
-sourceledger.cli.x__parser__mutmut_90  add_help=None is falsy, the same as False
-sourceledger.cli.x__parser__mutmut_109  add_help=None is falsy, the same as False
-sourceledger.cli.x_main__mutmut_41  level=None leaves basicConfig's default, WARNING
-sourceledger.ledger.x__checked_rows__mutmut_9  a row of exactly `width` fields is refused by the `!=` guard above, so `>` and `>=` pick the same word
-sourceledger.ledger.x__log_new_version__mutmut_20  `logged[id]` is read only before that id's own log line, and ids are unique, so the stored value is never read
-sourceledger.ledger.x__recorded_url__mutmut_17  for the source's own URL `_served_from` returns "" anyway, the same as the else branch
-sourceledger.ledger.x__without_query__mutmut_1  urlunsplit treats a None query like ""
-sourceledger.ledger.x__without_query__mutmut_2  urlunsplit treats a None fragment like ""
-sourceledger.ledger.x_parse_csv__mutmut_23  _checked_rows already refuses every row whose length differs from the header, so zip never sees unequal lengths
-sourceledger.ledger.x_parse_csv__mutmut_26  _checked_rows already refuses every row whose length differs from the header, so zip never sees unequal lengths
-sourceledger.ledger.x_parse_csv__mutmut_27  _checked_rows already refuses every row whose length differs from the header, so zip never sees unequal lengths
-sourceledger.ledger.x_read_output__mutmut_4  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14
-sourceledger.ledger.x_read_output__mutmut_6  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14
-sourceledger.ledger.x_read_output__mutmut_9  codec names are case-insensitive: "UTF-8" is utf-8
-sourceledger.ledger.x__scan__mutmut_17  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14
-sourceledger.ledger.x__scan__mutmut_19  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14
-sourceledger.ledger.x__scan__mutmut_22  codec names are case-insensitive: "UTF-8" is utf-8
-sourceledger.ledger.x_load_manifest__mutmut_15  only close[0] is used, and the best match comes first whatever n is
-sourceledger.ledger.x_load_manifest__mutmut_16  0.6 is get_close_matches' default cutoff
-sourceledger.ledger.x_load_manifest__mutmut_24  only close[0] is used, and the best match comes first whatever n is
-sourceledger.ledger.x__keep__mutmut_71  a naive local now() goes through astimezone(UTC) in _timestamp and names the same instant
-sourceledger.ledger.x__keep__mutmut_78  download.headers is an email Message, whose lookup ignores header-name case
-sourceledger.ledger.x__keep__mutmut_79  download.headers is an email Message, whose lookup ignores header-name case
-sourceledger.ledger.x__keep__mutmut_86  download.headers is an email Message, whose lookup ignores header-name case
-sourceledger.ledger.x__keep__mutmut_87  download.headers is an email Message, whose lookup ignores header-name case
-sourceledger.ledger.x__record_file__mutmut_69  `temp` is only tested for truthiness and "" and None are both falsy
-sourceledger.ledger.x__version__mutmut_21  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
-sourceledger.ledger.x__version__mutmut_22  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
-sourceledger.ledger.x__version__mutmut_23  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
-sourceledger.ledger.x__version__mutmut_24  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
-sourceledger.ledger.x__write_cells__mutmut_25  pyarrow reads compression names case-insensitively and reports ZSTD for both
-sourceledger.ledger.x__write_cells__mutmut_33  a non-empty list of str infers the string type that the schema names
-sourceledger.ledger.x__write_cells__mutmut_35  a non-empty list of str infers the string type that the schema names
-sourceledger.ledger.x__write_cells__mutmut_55  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14
-sourceledger.ledger.x__write_cells__mutmut_56  newline=None translates "\n" to os.linesep, which is "\n" on Linux, where the job runs
-sourceledger.ledger.x__write_cells__mutmut_58  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14
-sourceledger.ledger.x__write_cells__mutmut_59  newline=None translates "\n" to os.linesep, which is "\n" on Linux, where the job runs
-sourceledger.ledger.x__write_cells__mutmut_61  codec names are case-insensitive: "UTF-8" is utf-8
-sourceledger.report.x__url__mutmut_16  [-1] of rsplit is the same for any maxsplit of 1 or more, and for the default (all splits)
-sourceledger.report.x__url__mutmut_19  [-1] of rsplit is the same for any maxsplit of 1 or more
-sourceledger.report.x_report__mutmut_127  fallback for a key build always writes (path is checked to be a string above)
-sourceledger.report.x_report__mutmut_129  fallback for a key build always writes (path is checked to be a string above)
-sourceledger.report.x_report__mutmut_133  fallback for a key build always writes (path is checked to be a string above)
-sourceledger.report.x_report__mutmut_164  _url treats None like "", so the default is the same
-sourceledger.report.x_report__mutmut_202  _url treats None like "", so the default is the same
-sourceledger.report.x_report__mutmut_239  dict.get without a default returns None, which _url treats like ""
+sourceledger.report.x_status__mutmut_3  an empty source list prints nothing, whatever the width
+sourceledger.report.x_status__mutmut_6  an empty source list prints nothing, whatever the width
+sourceledger.report.x_validate__mutmut_19  the first addition to an empty list
+sourceledger.report.x_verify__mutmut_5  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.report.x_verify__mutmut_7  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it

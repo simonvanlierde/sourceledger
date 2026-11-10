@@ -32,7 +32,10 @@ they do not sign your dataset or its fetch records.
 ## Claims and evidence
 
 The evidence below is executable regression coverage in
-[`tests/test_ledger.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_ledger.py)
+[`tests/test_manifest.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_manifest.py),
+[`tests/test_ledger.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_ledger.py),
+[`tests/test_fetch.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_fetch.py),
+[`tests/test_build.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_build.py),
 [`tests/test_report.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_report.py)
 and [`tests/test_golden.py`](https://github.com/simonvanlierde/sourceledger/blob/main/tests/test_golden.py).
 It supports the stated behavior; it is not an independent security certification.
