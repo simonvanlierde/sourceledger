@@ -1037,4 +1037,6 @@ def test_a_file_in_the_way_of_a_folder_has_no_help_line(capsys: pytest.CaptureFi
     Path("data/raw").write_text("not a folder", encoding="utf-8")
     assert main(["fetch"]) == 3
     err = capsys.readouterr().err
-    assert err == "error: [Errno 17] File exists: 'data/raw'\n"
+    # The OS error text differs on Windows (WinError 183); only its one line matters here.
+    assert err.startswith("error: ")
+    assert err.count("\n") == 1

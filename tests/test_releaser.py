@@ -774,10 +774,8 @@ def test_mlcroissant_passes_the_croissant_and_finds_a_broken_one(
     (OUT / "croissant.json").write_text(json.dumps({**croissant, "license": 7}), encoding="utf-8")
     assert _release("--check", str(OUT), "--json") == 1
     problems = _json(capsys)["problems"]
-    assert (
-        "croissant.json: `license` should have type https://schema.org/CreativeWork or "
-        "https://schema.org/Text or https://schema.org/URL, but got int" in problems
-    )
+    # mlcroissant words the finding differently on Windows; that it reports one is the contract.
+    assert any(p.startswith("croissant.json: ") and "license" in p for p in problems)
 
 
 @pytest.mark.live
