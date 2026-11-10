@@ -31,6 +31,7 @@ from sourceledger.manifest import (
     _vintage,
     implemented,
     output_name,
+    printable,
     raw_name,
     select,
 )
@@ -288,7 +289,10 @@ def verify(folder: Path) -> list[str]:
     resources = package.get("resources") if isinstance(package, dict) else None
     if not isinstance(resources, list):
         return [f"{path.as_posix()} has no list of resources"]
-    return [problem for r in resources for problem in _file_problems(folder, r if isinstance(r, dict) else {})]
+    # The names come from someone else's folder; an ESC in one must not reach the terminal.
+    return [
+        printable(problem) for r in resources for problem in _file_problems(folder, r if isinstance(r, dict) else {})
+    ]
 
 
 def leaves_folder(name: str) -> bool:

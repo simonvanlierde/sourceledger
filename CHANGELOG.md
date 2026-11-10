@@ -73,6 +73,8 @@ recorded file needs 0.5.0 to build. Details under Changed.
 - `fetch` keeps a redirect's final URL without its query and fragment, which can hold a signature, as signed download links from cloud storage do. Before, the full URL went into `fetches.jsonl`, the fetch record and `datapackage.json`.
 - A redirect from a public host to a non-HTTP URL, such as `ftp://` on an internal address, is refused. Before, urllib followed it past the check that refuses inward redirects.
 - `sources.toml` text with a control character other than a tab or line break, such as the ESC that starts a terminal escape sequence, is refused. Before, an ESC in a `url` reached the terminal raw in `fetch` and could recolour or rewrite the screen.
+- `release --check` and `verify` show a control character in a received folder's file names, its `SHA256SUMS` or a validator's output as an escape such as `\x1b`, so a crafted name cannot recolour or rewrite the terminal.
+- `release --check` reads `SHA256SUMS` only when it is a regular file of at most 64 MiB. Before, a named pipe there made the check hang, and a link to `/dev/zero` filled memory.
 
 ## [0.4.0] - 2026-11-01
 

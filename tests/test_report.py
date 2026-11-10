@@ -3,6 +3,7 @@
 import gzip
 import hashlib
 import json
+import sys
 import time
 from datetime import datetime, tzinfo
 from html.parser import HTMLParser
@@ -832,6 +833,18 @@ def test_verify_shows_a_large_listed_size_with_separators(tmp_path: Path) -> Non
     assert report_mod.verify(tmp_path) == [f"{tmp_path.as_posix()}/a.csv is 2 bytes, not the 1,234 the package lists"]
     (tmp_path / "datapackage.json").write_text("[]", encoding="utf-8", newline="")
     assert report_mod.verify(tmp_path) == [f"{tmp_path.as_posix()}/datapackage.json has no list of resources"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows file names cannot hold control characters")
+def test_verify_shows_a_control_character_in_a_name_as_an_escape(tmp_path: Path) -> None:
+    """A received folder names its own files; an ESC in one must not reach the terminal raw."""
+    name = "a\x1b[2J.csv"
+    (tmp_path / name).write_text("x\n", encoding="utf-8", newline="")
+    package = {"resources": [{"path": name, "bytes": 3, "hash": _X_HASH}]}
+    (tmp_path / "datapackage.json").write_text(json.dumps(package), encoding="utf-8", newline="")
+    assert (
+        report_mod.verify(tmp_path)[0] == f"{tmp_path.as_posix()}/a\\x1b[2J.csv is 2 bytes, not the 3 the package lists"
+    )
 
 
 def test_verify_names_the_hash_it_found(tmp_path: Path) -> None:

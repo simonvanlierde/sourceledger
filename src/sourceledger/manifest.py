@@ -153,6 +153,11 @@ def _check_text(source: Source) -> None:
         raise ValueError(msg)
 
 
+def printable(text: str) -> str:
+    r"""`text` with each control character `_check_text` refuses shown as an escape, such as `\x1b`."""
+    return _CONTROL.sub(lambda match: match[0].encode("unicode_escape").decode(), text)
+
+
 def _check_output_format(output_format: str) -> None:
     """Refuse unsupported table output formats before writing any files."""
     if output_format not in ("csv", "parquet"):
