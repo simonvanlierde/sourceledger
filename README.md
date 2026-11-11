@@ -129,6 +129,18 @@ Not planned:
 
 Ideas and requests are welcome as [issues](https://github.com/simonvanlierde/sourceledger/issues).
 
+## Social card
+
+[`site/public/og.png`](site/public/og.png) is the 1200x630 card shown when the link is shared. It is rendered from
+[`docs/og-card.html`](docs/og-card.html), which draws the chain of custody of the revision example: the 2023 value
+and the SHA-256 of the download, each before and after the publisher's change. Edit the HTML, then run:
+
+```sh
+just og-card
+```
+
+Astro serves `site/public/`, and `site/src/layouts/Base.astro` holds the tags.
+
 ## Development
 
 You need [uv](https://docs.astral.sh/uv/), [just](https://just.systems), and Node 26 with

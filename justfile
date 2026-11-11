@@ -22,6 +22,11 @@ check:
 fmt:
     @just py-fmt
 
+# Render the social card, site/public/og.png, from docs/og-card.html (needs Node and a Playwright Chromium).
+og-card:
+    pnpm dlx playwright@1.64.1 screenshot --browser=chromium --viewport-size=1200,630 \
+      "file://$PWD/docs/og-card.html" site/public/og.png
+
 # Run every git hook over the whole repo, not just staged files. The checks workflow skips
 # the hooks in its SKIP list, which the stack workflows run instead. Here they all run, so
 # this can fail where the checks workflow passes.
