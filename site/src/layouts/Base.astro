@@ -1,4 +1,6 @@
 ---
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 // The page skeleton every docs page shares. `parent` in a page's front matter names the
 // navigation entry it sits under; a page in the navigation marks itself. `wide: true` lets
 // the page's tables use more width than its text.
@@ -15,7 +17,8 @@ const { data, path } = Astro.props;
 const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 const url = new URL(base + path, Astro.site).href;
 const here = data.parent ?? path;
-const image = new URL(`${base}/og.png`, Astro.site).href;
+// Platforms cache a preview by image URL, so the URL carries the PNG's hash.
+const image = new URL(`${base}/og.png?v=${createHash("sha256").update(readFileSync("public/og.png")).digest("hex").slice(0, 8)}`, Astro.site).href;
 const imageAlt = "sourceledger: fetch or record a dataset's public files with provenance. A chain from the published 2023 value 419.31, now 419.32, to the download's SHA-256 and the built output. simonvanlierde.com/sourceledger";
 const title = data.title === name ? `${name} | ${siteDescription}` : `${data.title} | ${name}`;
 const description = data.description ?? siteDescription;
