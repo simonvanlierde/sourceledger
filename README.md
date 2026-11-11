@@ -129,6 +129,19 @@ Not planned:
 
 Ideas and requests are welcome as [issues](https://github.com/simonvanlierde/sourceledger/issues).
 
+## Social card
+
+[`site/public/og.png`](site/public/og.png) is the 1200x630 card shown when the link is shared. It is made with the generator in
+[my site repo](https://github.com/simonvanlierde/simonvanlierde.github.io/tree/main/scripts/social-card)
+(needs Docker). The visual is a screenshot of the live page at phone width, cropped. Astro serves `site/public/`, and `site/src/layouts/Base.astro` holds the tags. From a checkout of
+that repo, with this repo next to it:
+
+```sh
+pnpm gen:card --visual ../sourceledger/site/og-visual.jpg --name "sourceledger" \
+  --line "Fetch or record a dataset's public files with provenance." \
+  --domain simonvanlierde.com/sourceledger --out ../sourceledger/site/public/og.png
+```
+
 ## Development
 
 You need [uv](https://docs.astral.sh/uv/), [just](https://just.systems), and Node 26 with
