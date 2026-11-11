@@ -131,16 +131,15 @@ Ideas and requests are welcome as [issues](https://github.com/simonvanlierde/sou
 
 ## Social card
 
-[`site/public/og.png`](site/public/og.png) is the 1200x630 card shown when the link is shared. It is made with the generator in
-[my site repo](https://github.com/simonvanlierde/simonvanlierde.github.io/tree/main/scripts/social-card)
-(needs Docker). The visual is the changed row of the "A one-value change leaves a trail" table (419.31 revised to 419.32, highlighted), captured from the live page at 3x and cropped tight. Astro serves `site/public/`, and `site/src/layouts/Base.astro` holds the tags. From a checkout of
-that repo, with this repo next to it:
+[`site/public/og.png`](site/public/og.png) is the 1200x630 card shown when the link is shared. It is rendered from
+[`docs/og-card.html`](docs/og-card.html), which draws the chain of custody of the revision example: the 2023 value
+and the SHA-256 of the download, each before and after the publisher's change. Edit the HTML, then run:
 
 ```sh
-pnpm gen:card --visual ../sourceledger/site/og-visual.png --name "sourceledger" \
-  --line "Fetch or record a dataset's public files with provenance." \
-  --domain simonvanlierde.com/sourceledger --out ../sourceledger/site/public/og.png --fit contain
+just og-card
 ```
+
+Astro serves `site/public/`, and `site/src/layouts/Base.astro` holds the tags.
 
 ## Development
 

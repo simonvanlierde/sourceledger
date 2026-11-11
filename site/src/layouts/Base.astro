@@ -16,7 +16,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 const url = new URL(base + path, Astro.site).href;
 const here = data.parent ?? path;
 const image = new URL(`${base}/og.png`, Astro.site).href;
-const imageAlt = "sourceledger: fetch or record a dataset's public files with provenance. simonvanlierde.com/sourceledger";
+const imageAlt = "sourceledger: fetch or record a dataset's public files with provenance. A chain from the published 2023 value 419.31, now 419.32, to the download's SHA-256, the built output and the release. simonvanlierde.com/sourceledger";
 const title = data.title === name ? `${name} | ${siteDescription}` : `${data.title} | ${name}`;
 const description = data.description ?? siteDescription;
 const jsonLd = JSON.stringify({
