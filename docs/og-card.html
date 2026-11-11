@@ -22,16 +22,16 @@
   .job { position: absolute; top: 148px; font-size: 36px; line-height: 44px; font-weight: 400; }
   .url { position: absolute; top: 262px; font-size: 32px; line-height: 44px; color: var(--muted); }
   /* The chain of custody: one source, one revision, end to end. */
-  ol { position: absolute; left: 0; right: 0; bottom: 0; height: 310px; margin: 0; padding: 34px 40px 36px; list-style: none;
-       background: var(--panel); color: #fff; display: grid; grid-template-columns: repeat(4, 1fr); gap: 36px; }
+  ol { position: absolute; left: 0; right: 0; bottom: 0; height: 310px; margin: 0; padding: 30px 40px 34px; list-style: none;
+       background: var(--panel); color: #fff; display: grid; grid-template-columns: repeat(3, 1fr); gap: 64px; }
   li { position: relative; display: flex; flex-direction: column; border-top: 2px solid var(--node-rule); padding-top: 16px; }
-  li:not(:last-child)::after { content: ""; position: absolute; top: -9px; right: -34px; width: 30px; height: 16px;
+  li:not(:last-child)::after { content: ""; position: absolute; top: -9px; right: -52px; width: 40px; height: 16px;
        background: var(--accent); clip-path: polygon(0 40%, 62% 40%, 62% 0, 100% 50%, 62% 100%, 62% 60%, 0 60%); }
-  h2 { font-size: 25px; line-height: 1.1; font-weight: 700; }
-  p { margin-top: 6px; font-size: 22px; line-height: 1.25; color: var(--dim); }
-  code { display: block; font: 500 32px/1.2 var(--mono); color: var(--accent); letter-spacing: -0.04em; }
+  h2 { font-size: 30px; line-height: 1.1; font-weight: 700; }
+  p { margin-top: 6px; font-size: 26px; line-height: 1.25; color: var(--dim); }
+  code { display: block; font: 500 42px/1.15 var(--mono); color: var(--accent); letter-spacing: -0.04em; }
   code.old { margin-top: auto; color: var(--dim); text-decoration: line-through; text-decoration-thickness: 3px; }
-  code:not(.old) { margin-top: 8px; }
+  code:not(.old) { margin-top: 4px; }
   code.solo { margin-top: auto; }
 </style>
 </head>
@@ -46,7 +46,6 @@
   <li><h2>Published source</h2><p>annual.csv, 2023</p><code class="old">419.31 ppm</code><code>419.32 ppm</code></li>
   <li><h2>Recorded download</h2><p>SHA-256, first 12</p><code class="old">943000a3ec89</code><code>b5e4e235da30</code></li>
   <li><h2>Built output</h2><p>data/processed/co2.csv</p><code class="solo">0 problems</code></li>
-  <li><h2>Release</h2><p>SHA256SUMS</p><code class="solo">co2.csv: OK</code></li>
 </ol>
 </body>
 </html>
