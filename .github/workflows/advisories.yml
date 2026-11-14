@@ -1,8 +1,9 @@
 name: advisories
 
-# The stack workflows audit dependencies on push and pull request, and zizmor audits
-# workflows. A new advisory can land against a lockfile or action with no commit here, so
-# this audits again every Monday. A failure shows on the Actions page and in the failed-run email.
+# The stack workflows audit dependencies on push and pull request, and zizmor
+# audits workflows. A new advisory can land against a lockfile or action with no commit here, so
+# this audits again every Monday. A failed scheduled run opens one issue, or comments on the
+# open one.
 on:
   schedule:
     - cron: "23 5 * * 1" # Mondays, 05:23 UTC
@@ -44,3 +45,16 @@ jobs:
         with:
           version: "0.13.6"
       - run: uv audit --locked --preview-features audit-command
+
+  notify:
+    # Scheduled runs only. Opens one issue, or comments on the open one, when an audit fails.
+    # The only job that may write issues.
+    name: "advisories: report failure"
+    needs: ['actions', 'python']
+    # A job that runs past timeout-minutes ends cancelled, not failed.
+    if: always() && github.event_name == 'schedule' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+    permissions:
+      issues: write # opens or comments on the failure issue
+    uses: $/.github/workflows/report-failure.yml
+    with:
+      title: Weekly advisory audit failed

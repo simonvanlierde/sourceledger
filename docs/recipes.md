@@ -199,6 +199,33 @@ The stages are also functions: `load_manifest`, `fetch`, `record`, `build`, `val
 `entry`. `verified(source)` returns a source's fetch record and raw bytes after checking that
 both are current, for a reader that needs them.
 
+## Add a project-specific stage
+
+Keep project stages in your own command. This example adds `inventory`, which lists declared
+source IDs. It parses that stage's arguments before loading the manifest. Help and unknown options
+therefore leave the project untouched. Other stages retain sourceledger's arguments and exit codes.
+
+```python
+import argparse
+import sys
+
+import sourceledger
+
+
+def main(argv=None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    if args[:1] == ["inventory"]:
+        parser = argparse.ArgumentParser(prog="my-dataset inventory")
+        parser.parse_args(args[1:])
+        for source in sourceledger.load_manifest():
+            print(source["id"])
+        return
+    sourceledger.entry(args, prog="my-dataset", user_agent="my-dataset")
+```
+
+Point your console script at this `main` function as in the custom-reader example above.
+If your project already owns its parser, call the public stage functions directly instead.
+
 ## Publish a build only when it validates
 
 [`release`](reference.md#release-a-dataset) does this for you: it validates, writes the folder

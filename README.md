@@ -130,7 +130,7 @@ Ideas and requests are welcome as [issues](https://github.com/simonvanlierde/sou
 
 ## Social card
 
-[`site/public/og.png`](site/public/og.png) is the 1200x630 card shown when the link is shared. It is rendered from
+[`docs/assets/og.png`](docs/assets/og.png) is the 1200x630 card shown when the link is shared. It is rendered from
 [`docs/og-card.html`](docs/og-card.html), which draws the chain of custody of the revision example: the 2023 value
 and the SHA-256 of the download, each before and after the publisher's change. Edit the HTML, then run:
 
@@ -138,20 +138,22 @@ and the SHA-256 of the download, each before and after the publisher's change. E
 just og-card
 ```
 
-Astro serves `site/public/`, and `site/src/layouts/Base.astro` holds the tags.
+Zensical serves `docs/assets/`, and `docs-overrides/main.html` holds the tags.
+Rendering a new card needs Node and pnpm for the Playwright screenshot command.
 
 ## Development
 
-You need [uv](https://docs.astral.sh/uv/), [just](https://just.systems), and Node 26 with
-[pnpm](https://pnpm.io) for the documentation site, which `just check` also builds.
+You need [uv](https://docs.astral.sh/uv/) and [just](https://just.systems).
+`just check` also builds the documentation site.
 
 ```sh
 uv sync
 just check
 ```
 
-The site is built with Astro from the Markdown in `docs/`. `just site` builds it into
-`site/dist/`, and every push to `main` deploys it to GitHub Pages at
+Zensical builds the Markdown in `docs/`, including search and the Python API reference.
+`just docs` builds it into `_docs/` in strict mode. `just docs-serve` previews it locally.
+Every push to `main` deploys it to GitHub Pages at
 <https://simonvanlierde.com/sourceledger/>.
 
 [Contributing](.github/CONTRIBUTING.md) covers hooks, coding standards and tests.

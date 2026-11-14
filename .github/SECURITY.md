@@ -11,7 +11,7 @@ Please include:
 
 - What the problem is and where it is: a file, a function or a dependency.
 - Steps to reproduce it, or a proof of concept.
-- The impact you expect, and the version you saw it in.
+- The impact you expect, and the release or commit you saw it in.
 
 I acknowledge a report within 14 days, then tell you whether I can reproduce it and when I
 expect a fix.

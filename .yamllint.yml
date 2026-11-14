@@ -1,10 +1,8 @@
 extends: default
 
-# Copier and pnpm write these files, so don't lint them. A bare name matches at
-# any depth, including a nested package's lockfile.
+# Copier writes this file, so don't lint it. A bare name matches at any depth.
 ignore: |
   .copier-answers.yml
-  pnpm-lock.yaml
 
 rules:
   # No file here opens with `---`, and comments, not code, are what run long, so a

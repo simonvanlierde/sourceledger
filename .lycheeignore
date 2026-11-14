@@ -1,0 +1,2 @@
+# Zensical resolves the repository URL when it renders the source-link partial.
+%7B%7B%20config\.repo_url%20%7D%7D$

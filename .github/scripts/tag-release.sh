@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Sign the release tag vX.Y.Z on origin/main with your git signing key and push it.
-# The release workflow refuses a tag not signed with a key in .github/allowed_signers,
-# so a tag pushed any other way publishes nothing. Run it on an up-to-date main.
+# Sign the release tag vX.Y.Z on origin/main with your SSH signing key and push it.
+# The release workflow publishes only a tag signed with a key in .github/allowed_signers
+# on main, and this script runs the same check before it pushes. Run it on an
+# up-to-date main.
 # Usage: tag-release.sh X.Y.Z
 set -euo pipefail
 
@@ -39,9 +40,15 @@ if git rev-parse --quiet --verify "refs/tags/$tag" >/dev/null; then
   }
 else
   git tag --sign "$tag" --message "$tag" "$sha"
+  created=1
 fi
-git verify-tag "$tag" >/dev/null 2>&1 || {
-  echo "tag $tag is not signed with a key git trusts (gpg.ssh.allowedSignersFile)" >&2
+# A refused tag made here is deleted, so a rerun after the key is added signs afresh.
+"$(dirname "$0")/verify-tag.sh" "$tag" origin/main || {
+  if [ -n "${created:-}" ]; then
+    git tag -d "$tag" >/dev/null
+  else
+    echo "the refused tag $tag was already here; delete it, then run this again: git tag -d $tag" >&2
+  fi
   exit 1
 }
 git push origin "refs/tags/$tag"

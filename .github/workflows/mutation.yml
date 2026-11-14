@@ -5,6 +5,8 @@ name: mutation
 # tab with "Run workflow" after you change the tests.
 # The Python job fails on a surviving mutant that is not in tests/mutation-baseline.txt,
 # and on a listed one that no longer survives.
+# A failed scheduled run opens one issue (or comments on the open one). GitHub pauses
+# schedules after 60 days without repository activity: re-enable from the Actions tab.
 on:
   schedule:
     - cron: "17 5 * * 1"
@@ -22,6 +24,11 @@ jobs:
     name: "mutation: python"
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      # As in python.yml: uv checks every package against OSV's malware advisories before
+      # its code runs. The preview flag only silences the "experimental" warning.
+      UV_MALWARE_CHECK: "1"
+      UV_PREVIEW_FEATURES: malware-check
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,6 +42,20 @@ jobs:
       - uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
         with:
           tool: just@1.59.0
+          fallback: none
 
       - run: uv sync --locked
       - run: just py-mutation
+
+  notify:
+    # Weekly only. Opens one issue, or comments on the open one, when a job above fails.
+    # The only job that may write issues.
+    name: "mutation: report failure"
+    needs: ['python']
+    # A job that runs past timeout-minutes ends cancelled, not failed.
+    if: always() && github.event_name == 'schedule' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+    permissions:
+      issues: write # opens or comments on the failure issue
+    uses: $/.github/workflows/report-failure.yml
+    with:
+      title: Weekly mutation run failed

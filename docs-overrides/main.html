@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% macro page_title(page) -%}
+  {%- set home = page.meta is defined and page.meta.home is defined and page.meta.home %}
+  {%- set label = page.meta.title if page.meta is defined and page.meta.title is defined else page.title %}
+  {%- set title = config.site_name if home else label ~ " - " ~ config.site_name %}
+  {{- title | e -}}
+{%- endmacro %}
+
+{% block htmltitle %}
+  <title>{{ page_title(page) }}</title>
+{% endblock %}
+
+{% block announce %}
+  These docs follow main and may include unreleased features.
+  See the <a href="https://github.com/simonvanlierde/sourceledger/blob/main/CHANGELOG.md">changelog</a>.
+{% endblock %}
+
+{#- A page's own description wins over the site's for link previews. #}
+{% block extrahead %}
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+  {%- if page is defined and page.canonical_url is defined and page.canonical_url and config.extra.og_image is defined %}
+  {#- A hand-edited site_url may omit its trailing slash. URLs stay unescaped: the
+      escape filter writes / as &#x2f;, which some link-preview scrapers do not decode. #}
+  {%- set base = config.site_url if config.site_url[-1:] == "/" else config.site_url ~ "/" %}
+  {%- set summary = config.site_description or "" %}
+  {%- set description = page.meta.description if page.meta is defined and page.meta.description is defined else summary %}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ config.site_name | e }}">
+  <meta property="og:title" content="{{ page_title(page) }}">
+  {%- if description %}
+  <meta property="og:description" content="{{ description | e }}">
+  {%- endif %}
+  <meta property="og:url" content="{{ page.canonical_url }}">
+  <meta property="og:image" content="{{ base ~ config.extra.og_image }}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="A published value changes from 419.31 to 419.32, the recorded download's SHA-256 changes, and the built output has 0 problems.">
+  <meta name="twitter:card" content="summary_large_image">
+  {%- endif %}
+{% endblock %}

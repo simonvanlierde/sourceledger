@@ -12,6 +12,16 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 - `align_rows(before, after, keys=...)` matches rows with unique keys in both tables, preserving their values and provenance. It rejects invalid or duplicate keys before matching; callers choose their own comparison rules.
 
+### Fixed
+
+- Closed HTTP error responses after retries, conditional requests and failed archive requests.
+- Documentation page titles match their link previews, and the site identifies unreleased features and describes the social preview image.
+
+### Changed
+
+- The documentation site now uses Zensical, with search and a Python API reference at the existing address. Building it needs only uv and just.
+- Updated the project template to v0.15.0, including dependency licence checks and stricter pytest configuration.
+
 ## [0.5.1] - 2026-11-11
 
 ### Changed

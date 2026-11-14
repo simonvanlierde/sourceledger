@@ -1,0 +1,36 @@
+name: report failure
+
+# Called by the scheduled workflows when one of their jobs fails. Opens an issue, or
+# comments on the open issue with the same title, so a repeated failure adds to one
+# thread. The caller grants issues: write.
+on:
+  workflow_call:
+    inputs:
+      title:
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  issue:
+    name: open or update the issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write # opens or comments on the failure issue
+    steps:
+      - name: open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: ${{ inputs.title }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |-
+          body="The scheduled run failed: $RUN_URL"
+          issue=$(gh issue list --state open --author app/github-actions --search "in:title \"$TITLE\"" --json number -q '.[0].number')
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "$body"
+          else
+            gh issue create --title "$TITLE" --body "$body"
+          fi

@@ -35,12 +35,13 @@ def changed_lines(path: str, base: str, *, untracked: bool) -> set[int]:
     return lines
 
 
-def functions(tree: ast.Module, module: str) -> list[tuple[range, str]]:
-    """Line range and mutmut pattern of each top-level function and method.
+def functions(tree: ast.Module, module: str) -> list[tuple[range, str | None, str]]:
+    """Line range, mutmut pattern and name of each top-level function and method.
 
-    mutmut leaves a function alone when it has any decorator but staticmethod or classmethod.
+    mutmut leaves a function alone when it has any decorator but staticmethod or classmethod;
+    its pattern is then None.
     """
-    found: list[tuple[range, str]] = []
+    found: list[tuple[range, str | None, str]] = []
     funcs = (ast.FunctionDef, ast.AsyncFunctionDef)
     for node in tree.body:
         members = [(None, node)] if isinstance(node, funcs) else []
@@ -48,11 +49,14 @@ def functions(tree: ast.Module, module: str) -> list[tuple[range, str]]:
             members = [(node.name, m) for m in node.body if isinstance(m, funcs)]
         for owner, func in members:
             decorators = {ast.unparse(d) for d in func.decorator_list}
-            if decorators - {"staticmethod", "classmethod"}:
-                continue
             first = min([func.lineno, *(d.lineno for d in func.decorator_list)])
+            lines = range(first, (func.end_lineno or func.lineno) + 1)
+            label = f"{module}.{owner}.{func.name}" if owner else f"{module}.{func.name}"
+            if decorators - {"staticmethod", "classmethod"}:
+                found.append((lines, None, label))
+                continue
             name = f"xǁ{owner}ǁ{func.name}" if owner else f"x_{func.name}"
-            found.append((range(first, (func.end_lineno or func.lineno) + 1), f"{module}.{name}__mutmut_*"))
+            found.append((lines, f"{module}.{name}__mutmut_*", label))
     return found
 
 
@@ -88,8 +92,12 @@ def main(base: str) -> None:
         parts = path.with_suffix("").parts
         module = ".".join(parts[1:] if parts[:1] == ("src",) else parts).removesuffix(".__init__")
         touched = changed_lines(name, base, untracked=name in untracked)
-        for lines, pattern in functions(ast.parse(path.read_text(encoding="utf-8")), module):
-            if touched & set(lines):
+        for lines, pattern, label in functions(ast.parse(path.read_text(encoding="utf-8")), module):
+            if not touched & set(lines):
+                continue
+            if pattern is None:
+                print(f"skipped (decorated): {label}", file=sys.stderr)
+            else:
                 print(pattern)
 
 

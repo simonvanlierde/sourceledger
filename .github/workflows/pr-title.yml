@@ -19,6 +19,11 @@ jobs:
     name: pull request title
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      # As in python.yml: uv checks every package against OSV's malware advisories before
+      # its code runs. The preview flag only silences the "experimental" warning.
+      UV_MALWARE_CHECK: "1"
+      UV_PREVIEW_FEATURES: malware-check
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,4 +41,4 @@ jobs:
       - name: check the title
         env:
           TITLE: ${{ github.event.pull_request.title }}
-        run: printf '%s\n' "$TITLE" | uvx committed@1.1.11 --config committed.toml --commit-file -
+        run: printf '%s\n' "$TITLE" | uvx --exclude-newer "1 week" committed@1.1.11 --config committed.toml --commit-file -
