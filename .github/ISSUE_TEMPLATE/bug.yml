@@ -24,7 +24,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: Version
+      label: Release or commit
       description: The release or commit you used.
     validations:
       required: true

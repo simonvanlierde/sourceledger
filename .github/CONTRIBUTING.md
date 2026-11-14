@@ -7,7 +7,7 @@ report vulnerabilities as [SECURITY.md](SECURITY.md) describes, not in a public 
 
 Open an [issue](https://github.com/simonvanlierde/sourceledger/issues) with the bug or
 feature form. For a bug, say what you did, what you expected and what happened, with the
-version you used. A question the README and docs don't answer is a gap in the docs: open
+release or commit you used. A question the README and docs don't answer is a gap in the docs: open
 a feature request for it.
 
 ## Scope and response
@@ -120,8 +120,8 @@ If `just check` fails on a security fix newer than that week, add the package to
 - **The pull request body** has the shape of
   [the pull request template](pull_request_template.md): what it fixes and why, three or
   four bullets, a `Tested:` line with the proof (the command and its result, or a test
-  that fails without the change), and a `Not checked:` line for what did not run and what
-  only a person can judge.
+  that fails without the change), and a `Not checked:` line with what did not run and why,
+  and any design choice or security path that only a person can judge. "Nothing" is fine.
 - **The changelog** ([CHANGELOG.md](../CHANGELOG.md)) follows
   [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/). Write each entry for
   the people who use the project, not as a commit subject. Mark breaking changes
@@ -133,7 +133,7 @@ If `just check` fails on a security fix newer than that week, add the package to
 The maintainer first sets `version` and `date-released` in `CITATION.cff`, runs
 `uv version X.Y.Z` for `pyproject.toml` and `uv.lock`, `just citation` for `codemeta.json`, and
 puts the new tag in the `#:schema` line of `docs/reference.md`.
-Then `just release X.Y.Z` cuts the changelog, and a second run tags the merged release commit. [Publishing](https://github.com/simonvanlierde/project-templates/blob/main/docs/usage.md#publishing) has the steps and the one-time setup.
+Then `just release X.Y.Z` cuts the changelog, and a second run tags the merged release commit. [Publishing](https://github.com/simonvanlierde/project-templates/blob/main/docs/setup.md#publishing) has the steps and the one-time setup.
 
 ## Sign off your commits
 

@@ -65,7 +65,7 @@ def test_fetch_retries_a_server_error_with_backoff(monkeypatch: pytest.MonkeyPat
 @pytest.mark.usefixtures("upstream")
 def test_fetch_gives_up_after_four_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
     """A publisher that stays down fails the run after four tries, not a fifth."""
-    calls = _serve(monkeypatch, *(_http_error(503) for _ in range(5)))
+    calls = _serve(monkeypatch, *(_http_error(503) for _ in range(4)))
     assert _run("fetch") == [3]
     assert len(calls) == 4
 
@@ -455,6 +455,7 @@ def test_a_redirect_to_a_name_that_rebinds_inward_is_refused(
         assert _run("fetch") == [3]
     finally:
         server.shutdown()
+        server.server_close()
     assert "example: refused a redirect from a public host to http://rebind.test" in capsys.readouterr().err
     assert not RAW.exists()
 
@@ -503,6 +504,7 @@ def test_the_peer_check_is_skipped_through_a_proxy() -> None:
             connection.close()
     finally:
         server.shutdown()
+        server.server_close()
 
 
 class _QuietServer(http.server.ThreadingHTTPServer):
@@ -579,6 +581,7 @@ def test_the_peer_check_refuses_a_loopback_peer_over_tls(tmp_path: Path) -> None
         assert _TLSEcho.seen == []
     finally:
         server.shutdown()
+        server.server_close()
 
 
 def test_real_http_fetches_redirects_and_304s(publisher: str, tmp_path: Path) -> None:
@@ -880,6 +883,7 @@ def test_archive_asks_for_a_snapshot_of_new_bytes_only(tmp_path: Path, monkeypat
         (lambda: urllib.error.URLError("x"), ""),
         (lambda: ValueError("bad"), ""),
     ],
+    ids=["snapshot", "no-location", "http-error", "timeout", "url-error", "invalid-response"],
 )
 @pytest.mark.usefixtures("upstream")
 def test_archive_never_fails_the_fetch(

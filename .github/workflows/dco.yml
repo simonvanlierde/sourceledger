@@ -1,9 +1,6 @@
 name: dco
 
-# Every commit in a pull request from a fork must carry a Signed-off-by line: the
-# Developer Certificate of Origin, as CONTRIBUTING.md asks. A pull request from a
-# branch in this repository skips the job, which counts as passing: pushing that
-# branch already needed write access.
+# Every pull request checks the Developer Certificate of Origin sign-off on each commit.
 on:
   pull_request:
 
@@ -17,7 +14,6 @@ concurrency:
 jobs:
   sign-off:
     name: DCO sign-off
-    if: github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

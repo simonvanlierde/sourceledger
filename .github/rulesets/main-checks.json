@@ -17,7 +17,8 @@
           { "context": "python: lint, types, tests (3.12)", "integration_id": 15368 },
           { "context": "python: lint, types, tests (3.13)", "integration_id": 15368 },
           { "context": "python: lint, types, tests (3.14)", "integration_id": 15368 },
-          { "context": "python: lint, types, tests (3.15)", "integration_id": 15368 }
+          { "context": "python: lint, types, tests (3.15)", "integration_id": 15368 },
+          { "context": "docs: build", "integration_id": 15368 }
         ]
       }
     }

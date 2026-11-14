@@ -2,13 +2,14 @@
 py-sync:
     uv sync
 
-# What CI runs: lint, format check, types, tests with the coverage floor, dependency audit.
+# What CI runs: lint, format check, types, tests, dependency audit and licenses.
 py-check:
-    uv run ruff check
-    uv run ruff format --check
-    uv run ty check
-    uv run pytest --cov
+    uv run --locked ruff check
+    uv run --locked ruff format --check
+    uv run --locked ty check
+    uv run --locked pytest --cov
     uv audit --locked --preview-features audit-command
+    d=$(mktemp -d) && trap 'rm -rf "$d"' EXIT && uv export --locked --no-default-groups --no-hashes --no-annotate --no-header --no-emit-project -q -o "$d/requirements.txt" && { test ! -s "$d/requirements.txt" || uv run --locked --with licensecheck==2026.0.8 licensecheck -r "$d/requirements.txt" --zero; }
 
 # Fix what ruff can fix, then format.
 py-fmt:
@@ -27,11 +28,13 @@ py-test *args:
 py-matrix:
     for v in 3.12 3.13 3.14 3.15; do uv run --isolated --locked --python "$v" pytest || exit 1; done
 
-# Plant small bugs in the package. Fails on a mutant the tests miss (or that no test
-# reaches) unless tests/mutation-baseline.txt lists it, and on a listed one that no longer
-# survives. Slow: CI runs it weekly (mutation.yml); run it by hand after writing tests.
-# Give mutmut patterns (`just py-mutation 'pkg.mod.x_name__mutmut_*'`) to mutate only
-# those; that run skips the check for listed ones. `mutmut browse` shows survivors.
+# A mutant that no test reaches counts as missed, unless tests/mutation-baseline.txt
+# lists it. A listed one that no longer survives fails too. Slow: CI runs it weekly
+# (mutation.yml); run it by hand after writing tests. Give mutmut patterns
+# (`just py-mutation 'pkg.mod.x_name__mutmut_*'`) to mutate only those; that run skips
+# the check for listed ones. `mutmut browse` shows survivors.
+
+# Plant small bugs in the package; fail on a mutant the tests miss.
 py-mutation *names:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -55,10 +58,11 @@ py-mutation *names:
     fi
     [ -z "$new$gone" ]
 
-# The same check for the functions this branch changed since it split off a git ref
-# (origin/main unless you give one): fast enough to run on each change. Fails on a
-# survivor not in the baseline.
-# Run `just py-mutation` before a release, since it also finds the listed ones to drop.
+# The ref is origin/main unless you give one: fast enough to run on each change. Fails
+# on a survivor not in the baseline. Run `just py-mutation` before a release, since it
+# also finds the listed ones to drop.
+
+# The same check for the functions this branch changed since it split off a git ref.
 py-mutation-diff base='origin/main':
     #!/usr/bin/env bash
     set -euo pipefail
@@ -67,7 +71,8 @@ py-mutation-diff base='origin/main':
     set -f
     {{ just_executable() }} --justfile {{ justfile() }} py-mutation $patterns
 
-# The tests under Hypothesis's "long" profile (tests/conftest.py): 10,000 examples a
-# property instead of 100. CI runs it weekly (property.yml).
+# The profile is in tests/conftest.py. CI runs it weekly (property.yml).
+
+# The tests under Hypothesis's "long" profile: 10,000 examples a property instead of 100.
 py-property:
     uv run pytest --hypothesis-profile=long

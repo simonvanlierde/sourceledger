@@ -51,24 +51,14 @@ jobs:
         with:
           persist-credentials: false
 
-      # Publish only a tag signed with a key in .github/allowed_signers, read from the
-      # default branch: the tagged commit's own copy is whatever the tag's pusher wrote.
-      # GitHub's "verified" flag would accept a key registered to any account. The workflow
-      # also comes from the tagged commit, so the pypi environment's reviewer stays the gate.
-      - name: refuse a tag not signed by an allowed key
+      # Publish only a tag signed with a key in .github/allowed_signers on the default
+      # branch: .github/scripts/verify-tag.sh says why.
+      - name: refuse a tag not signed with an allowed key
         env:
           TAG: ${{ github.ref_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          set -euo pipefail
-          # checkout fetches the tagged commit, not the annotated tag object that holds the signature.
-          git fetch --no-tags --depth=1 --force origin "refs/tags/$TAG:refs/tags/$TAG"
-          git fetch --no-tags --depth=1 origin "refs/heads/$DEFAULT_BRANCH"
-          git show FETCH_HEAD:.github/allowed_signers >"$RUNNER_TEMP/allowed_signers"
-          if ! git -c gpg.ssh.allowedSignersFile="$RUNNER_TEMP/allowed_signers" tag -v "$TAG"; then
-            echo "$TAG is not an annotated tag signed with a key in .github/allowed_signers on $DEFAULT_BRANCH; make it with .github/scripts/tag-release.sh" >&2
-            exit 1
-          fi
+          GH_TOKEN: ${{ github.token }}
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/verify-tag.sh" --fetch "$TAG" "origin/$DEFAULT_BRANCH"
 
       # No cache: an entry written from any branch is restorable here, which
       # would put attacker-controlled bytes into the wheel this workflow signs.
@@ -95,8 +85,9 @@ jobs:
           name: dist
           path: ./dist/
 
-      # The SBOM lists the locked dependencies of every extra, so the versions we tested with,
-      # not what a user will resolve. The core has none, so without the extras it would be empty.
+      # The SBOM lists the locked runtime dependencies, extras included, so the versions we
+      # tested with, not what a user will resolve. The wheel is pure Python and carries none
+      # of its own.
       - run: |
           mkdir sbom
           uv export --locked --no-dev --all-extras --format cyclonedx1.5 -o "sbom/$(basename dist/*.tar.gz).cdx.json"

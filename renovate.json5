@@ -16,12 +16,16 @@
 // updates ignore it and the schedule. They need Dependabot alerts on in the repo settings,
 // and cover only the dependencies a manifest names.
 //
-// No Dockerfile or compose updates: the FROM tags are copier answers, so those PRs
-// would fight the next `copier update`.
+// No Dockerfile updates: the FROM tags are copier answers, so those PRs would fight the
+// next `copier update`. A Compose-only repo has no Dockerfile and its images are its own,
+// so the docker-compose manager is on there.
 {
   $schema: 'https://docs.renovatebot.com/renovate-schema.json',
   // Conventional Commits titles, `chore(deps): update ...`, which the pr-title workflow checks.
-  extends: ['config:recommended', ':semanticCommits'],
+  extends: ['config:best-practices', ':semanticCommits'],
+  // Two of its presets work against this config. :pinDevDependencies opens pin PRs the
+  // lockfile makes redundant, and the npm preset's 3-day wait would beat the 7 days below.
+  ignorePresets: [':pinDevDependencies', 'security:minimumReleaseAgeNpm'],
   schedule: ['before 9am on monday'],
   minimumReleaseAge: '7 days',
   // Renovate merges the PR itself. GitHub's own auto-merge may not use the bypass, and

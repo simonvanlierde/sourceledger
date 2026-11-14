@@ -1240,6 +1240,8 @@ def test_mlcroissant_passes_the_croissant_and_finds_a_broken_one(
 
 
 @pytest.mark.skipif(not _HAS["mlcroissant"], reason="needs the release extra")
+# mlcroissant still passes the deprecated inplace argument to pandas.
+@pytest.mark.filterwarnings("ignore:The inplace keyword in DataFrame.reset_index is deprecated:Warning")
 def test_mlcroissant_reads_the_records_of_a_parquet_release(project: Path) -> None:
     """Its reader knows Parquet only as application/x-parquet; the IANA type passes validate but loads nothing."""
     pytest.importorskip("pyarrow")
