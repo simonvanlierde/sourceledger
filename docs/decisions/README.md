@@ -22,3 +22,4 @@ the old one's status to `superseded by 0007`, naming the new record's number.
 - [0004. Declarative retrieval with per-request provenance](0004-declarative-retrieval.md): superseded by 0005
 - [0005. A provenance core that records files other tools fetch](0005-provenance-core.md): accepted
 - [0006. A release stage that writes and checks the archive metadata](0006-release-stage.md): accepted
+- [0007. Align rows without choosing comparison policy](0007-align-rows-without-comparison-policy.md): accepted
