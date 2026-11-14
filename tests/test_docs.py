@@ -205,6 +205,24 @@ def test_every_recipe_is_python_that_parses() -> None:
         ast.parse(block)
 
 
+def test_row_alignment_recipe_uses_project_comparison_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("before.csv").write_text(
+        "country,year,value\nNLD,2020,100\nDEU,2020,0\nBRA,2020,3\nIND,2020,20\n", encoding="utf-8"
+    )
+    Path("after.csv").write_text(
+        "country,year,value\nIND,2020,20\nDEU,2020,100\nNLD,2020,101\nKEN,2020,1\n", encoding="utf-8"
+    )
+    code = _block(RECIPES, "## Compare two versions by row key", "python")
+    exec(code, {})  # noqa: S102  # run the documented recipe against local tables
+    assert capsys.readouterr().out == "{'change_n': 2, 'change_share_changed': 0.5}\n"
+    Path("before.csv").write_text("country,year,value\nNLD,2020,NaN\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="comparison needs finite values"):
+        exec(code, {})  # noqa: S102  # the project recipe, not alignment, rejects nonfinite values
+
+
 def test_the_own_fetcher_recipe_records_each_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The loop downloads with urllib, here from local files, and records one source per country."""
     monkeypatch.chdir(tmp_path)

@@ -20,6 +20,8 @@ CSV, JSON, Excel or binary files. List the sources and reuse terms in `sources.t
 
 Each table row identifies its download. A `datapackage.json` describes the outputs.
 The [documentation website](https://simonvanlierde.com/sourceledger/) follows a source through a publisher's revision.
+In Python, [`align_rows()`](docs/recipes.md#compare-two-versions-by-row-key) matches two versions by the keys you name,
+keeping the full rows and their provenance. Your code decides which values count as changed.
 
 ## Install
 
@@ -115,9 +117,6 @@ cheap. Older fetch logs stay readable. A record written by `record()`, or with
 
 - An error class per kind of failure in the other stages, under `ValueError` and `OSError`,
   once a caller needs to tell them apart. This will not break code that catches the base classes.
-- Comparing two versions of a table row by row, with the row keys the caller names, so a
-  revision shows which values changed and not only that the bytes did. It starts as a pilot on
-  real data, the archived World Development Indicators releases, before it becomes an API.
 - A review by [pyOpenSci](https://www.pyopensci.org) once the project has users besides
   its own template.
 

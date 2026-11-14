@@ -9,6 +9,7 @@ changelog. The submodules, such as `sourceledger.ledger`, may change in any rele
 
 from sourceledger.builder import Parser, build, parse_csv, parse_json, parse_source, parse_xlsx, read_output
 from sourceledger.cli import entry, main
+from sourceledger.comparison import align_rows
 from sourceledger.fetcher import USER_AGENT, fetch
 from sourceledger.ledger import FetchError, FetchRecord, record, revisions, verified
 from sourceledger.manifest import Source, load_manifest, load_output_format, load_package_name, load_release_formats
@@ -34,6 +35,7 @@ __all__ = [
     "ValidatorCouldNotRun",
     "ValidatorFailed",
     "ValidatorMissing",
+    "align_rows",
     "attribution",
     "build",
     "check_release",
