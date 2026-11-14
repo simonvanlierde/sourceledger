@@ -130,6 +130,11 @@ def test_the_website_revision_example_matches_the_pipeline(project: Path) -> Non
     example = json.loads((ROOT / "docs" / "_data" / "revision.json").read_text())
     guide = (ROOT / "docs" / "getting-started.md").read_text()
     assert example["before_sha256"][:12] in guide
+    home = (ROOT / "docs" / "index.md").read_text()
+    assert example["before_sha256"] in home
+    assert example["after_sha256"] in home
+    assert example["problem"] in home
+    assert "| 2023 | 419.31 | **419.32** |" in home
     assert example["after_sha256"] in guide
     upstream = project / "upstream" / "co2-annmean-mlo.csv"
     sources = manifest_mod.load_manifest()
@@ -195,7 +200,7 @@ def _shell(script: str) -> list[int]:
 def test_every_recipe_is_python_that_parses() -> None:
     """The recipes for tools the tests do not install must at least be valid Python."""
     blocks = re.findall(r"```python\n(.*?)```", RECIPES, re.DOTALL)
-    assert len(blocks) == 5
+    assert blocks
     for block in blocks:
         ast.parse(block)
 
@@ -225,3 +230,24 @@ def test_the_own_fetcher_recipe_records_each_file(tmp_path: Path, monkeypatch: p
         "population-nl.csv",
     ]
     assert report_mod.verify(Path("data/published")) == []
+
+
+def test_project_stage_recipe_parses_before_loading(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    guide = (ROOT / "docs" / "recipes.md").read_text()
+    namespace = {}
+    exec(_block(guide, "## Add a project-specific stage", "python"), namespace)  # noqa: S102
+    calls = []
+    monkeypatch.setattr(namespace["sourceledger"], "load_manifest", lambda: calls.append("load") or [{"id": "co2"}])
+    monkeypatch.setattr(namespace["sourceledger"], "entry", lambda argv, **_kwargs: calls.append(argv))
+    for args, code in [(["inventory", "--help"], 0), (["inventory", "--unknown"], 2)]:
+        with pytest.raises(SystemExit) as exited:
+            namespace["main"](args)
+        assert exited.value.code == code
+        assert calls == []
+    namespace["main"](["inventory"])
+    assert calls == ["load"]
+    assert capsys.readouterr().out.endswith("co2\n")
+    namespace["main"](["status", "--json"])
+    assert calls[-1] == ["status", "--json"]

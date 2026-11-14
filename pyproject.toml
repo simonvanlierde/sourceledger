@@ -124,13 +124,25 @@ exclude = ["docs/examples"]
 [tool.ty.terminal]
 error-on-warning = false
 
-[tool.pytest.ini_options]
-# `live` tests reach real services; `pytest -m live` runs only them (the last -m wins).
-addopts = ["-ra", "--strict-config", "--strict-markers", "--import-mode=importlib", "-m", "not live"]
+# pytest 9's native table. strict turns unknown config keys, unknown markers and
+# an xfail test that passes into errors, and filterwarnings turns warnings into
+# failures, so a deprecation shows up in CI, not after the upgrade that removes it.
+[tool.pytest]
+minversion = "9.0"
+addopts = ["-ra", "--import-mode=importlib", "-m", "not live"]
 markers = ["live: calls a real external service; deselected unless run with -m live"]
-testpaths = ["tests"]
 # The test modules import their shared helpers from tests/support.py.
 pythonpath = ["tests"]
+testpaths = ["tests"]
+strict = true
+filterwarnings = [
+  "error",
+  # frictionless and its validators still call the deprecated helper on Python 3.15.
+  "ignore:os.path.commonprefix\\(\\) is deprecated:DeprecationWarning",
+  # rdflib's JSON-LD parser constructs its own deprecated graph class.
+  "ignore:ConjunctiveGraph is deprecated:DeprecationWarning:rdflib.plugins.parsers.jsonld",
+]
+log_level = "INFO"
 
 # Coverage is opt-in via `pytest --cov` (`just py-cov`), not addopts, because it
 # slows every plain test run. CI's run fails under the fail_under below.
@@ -153,3 +165,16 @@ source_paths = ["src"]
 also_copy = ["README.md", "docs", ".github/scripts", "src/sourceledger/sources.schema.json"]
 # Log calls only change diagnostics; their mutants would all survive.
 do_not_mutate_patterns = ['^\s*_logger\.\w+\(']
+
+# Checks from Scientific Python's repo-review (the sp-repo-review git hook) that this
+# project skips on purpose. `prek run sp-repo-review --all-files` runs the rest.
+[tool.repo-review.ignore]
+PY007 = "just is the task runner: `just check` runs what CI runs"
+PC110 = "ruff format runs as a local hook from the venv, the same ruff CI runs"
+PC140 = "ty runs as a local hook from the venv"
+PC170 = "no reStructuredText: rumdl checks the Markdown docs"
+PC190 = "ruff check runs as a local hook from the venv"
+PC901 = "the hooks run in CI's checks workflow, not on pre-commit.ci"
+PC902 = "the hooks run in CI's checks workflow, not on pre-commit.ci"
+PC903 = "the hooks run in CI's checks workflow, not on pre-commit.ci"
+GH200 = "Renovate updates the actions and hook revs (renovate.json5)"

@@ -1,0 +1,36 @@
+# The documentation site: `just docs` builds the Markdown in docs/ into _docs/, and
+# docs.yml deploys it to GitHub Pages. Without a `nav`, the menu follows the files in docs/.
+# Settings: https://zensical.org/docs/setup/basics/
+[project]
+site_name = "sourceledger"
+site_description = "Fetch or record the public files a dataset is built from, with a provenance record for every file"
+site_url = "https://simonvanlierde.com/sourceledger/"
+repo_url = "https://github.com/simonvanlierde/sourceledger"
+site_dir = "_docs"
+use_directory_urls = false
+extra_css = ["assets/docs.css", "assets/brand.css"]
+nav = [
+  { "Start here" = "index.md" },
+  { "Worked example" = [{ "Publisher revisions" = "getting-started.md" }, { "Recipes" = "recipes.md" }, { "Where it fits" = "where-it-fits.md" }] },
+  { "Manifest and commands" = [{ "Reference" = "reference.md" }, { "Python API" = "api.md" }, { "Downloads" = "fetching.md" }] },
+  { "How it works" = [{ "Architecture" = "architecture.md" }, { "Decisions" = "decisions/README.md" }, { "Roadmap" = "roadmap.md" }, { "Security assurance" = "assurance-case.md" }] },
+  { "Safe use" = "secure-use.md" },
+]
+extra_javascript = ["assets/docs.js"]
+
+[project.theme]
+font = false
+custom_dir = "docs-overrides"
+
+# docs-overrides/main.html reads og_image for the link-preview tags. `just og-card` renders the
+# image and puts its hash in this URL, since link previews cache by URL.
+[project.extra]
+og_image = "assets/og.png"
+
+# Line anchors are empty links, which screen readers announce without a name.
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = false
+
+# docs/api.md renders the docstrings under this path, read without importing the package.
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["src"]

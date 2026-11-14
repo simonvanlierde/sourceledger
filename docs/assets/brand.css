@@ -1,0 +1,26 @@
+@font-face {
+  font-family: Arimo;
+  src: url("fonts/arimo.woff2") format("woff2");
+  font-weight: 400 700;
+  font-display: swap;
+}
+:root > * {
+  --md-primary-fg-color: #26334b;
+  --md-primary-bg-color: #ffffff;
+  --md-accent-fg-color: #587723;
+  --md-accent-fg-color--transparent: #dfff7640;
+  --md-default-fg-color: #26334b;
+  --md-text-font: Arimo, Helvetica, Arial, sans-serif;
+}
+::selection { background: #dfff76; color: #26334b; }
+.md-typeset a { text-decoration: underline; }
+.md-nav__link--active { background: #dfff76; color: #26334b; }
+.provenance-flow { background: #26334b; color: #ffffff; padding: 1rem; }
+.md-typeset .provenance-flow ol { display: flex; gap: 2rem; margin: 0; list-style: none; }
+.provenance-flow li { flex: 1; margin: 0; }
+.provenance-flow li + li::before { content: "→"; color: #dfff76; }
+.provenance-flow code { background: transparent; color: #dfff76; }
+@media (max-width: 44rem) {
+  .md-typeset .provenance-flow ol { flex-direction: column; gap: 1rem; }
+  .provenance-flow li + li::before { content: "↓"; }
+}

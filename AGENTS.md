@@ -5,7 +5,8 @@ Notes for coding agents working on sourceledger. The `justfile` holds every comm
 
 ## Check
 
-Run `just check` before you call a change done. It runs what CI runs for each stack.
+Run `just check` before you call a change done. It runs the stack checks CI runs, so a miss here is caught there too, then
+the `local-check` recipe in `just/local.just` if that file has one.
 `just fmt` fixes what it can first.
 
 ## Test
@@ -14,7 +15,6 @@ Run `just check` before you call a change done. It runs what CI runs for each st
 
 ## Docs
 
-`README.md` says how to set up, run and release the project. Record user-facing changes
-under `[Unreleased]` in `CHANGELOG.md`.
-Read `docs/decisions/` if present before changing a recorded choice.
+`README.md` says how to set up and run the project, and `just release` cuts a release.
+Record user-facing changes under `[Unreleased]` in `CHANGELOG.md`.
 `.github/CONTRIBUTING.md` has the commit and sign-off rules.

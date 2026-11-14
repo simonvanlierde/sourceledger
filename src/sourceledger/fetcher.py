@@ -285,6 +285,7 @@ def _get(source: Source, previous: FetchRecord | None, user_agent: str, folder: 
             msg = f"{source['id']}: {error}"
             raise ValueError(msg) from error
         except urllib.error.HTTPError as error:
+            error.close()
             # urllib raises a 304 like an error. Only a conditional request can get one.
             if error.code == HTTPStatus.NOT_MODIFIED and previous and conditional:
                 return previous
@@ -321,6 +322,8 @@ def _archive(source: Source, user_agent: str) -> str:
             # The archive redirects to the snapshot, or names it in Content-Location.
             snapshot = urljoin(response.url, response.headers.get("Content-Location", ""))
     except (*_TRANSIENT, ValueError) as error:
+        if isinstance(error, urllib.error.HTTPError):
+            error.close()
         _logger.warning("%s: the Internet Archive did not snapshot %s (%s)", source["id"], url, error)
         return ""
     if not snapshot.startswith(_SNAPSHOT):

@@ -7,7 +7,7 @@ name: cold install
 # before the first release, so keep those under another heading.
 on:
   pull_request:
-    paths: [README.md, .github/workflows/cold-install.yml, justfile, "just/**", site/package.json, site/pnpm-lock.yaml, "**/pyproject.toml", "**/uv.lock", "**/.python-version"]
+    paths: [README.md, .github/workflows/cold-install.yml, justfile, "just/**", "**/pyproject.toml", "**/uv.lock", "**/.python-version"]
   schedule:
     - cron: "47 5 * * 1" # Mondays, 05:47 UTC
   workflow_dispatch:
@@ -27,7 +27,12 @@ jobs:
     # Debian with git, curl and a C compiler, like a new contributor's machine. Pinned
     # to a digest, so a moved tag can't swap the image. Renovate bumps it; Dependabot
     # doesn't read workflow images, so with Dependabot it moves on `copier update`.
-    container: buildpack-deps:trixie@sha256:8db3a3d1e68e0a88ed31c2256d0c0e3b127f80685e6b1f3a9bb31e22638b5e7b
+    container: buildpack-deps:trixie@sha256:5214476af627916270063c9f99a969381f32cd961c861ea95e740ba71abc125f
+    env:
+      # As in python.yml: uv checks every package against OSV's malware advisories before
+      # its code runs. The preview flag only silences the "experimental" warning.
+      UV_MALWARE_CHECK: "1"
+      UV_PREVIEW_FEATURES: malware-check
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,12 +47,7 @@ jobs:
       - uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
         with:
           tool: just@1.59.0
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          package_json_file: site/package.json
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "26"
+          fallback: none
 
       - name: Run the README's Development blocks
         # shortcut: drops the task lines that need Docker, a browser's system libraries,

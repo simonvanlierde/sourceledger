@@ -1,13 +1,8 @@
 # Task runner: https://just.systems. `just` lists the recipes, `just <name>` runs one.
 #
-# `import?` skips a recipe file you did not scaffold. Recipes are prefixed
-# (`py-`, `ts-`, `rs-`, `go-`) because imports share one namespace, except the few only
-# one kind has, such as `pipeline` or `up`.
+# Each stack's recipes are in just/, prefixed (`py-`) because
+# imports share one namespace, except the few only one kind has, such as `pipeline` or `up`.
 import? 'just/python.just'
-import? 'just/ts.just'
-import? 'just/rust.just'
-import? 'just/go.just'
-import? 'just/docker.just'
 
 # List the recipes (what a bare `just` runs).
 default:
@@ -16,35 +11,42 @@ default:
 # The stack checks CI runs. `just hooks` runs the git hooks, which CI also runs.
 check:
     @just py-check
-    @just site
+    @just docs
+    @if just --show local-check >/dev/null 2>&1; then just local-check; fi
 
 # Fix and format every stack here, as each stack's `fmt` recipe does.
 fmt:
     @just py-fmt
 
-# Render the social card, site/public/og.png, from docs/og-card.html (needs Node and a Playwright Chromium).
-og-card:
-    pnpm dlx playwright@1.64.1 screenshot --browser=chromium --viewport-size=1200,630 \
-      "file://$PWD/docs/og-card.html" site/public/og.png
+# The checks workflow skips the hooks in its SKIP list, which the stack workflows run
+# instead. Here they all run, so this can fail where the checks workflow passes.
 
-# Run every git hook over the whole repo, not just staged files. The checks workflow skips
-# the hooks in its SKIP list, which the stack workflows run instead. Here they all run, so
-# this can fail where the checks workflow passes.
+# Run every git hook over the whole repo, not just staged files.
 hooks:
     prek run -a
 
-# Build the page in site/ into site/dist/, which site.yml deploys.
-site:
-    pnpm -C site install --frozen-lockfile
-    ASTRO_TELEMETRY_DISABLED=1 pnpm -C site run build
+# Needs Chromium. Check the result at 300 px wide and cropped to the centre square.
 
-# `just site` and CI install with --frozen-lockfile.
-# Install the site's node_modules, and write site/pnpm-lock.yaml if it is missing.
-site-sync:
-    pnpm -C site install
+# Render docs/og-card.html to the 1200x630 social card image in docs/assets/.
+og-card:
+    pnpm dlx playwright@1.64.1 install chromium
+    pnpm dlx playwright@1.64.1 screenshot --viewport-size=1200,630 "file://$PWD/docs/og-card.html" "$PWD/docs/assets/og.png"
+    cp docs/assets/og.png docs/og.png
+    sed -E -i.bak "s/og\.png(\?v=[0-9a-f]+)?\"/og.png?v=$(shasum -a 256 docs/assets/og.png | cut -c1-8)\"/" zensical.toml && rm zensical.toml.bak
 
-# Rewrite codemeta.json to agree with CITATION.cff, then check. The writer
-# exits 1 whenever it changes a file, so the check that follows decides the result.
+# Build docs/ into _docs/, which docs.yml deploys. --strict fails on any warning, such as a broken link.
+docs:
+    uvx --exclude-newer "1 week" --with mkdocstrings-python==2.0.10 zensical@0.0.74 build --strict
+    uv run --no-project python tests/check_docs_site.py
+
+# Serve docs/ at http://localhost:8000, rebuilt on each save.
+docs-serve:
+    uvx --exclude-newer "1 week" --with mkdocstrings-python==2.0.10 zensical@0.0.74 serve
+
+# The writer exits 1 whenever it changes a file, so the check that follows decides
+# the result.
+
+# Rewrite codemeta.json to agree with CITATION.cff, then check.
 citation:
     -prek run citesync-write --hook-stage manual --all-files
     prek run citesync --all-files
@@ -66,6 +68,7 @@ release version:
     # changelog bigger than the pipe buffer.
     if git show origin/main:CHANGELOG.md | grep "^## \[$version\] - " >/dev/null; then
         .github/scripts/tag-release.sh "$version"
+        echo "Archive it in Software Heritage: https://archive.softwareheritage.org/save/ (git, $repo). The README badge then links to the SWHID."
         exit 0
     fi
     prev=$(sed -n 's/^## \[\([0-9][0-9.]*\)\].*/\1/p' CHANGELOG.md | head -1)
@@ -84,7 +87,7 @@ release version:
     git commit -s -m "chore: release $version" -- CHANGELOG.md
     echo "Merge this commit to main, then run: just release $version"
 
-# Protect the default branch (no deletion, no force-push, linear history, PRs squash-merged after the always-on checks pass and one approval) and the v* tags. Turn on private vulnerability reporting, CodeQL default setup and Dependabot alerts. Set up release environments with required review. Safe to rerun.
+# Protect the default branch (no deletion, no force-push, linear history, PRs squash-merged after the always-on checks pass and one approval) and the v* tags. Turn on secret scanning with push protection, private vulnerability reporting, CodeQL default setup and Dependabot alerts. Set up release environments with required review. Safe to rerun.
 repo-settings:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -98,6 +101,13 @@ repo-settings:
     }
     # Merge-method switches live on the repo itself; the ruleset also limits the PR button.
     gh api -X PATCH repos/{owner}/{repo} -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F delete_branch_on_merge=true -F web_commit_signoff_required=true >/dev/null 2>"$err" || fail
+    # Push protection refuses a push that holds a known secret format, before it reaches the repo.
+    # A private repo without Secret Protection refuses this, so it warns instead of failing.
+    if gh api -X PATCH repos/{owner}/{repo} -f 'security_and_analysis[secret_scanning][status]=enabled' -f 'security_and_analysis[secret_scanning_push_protection][status]=enabled' >/dev/null 2>"$err"; then
+        echo "Turned on secret scanning and push protection."
+    else
+        echo "Warning: secret scanning could not be turned on (a private repo needs Secret Protection): $(cat "$err")" >&2
+    fi
     # Adopt an existing ruleset by name, else one with the same target that protects the same
     # refs as the file, updating it in place. The list has no conditions, so each candidate is read.
     for name in main main-checks tags; do
@@ -156,15 +166,29 @@ repo-settings:
         fi
         echo "Configured environment '$env'."
     done
+    # docs.yml deploys to GitHub Pages from the workflow, not from a branch. GitHub answers
+    # 409 when Pages is already on, and then the PUT switches its source instead. A 403 or
+    # 422 means this repo cannot have Pages, such as a private repo on the free plan.
+    if gh api -X POST repos/{owner}/{repo}/pages -f build_type=workflow >"$err" 2>&1; then
+        echo "GitHub Pages deploys from Actions."
+    elif grep -q 'HTTP 409' "$err"; then
+        gh api -X PUT repos/{owner}/{repo}/pages -f build_type=workflow >"$err" 2>&1 || fail
+        echo "GitHub Pages deploys from Actions."
+    elif grep -qE 'HTTP (403|422)' "$err"; then
+        echo "Warning: GitHub Pages is not available for this repo (a private repo needs a paid plan for it), so docs.yml's deploy job skips." >&2
+    else
+        fail
+    fi
     repo_full_name=$(gh api repos/{owner}/{repo} --jq .full_name 2>"$err") || fail
     owner=${repo_full_name%%/*}
     repo=${repo_full_name##*/}
     echo "PyPI pending publisher: https://pypi.org/manage/account/publishing/?provider=github&project_name=sourceledger&owner=$owner&repository=$repo&workflow_filename=python-release.yml&environment=pypi"
     echo "Zenodo: https://zenodo.org/account/settings/github/"
-
-# Set the GitHub About box from your answers: description and a topic per stack. Adds topics, never removes yours. Safe to rerun.
+    if [ -f .github/first-release.md ]; then echo "First-release checklist: gh issue create --title 'First release' --body-file .github/first-release.md"; fi
+# Set the GitHub About box from your answers: description, homepage and a topic per stack. Adds topics, never removes yours. Safe to rerun.
 repo-about:
-    gh repo edit --description 'Fetch or record the public files a dataset is built from, with a provenance record for every file' --add-topic python
+    gh repo edit --description 'Fetch or record the public files a dataset is built from, with a provenance record for every file' --homepage 'https://simonvanlierde.com/sourceledger/' --add-topic python
 
-# A repo's own recipes that copier updates never touch:
+# A repo's own recipes that copier updates never touch. A `local-check` recipe there runs
+# at the end of `just check`.
 import? 'just/local.just'

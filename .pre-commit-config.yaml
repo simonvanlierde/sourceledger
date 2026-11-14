@@ -1,7 +1,6 @@
 # Run with prek, a drop-in pre-commit replacement: prek install && prek run -a
 #
-# Python projects get prek from `uv tool install prek`. TypeScript-only projects
-# get it from the @j178/prek devDependency. Revs are commit SHAs, since tags are
+# The README says how to install prek. Revs are commit SHAs, since tags are
 # mutable; the dependency bot moves each SHA and its `# frozen:` tag together.
 
 # `prek install` sets up each of these: the commit message is checked as you commit.
@@ -17,8 +16,6 @@ repos:
       - id: check-added-large-files
       - id: check-merge-conflict
       - id: check-yaml
-        # pnpm writes its own version into the lockfile as a second YAML document.
-        exclude: (^|/)pnpm-lock\.yaml$
       - id: end-of-file-fixer
         exclude: ^(data|tests/(fixtures|golden))/
       - id: mixed-line-ending
@@ -37,7 +34,7 @@ repos:
         entry: sh -c 'test -f "$(git rev-parse --git-path MERGE_HEAD)" || exec committed "$@"' --
 
   # Refuse an unsigned commit before the dco workflow sees it: that checks fork pull requests,
-  # and every pull request with openssf_badge=silver. Merge commits are skipped, as there.
+  # and every pull request with level=community. Merge commits are skipped, as there.
   - repo: local
     hooks:
       - id: dco-signoff
@@ -65,12 +62,17 @@ repos:
     rev: 21ca5323a9c87ee37a434e0ca908efc0a89daa07 # frozen: v0.21.0
     hooks:
       - id: yamlfmt
-        exclude: (^|/)pnpm-lock\.yaml$
 
   - repo: https://github.com/adrienverge/yamllint
     rev: cba56bcde1fdd01c1deb3f945e69764c291a6530 # frozen: v1.38.0
     hooks:
       - id: yamllint
+
+  # Workflow scripts need their own check; jactionlint checks only inline run blocks.
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: a6564f5d57444e123433a5c9af733e3975c77229 # frozen: v0.11.0.1-1
+    hooks:
+      - id: shellcheck
 
   # gitleaks' successor from the same authors. gitleaks takes security fixes only.
   - repo: https://github.com/betterleaks/betterleaks
@@ -107,13 +109,25 @@ repos:
     rev: e201f309ce72779618e965ea41507452a03da155
     hooks:
       - id: citesync
+        additional_dependencies: [packaging==26.3, ruamel-yaml==0.19.1, tomlkit==0.15.2]
       - id: citesync-write
+        additional_dependencies: [packaging==26.3, ruamel-yaml==0.19.1, tomlkit==0.15.2]
 
   - repo: https://github.com/kynan/nbstripout
     rev: 34071b78c181af3bf5af955c1426466e096fc3db # frozen: 0.9.1
     hooks:
       - id: nbstripout
         exclude: ^(data|tests/(fixtures|golden))/
+
+  # Scientific Python's repo-review: packaging, pytest and CI config against their
+  # development guide. Checks this project skips on purpose are listed, each with its
+  # reason, under [tool.repo-review.ignore] in pyproject.toml.
+  - repo: https://github.com/scientific-python/cookie
+    rev: 1589a99867d6cac494ac7545fe6a83108580a3ee # frozen: 2026.08.14
+    hooks:
+      - id: sp-repo-review
+        # Upstream leaves repo-review unpinned.
+        additional_dependencies: ["repo-review[cli]==1.3.0"]
   - repo: https://github.com/rvben/rumdl-pre-commit
     rev: b0cff962ee693b9e612c097d22e71e0cba127447 # frozen: v0.3.2
     hooks:
@@ -127,8 +141,11 @@ repos:
     hooks:
       - id: typos
         # Copier writes the template's commit id here, and a hex id can spell a word
-        # typos rejects.
-        exclude: ^\.copier-answers\.yml$
+        # typos rejects. typos knows English only, so it would rewrite valid words in
+        # translation catalogs: gettext .po files and anything in a locales/ directory.
+        # List other files with text in other languages under [files] extend-exclude in
+        # _typos.toml.
+        exclude: ^\.copier-answers\.yml$|\.po$|(^|/)locales/
 
   # Dead relative links in Markdown and HTML. Offline, so a commit never waits on the
   # network: the weekly links.yml checks the web links. lychee's own hook installs its

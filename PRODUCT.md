@@ -18,7 +18,7 @@ A Python library and CLI configured with sources.toml. The website explains inst
 
 ## Capabilities and Constraints
 
-The documentation is Markdown in `docs/`, built into a static Astro site on GitHub Pages. Preserve readable documentation, installation links, accessible navigation and a working revision demonstration. Offline verification and the standalone HTML provenance report ship with the library. Downloads by pooch, DVC, dlt or a project's own code enter through `record`, documented as recipes, not plugins.
+The documentation is Markdown in `docs/`, built into a searchable Zensical site with a Python API reference on GitHub Pages. Preserve readable documentation, installation links, accessible navigation and a working revision demonstration. Offline verification and the standalone HTML provenance report ship with the library. Downloads by pooch, DVC, dlt or a project's own code enter through `record`, documented as recipes, not plugins.
 
 ## Brand Commitments
 

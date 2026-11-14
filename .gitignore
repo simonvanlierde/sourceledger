@@ -11,13 +11,23 @@
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+# pnpm settings live in pnpm-workspace.yaml, so an .npmrc here would hold a registry token.
+.npmrc
+
+# The rumdl hook's cache. An older rumdl left it without an ignore file of its own,
+# and Biome then formats its JSON.
+.rumdl_cache/
+
+# Build output
+build/
+dist/
 
 # Python
 __pycache__/
 *.py[cod]
 .venv/
-build/
-dist/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
@@ -27,15 +37,6 @@ htmlcov/
 coverage.xml
 .hypothesis/
 
-# Node
-node_modules/
-.pnpm-store/
-*.tsbuildinfo
-coverage/
-
-# Rust
-target/
-
 # Test extras: Hypothesis's example database and what the mutation tools write
 .hypothesis/
 mutants/
@@ -44,7 +45,5 @@ mutants/
 **/reports/mutation/
 mutants.out*/
 
-# What `just site` builds from site/
-/site/dist/
-# Astro's generated types
-/site/.astro/
+# What `just docs` builds from docs/
+/_docs/
