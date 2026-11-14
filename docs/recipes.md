@@ -113,49 +113,6 @@ for country in ("nl", "be"):
 `parameters` keeps what the request asked for, in the log and in every copy of the
 dataset's records. Never put a token or password in it.
 
-## Write a custom reader
-
-For a file you want to keep unchanged, set `format = "file"`; you do not need a reader.
-For tables, `parse_source` chooses `parse_csv`, `parse_json` or `parse_xlsx`.
-
-To read another table format, write a function that takes a source's manifest table and raw bytes.
-Return the column names and rows: any iterable of mappings, whose cells may be numbers or None as well as text
-(None is written as an empty cell). Pass the function to your project's command:
-
-```python
-# src/my_dataset/pipeline.py
-import sourceledger
-from sourceledger import Source
-
-
-def parse(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
-    """Add a branch on source["id"] for a format the default reader cannot read."""
-    return sourceledger.parse_source(source, payload)
-
-
-def main() -> None:
-    sourceledger.entry(parse=parse, prog="my-dataset", user_agent="my-dataset")
-```
-
-```toml
-# pyproject.toml
-[project.scripts]
-my-dataset = "my_dataset.pipeline:main"
-```
-
-`my-dataset build` uses your reader. The other stages keep their usual behavior.
-Publishers see `my-dataset` as the User-Agent when you fetch.
-
-If your project ships `sources.toml` inside its package, pass the path as
-`manifest=Path(__file__).with_name("sources.toml")`. The
-[project-templates](https://github.com/simonvanlierde/project-templates) `data-pipeline`
-kind sets this up, with CI and a weekly revision report.
-
-The stages are also functions: `load_manifest`, `fetch`, `record`, `build`, `validate`,
-`revisions`, `status`, `attribution`, `verify`, `release`, `check_release`, `report` and
-`entry`. `verified(source)` returns a source's fetch record and raw bytes after checking that
-both are current, for a reader that needs them.
-
 ## Compare two versions by row key
 
 `align_rows` pairs rows present in both versions, using the key columns you name.
@@ -198,6 +155,49 @@ For numeric tolerances and comparison reports, use
 For exact keyed CSV/JSON changes, including additions and removals, consider
 [csv-diff](https://github.com/simonw/csv-diff).
 See the [scope decision](decisions/0007-align-rows-without-comparison-policy.md) for the alternatives.
+
+## Write a custom reader
+
+For a file you want to keep unchanged, set `format = "file"`; you do not need a reader.
+For tables, `parse_source` chooses `parse_csv`, `parse_json` or `parse_xlsx`.
+
+To read another table format, write a function that takes a source's manifest table and raw bytes.
+Return the column names and rows: any iterable of mappings, whose cells may be numbers or None as well as text
+(None is written as an empty cell). Pass the function to your project's command:
+
+```python
+# src/my_dataset/pipeline.py
+import sourceledger
+from sourceledger import Source
+
+
+def parse(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, str]]]:
+    """Add a branch on source["id"] for a format the default reader cannot read."""
+    return sourceledger.parse_source(source, payload)
+
+
+def main() -> None:
+    sourceledger.entry(parse=parse, prog="my-dataset", user_agent="my-dataset")
+```
+
+```toml
+# pyproject.toml
+[project.scripts]
+my-dataset = "my_dataset.pipeline:main"
+```
+
+`my-dataset build` uses your reader. The other stages keep their usual behavior.
+Publishers see `my-dataset` as the User-Agent when you fetch.
+
+If your project ships `sources.toml` inside its package, pass the path as
+`manifest=Path(__file__).with_name("sources.toml")`. The
+[project-templates](https://github.com/simonvanlierde/project-templates) `data-pipeline`
+kind sets this up, with CI and a weekly revision report.
+
+The stages are also functions: `load_manifest`, `fetch`, `record`, `build`, `validate`,
+`revisions`, `status`, `attribution`, `verify`, `release`, `check_release`, `report` and
+`entry`. `verified(source)` returns a source's fetch record and raw bytes after checking that
+both are current, for a reader that needs them.
 
 ## Publish a build only when it validates
 

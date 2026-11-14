@@ -3,12 +3,12 @@
 from collections.abc import Iterable, Mapping, Sequence
 
 
-def align_rows(
-    before: Iterable[Mapping[str, object]],
-    after: Iterable[Mapping[str, object]],
+def align_rows[BeforeValue, AfterValue](
+    before: Iterable[Mapping[str, BeforeValue]],
+    after: Iterable[Mapping[str, AfterValue]],
     *,
     keys: Sequence[str],
-) -> dict[tuple[str | int, ...], tuple[dict[str, object], dict[str, object]]]:
+) -> dict[tuple[str | int, ...], tuple[dict[str, BeforeValue], dict[str, AfterValue]]]:
     """Return shallow row snapshots for keys present in both inputs, in before-row order.
 
     Every row in both inputs is checked before matching, including rows with no match.
@@ -46,9 +46,9 @@ def align_rows(
     return {key: (row, new[key]) for key, row in old.items() if key in new}
 
 
-def _index(
-    rows: Iterable[Mapping[str, object]], keys: tuple[str, ...], side: str
-) -> dict[tuple[str | int, ...], dict[str, object]]:
+def _index[Value](
+    rows: Iterable[Mapping[str, Value]], keys: tuple[str, ...], side: str
+) -> dict[tuple[str | int, ...], dict[str, Value]]:
     indexed = {}
     for number, row in enumerate(rows, 1):
         if not isinstance(row, Mapping):

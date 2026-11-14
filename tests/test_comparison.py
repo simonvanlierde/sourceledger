@@ -1,12 +1,30 @@
 """Keyed alignment preserves rows without choosing numeric comparison policies."""
 
 from collections.abc import Iterator
+from pathlib import Path
+from typing import assert_type
 
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from sourceledger import align_rows
+from sourceledger import align_rows, read_output
+
+
+def test_alignment_preserves_value_types_for_output_readers(tmp_path: Path):
+    before = tmp_path / "before.csv"
+    after = tmp_path / "after.csv"
+    before.write_text("id,value\na,1\n")
+    after.write_text("id,value\na,2\n")
+    pairs = align_rows(read_output(before), read_output(after), keys=("id",))
+    old, new = pairs[("a",)]
+    assert_type(old, dict[str, str])
+    assert_type(new, dict[str, str])
+    assert (float(old["value"]), float(new["value"])) == (1.0, 2.0)
+
+    mixed = align_rows([{"id": 1}], [{"id": 1, "value": 2.0}], keys=("id",))
+    assert_type(mixed[(1,)][0], dict[str, int])
+    assert_type(mixed[(1,)][1], dict[str, int | float])
 
 
 def test_alignment_keeps_common_rows_in_before_order():
