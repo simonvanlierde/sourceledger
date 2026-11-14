@@ -54,7 +54,22 @@ def test_key_values_are_not_normalized():
     assert list(align_rows(rows, reversed(rows), keys=["id"])) == [(2020,), ("2020",), (" NLD ",), ("NLD",)]
 
 
-@pytest.mark.parametrize("keys", [[], "id", b"id", [""], [" \t"], ["id", "id"], [None], [1], None, {"id"}])
+@pytest.mark.parametrize(
+    "keys",
+    [[], "id", b"id", [""], [" \t"], ["id", "id"], [None], [1], None, {"id"}],
+    ids=[
+        "empty",
+        "bare-string",
+        "bare-bytes",
+        "blank",
+        "whitespace",
+        "duplicate",
+        "null-name",
+        "integer",
+        "null",
+        "set",
+    ],
+)
 def test_key_columns_must_be_explicit_and_distinct(keys: object):
     with pytest.raises(ValueError, match="keys") as caught:
         align_rows([], [], keys=keys)  # ty: ignore[invalid-argument-type]  # exercise invalid input
