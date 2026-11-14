@@ -37,6 +37,7 @@ og-card:
 # Build docs/ into _docs/, which docs.yml deploys. --strict fails on any warning, such as a broken link.
 docs:
     uvx --exclude-newer "1 week" --with mkdocstrings-python==2.0.10 zensical@0.0.74 build --strict
+    uv run --no-project python tests/check_docs_site.py
 
 # Serve docs/ at http://localhost:8000, rebuilt on each save.
 docs-serve:

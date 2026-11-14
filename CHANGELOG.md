@@ -11,6 +11,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 ### Fixed
 
 - Closed HTTP error responses after retries, conditional requests and failed archive requests.
+- Documentation page titles match their link previews, and the site identifies unreleased features and describes the social preview image.
 
 ### Changed
 
