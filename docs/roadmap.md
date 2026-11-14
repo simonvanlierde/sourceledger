@@ -7,15 +7,18 @@ record downloads, connect outputs to their sources, validate files and package a
 
 ## Compare rows across source revisions
 
-[The WDI comparison pilot](https://github.com/simonvanlierde/sourceledger/issues/107) will reproduce
+[The WDI comparison pilot](https://github.com/simonvanlierde/sourceledger/issues/107) reproduces
 an existing pipeline's change counts using country and year keys for three indicators.
-A shared function belongs in sourceledger only after the pilot establishes what callers need.
+Cached indicator/version pairs match the baseline; missing publisher archives still block the full grade.
+[PR #111](https://github.com/simonvanlierde/sourceledger/pull/111) adds validated
+row pairs while keeping numeric rules and reports in each project. The complete pilot grade remains open.
 
-## Evaluate requests from adopting pipelines
+## Integrate adopting pipelines
 
-[Adopter extensions](https://github.com/simonvanlierde/sourceledger/issues/108) cover server-derived
-vintages, per-output metadata and project-defined stages. Evaluate them after the second pipeline
-has moved to the released provenance API. Keep retrieval-specific behaviour in each project.
+[Adopter extensions](https://github.com/simonvanlierde/sourceledger/issues/108) were evaluated in
+both migration branches. Vintage selection, reader findings and project-defined stages stay in each project;
+the [integration recipe](recipes.md#add-a-project-specific-stage) shows how to extend a command.
+The migrations still need to land before their adoption task closes.
 
 ## Outside the scope
 
