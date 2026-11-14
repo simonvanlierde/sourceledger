@@ -1,6 +1,10 @@
 name: dco
 
-# Every pull request checks the Developer Certificate of Origin sign-off on each commit.
+# Every commit in a pull request must carry a Signed-off-by line: the Developer
+# Certificate of Origin, as CONTRIBUTING.md asks and the silver badge's dco criterion
+# requires of every developer, the maintainers included. A commit a bot wrote, in a pull
+# request a bot opened, is skipped: Dependabot can't sign off, and a bot can't certify the
+# DCO anyway. A human commit pushed onto a bot's branch is still checked.
 on:
   pull_request:
 

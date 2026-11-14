@@ -17,4 +17,6 @@ the `local-check` recipe in `just/local.just` if that file has one.
 
 `README.md` says how to set up and run the project, and `just release` cuts a release.
 Record user-facing changes under `[Unreleased]` in `CHANGELOG.md`.
+Read `docs/decisions/README.md` before you change the project's structure. A choice that is
+costly to reverse gets a record there.
 `.github/CONTRIBUTING.md` has the commit and sign-off rules.
