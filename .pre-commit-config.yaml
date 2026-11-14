@@ -106,7 +106,7 @@ repos:
   # CITATION.cff is the source: codemeta.json, any .zenodo.json and the package manifests
   # must agree with it. `just citation` runs the manual-stage writer to fix them.
   - repo: https://github.com/simonvanlierde/citesync
-    rev: e201f309ce72779618e965ea41507452a03da155
+    rev: fcf820dd16ac5e5605ea78e4dd4398ff995b20ec
     hooks:
       - id: citesync
         additional_dependencies: [packaging==26.3, ruamel-yaml==0.19.1, tomlkit==0.15.2]
