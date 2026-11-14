@@ -32,6 +32,8 @@ just check
 ```
 
 `just check` runs the checks CI runs. `just py-fmt` fixes lint and formatting issues.
+The citesync hook also requires a name, version, author, licence and DOI in both citation files;
+[citesync.toml](../citesync.toml) lists the required fields.
 
 ## Coding standard
 

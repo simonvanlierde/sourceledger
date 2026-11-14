@@ -1,0 +1,3 @@
+[required-fields]
+"CITATION.cff" = ["name", "version", "author", "license", "identifier"]
+"codemeta.json" = ["name", "version", "author", "license", "identifier"]
