@@ -9,9 +9,10 @@ record downloads, connect outputs to their sources, validate files and package a
 
 [The WDI comparison pilot](https://github.com/simonvanlierde/sourceledger/issues/107) reproduces
 an existing pipeline's change counts using country and year keys for three indicators.
-Cached indicator/version pairs match the baseline; missing publisher archives still block the full grade.
+All 360 original adjacent indicator/version pairs match the baseline across 121 archived vintages.
 `align_rows`, added in 0.6.0, pairs rows by validated keys while keeping numeric rules and reports in each project.
-The complete pilot grade remains open. WISE will replace its local alignment helper after 0.6.0 is published.
+Both the project recipe and the public API pass the complete grade.
+WISE will replace its local alignment helper after 0.6.0 is published.
 
 ## Integrate adopting pipelines
 
