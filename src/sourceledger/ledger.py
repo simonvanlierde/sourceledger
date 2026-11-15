@@ -107,6 +107,10 @@ class FetchError(OSError):
         self.failures = failures  # one line per source that did not
 
 
+class FetchBusyError(OSError):
+    """Another process holds the fetch lock on this raw folder."""
+
+
 def _write_atomic(path: Path, data: bytes) -> None:
     """Write `data` to `path` as `_replacing` does."""
     with _replacing(path) as fh:
@@ -294,7 +298,7 @@ def _lock(raw: Path) -> Generator[None]:
                 fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except (BlockingIOError, PermissionError) as error:  # held elsewhere; other OSErrors propagate
             msg = f"another fetch is already running in {raw.as_posix()}"
-            raise OSError(msg) from error
+            raise FetchBusyError(msg) from error
         try:
             for stale in raw.glob(".*.part"):
                 with contextlib.suppress(OSError):  # a scanner holding it, or a directory of that name
