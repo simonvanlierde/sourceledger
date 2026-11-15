@@ -379,8 +379,8 @@ def fetch(
     Every source is tried. Raises FetchError after the loop when any failed, listing each
     with its reason; nothing is written for those. A source fails for a download over its
     `max_bytes` (default 200 MiB), bytes that miss the `sha256` the manifest pins, or an
-    error that outlasts its retries. Raises OSError at once when another fetch holds the
-    lock on `raw`.
+    error that outlasts its retries. Raises FetchBusyError (an OSError) at once when
+    another fetch holds the lock on `raw`.
 
     `only` restricts the fetch to those source ids, and leaves the others as they are.
     Raises ValueError for an id the manifest does not have.
