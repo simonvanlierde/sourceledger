@@ -412,7 +412,8 @@ def record(
     Raises ValueError for a source that is not implemented, a URL with a user name or
     password, a time without a time zone or in the future, other `parameters`, a path that
     is not a regular file, a file over the source's `max_bytes`, or bytes that miss the
-    manifest's `sha256` pin. Raises OSError when another fetch holds the lock on `raw`.
+    manifest's `sha256` pin. Raises FetchBusyError (an OSError) when another fetch holds
+    the lock on `raw`.
     """
     return record_file(
         source,
