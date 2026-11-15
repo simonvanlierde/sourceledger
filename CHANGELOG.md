@@ -24,6 +24,8 @@ a breaking change comes only in a minor version (see Stability in the README).
 - The documentation site now uses Zensical, with search and a Python API reference at the existing address. Building it needs only uv and just.
 - Updated the project template to v0.15.0, including dependency licence checks and stricter pytest configuration.
 
+All eleven existing benchmark cases passed against 0.5.1. Shared-host measurements did not establish a reliable performance change.
+
 ## [0.5.1] - 2026-11-11
 
 ### Changed
