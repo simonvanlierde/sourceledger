@@ -11,7 +11,7 @@ from sourceledger.builder import Parser, build, parse_csv, parse_json, parse_sou
 from sourceledger.cli import entry, main
 from sourceledger.comparison import align_rows
 from sourceledger.fetcher import USER_AGENT, fetch
-from sourceledger.ledger import FetchError, FetchRecord, record, revisions, verified
+from sourceledger.ledger import FetchBusyError, FetchError, FetchRecord, record, revisions, verified
 from sourceledger.manifest import Source, load_manifest, load_output_format, load_package_name, load_release_formats
 from sourceledger.releaser import (
     ReleaseError,
@@ -26,6 +26,7 @@ from sourceledger.report import attribution, report, status, validate, verify
 
 __all__ = [
     "USER_AGENT",
+    "FetchBusyError",
     "FetchError",
     "FetchRecord",
     "Parser",
