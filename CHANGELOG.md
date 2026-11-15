@@ -8,6 +8,8 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-15
+
 ### Added
 
 - `FetchBusyError`, a subclass of `OSError`, is raised when another process holds the fetch lock on the raw folder, so callers can wait for it without matching the message text.
@@ -20,8 +22,11 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Changed
 
+- The documentation and social card use a chalk and cobalt palette, with consistent link, selection and keyboard focus colours.
 - The documentation site now uses Zensical, with search and a Python API reference at the existing address. Building it needs only uv and just.
 - Updated the project template to v0.15.0, including dependency licence checks and stricter pytest configuration.
+
+All eleven existing benchmark cases passed against 0.5.1. Shared-host measurements did not establish a reliable performance change.
 
 ## [0.5.1] - 2026-11-11
 
@@ -383,7 +388,8 @@ Upgrade steps:
   vintage or pin.
 - Manifest key `vintage`. The key `release` is still read, with a warning.
 
-[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/simonvanlierde/sourceledger/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.3.1...v0.4.0

@@ -1,15 +1,3 @@
-/* Keep selected links readable over the theme's tinted background. */
-:root > * {
-  --md-accent-fg-color: #4051b5;
-  --md-accent-fg-color--transparent: #4051b51a;
-}
-
-/* The dark scheme needs a lighter accent for the same contrast. */
-:root > [data-md-color-scheme="slate"] {
-  --md-accent-fg-color: #a5b4fc;
-  --md-accent-fg-color--transparent: #a5b4fc1a;
-}
-
 .md-header__button[data-docs-toggle] {
   background: transparent;
   border: 0;

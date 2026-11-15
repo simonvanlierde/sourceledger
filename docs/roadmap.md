@@ -1,6 +1,6 @@
 # Roadmap
 
-Last reviewed: 2026-11-14
+Last reviewed: 2026-11-15
 
 The next work follows use in real data pipelines. sourceledger keeps its small provenance core:
 record downloads, connect outputs to their sources, validate files and package a redistributable release.
@@ -9,16 +9,17 @@ record downloads, connect outputs to their sources, validate files and package a
 
 [The WDI comparison pilot](https://github.com/simonvanlierde/sourceledger/issues/107) reproduces
 an existing pipeline's change counts using country and year keys for three indicators.
-Cached indicator/version pairs match the baseline; missing publisher archives still block the full grade.
-[PR #111](https://github.com/simonvanlierde/sourceledger/pull/111) adds validated
-row pairs while keeping numeric rules and reports in each project. The complete pilot grade remains open.
+All 360 original adjacent indicator/version pairs match the baseline across 121 archived vintages.
+`align_rows`, added in 0.6.0, pairs rows by validated keys while keeping numeric rules and reports in each project.
+Both the project recipe and the public API pass the complete grade.
+WISE will replace its local alignment helper after 0.6.0 is published.
 
 ## Integrate adopting pipelines
 
 [Adopter extensions](https://github.com/simonvanlierde/sourceledger/issues/108) were evaluated in
 both migration branches. Vintage selection, reader findings and project-defined stages stay in each project;
 the [integration recipe](recipes.md#add-a-project-specific-stage) shows how to extend a command.
-The migrations still need to land before their adoption task closes.
+Both migrations have merged: cml-ia-factors and wise-pipeline use released sourceledger 0.5.1.
 
 ## Outside the scope
 
