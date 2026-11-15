@@ -502,7 +502,7 @@ def test_record_waits_for_no_fetch(upstream: Path) -> None:
     RAW.parent.mkdir(parents=True)
     with (
         ledger._lock(RAW.parent),  # noqa: SLF001
-        pytest.raises(OSError, match="another fetch is already running"),
+        pytest.raises(ledger.FetchBusyError, match="another fetch is already running"),
     ):
         ledger.record(_source(), upstream, retrieved_at=WHEN)
 

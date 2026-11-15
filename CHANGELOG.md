@@ -12,6 +12,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Added
 
+- `FetchBusyError`, a subclass of `OSError`, is raised when another process holds the fetch lock on the raw folder, so callers can wait for it without matching the message text.
 - `align_rows(before, after, keys=...)` matches rows with unique keys in both tables, preserving their values and provenance. It rejects invalid or duplicate keys before matching; callers choose their own comparison rules.
 
 ### Fixed
