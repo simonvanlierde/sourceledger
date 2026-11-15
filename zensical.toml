@@ -25,7 +25,7 @@ custom_dir = "docs-overrides"
 # docs-overrides/main.html reads og_image for the link-preview tags. `just og-card` renders the
 # image and puts its hash in this URL, since link previews cache by URL.
 [project.extra]
-og_image = "assets/og.png"
+og_image = "assets/og.png?v=689a4d623443"
 
 # Line anchors are empty links, which screen readers announce without a name.
 [project.markdown_extensions.pymdownx.highlight]

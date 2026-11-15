@@ -2,15 +2,25 @@
 name: sourceledger
 description: Reading-focused documentation with a visible source-to-output trail.
 colors:
-  paper: "#ffffff"
-  ink: "#26334b"
-  focus: "#587723"
-  accent: "#dfff76"
+  paper: "#f9fafc"
+  ink: "#243247"
+  muted: "#57677e"
+  link: "#315ba8"
+  selection: "#e7edf8"
+  rule: "#d8e0eb"
+  code: "#eef1f7"
+  panel: "#253c61"
+  on-panel: "#f8faff"
+  signal: "#bfd5ff"
+  muted-on-panel: "#c0cddf"
+  panel-rule: "#7892b8"
 typography:
   body:
     fontFamily: "Arimo, Helvetica, Arial, sans-serif"
   code:
-    fontFamily: 'ui-monospace, monospace'
+    fontFamily: "_, SFMono-Regular, Consolas, Menlo, monospace"
+  social-card-code:
+    fontFamily: 'ui-monospace, "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", monospace'
 ---
 
 # Design system: sourceledger
@@ -21,8 +31,13 @@ The site serves the Markdown in `docs/` at the published `/sourceledger/` addres
 
 ## Colour and typography
 
-`docs/assets/brand.css` applies white paper, navy ink and lime highlights.
-Lime marks the selected navigation entry and the source identifiers on navy panels.
+`docs/assets/brand.css` applies the Chalk & cobalt palette: chalk paper, blue-black ink
+and cobalt links. Pale blue marks the selected navigation entry and text selection.
+The provenance flow uses a deep blue panel with light blue source identifiers.
+Muted blue text, rules and code surfaces support the reading hierarchy.
+Search keeps the theme's black foreground so its translucent result counts retain contrast.
+The social card uses the same palette, with muted light blue text and blue rules on its panel.
+Its ruled paper represents a ledger. Status colours retain their semantic meaning.
 Links stay underlined. Keyboard focus remains visible.
 
 Arimo is served locally from `docs/assets/fonts/`, with Helvetica and Arial fallbacks.

@@ -22,6 +22,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Changed
 
+- The documentation and social card use a chalk and cobalt palette, with consistent link, selection and keyboard focus colours.
 - The documentation site now uses Zensical, with search and a Python API reference at the existing address. Building it needs only uv and just.
 - Updated the project template to v0.15.0, including dependency licence checks and stricter pytest configuration.
 

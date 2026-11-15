@@ -22,7 +22,7 @@ The documentation is Markdown in `docs/`, built into a searchable Zensical site 
 
 ## Brand Commitments
 
-Use plain, direct language. Keep the five-link reading layout, white/navy/lime styling and connected provenance flowchart, revision comparison and validation result. Consider JSON vet and CiteSync as references without copying their layouts.
+Use plain, direct language. Keep the five-link reading layout, Chalk & cobalt palette and connected provenance flowchart, revision comparison and validation result. Consider JSON vet and CiteSync as references without copying their layouts.
 
 ## Evidence on Hand
 

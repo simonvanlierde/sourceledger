@@ -7,7 +7,9 @@
 <style>
   @font-face { font-family: Arimo; src: url("assets/fonts/arimo.woff2") format("woff2"); font-weight: 400 700; }
   :root {
-    --paper: #fff; --ink: #26334b; --muted: #526078; --rule: #c9cfd8; --panel: #26334b; --accent: #dfff76; --dim: #b4bfcc; --node-rule: #718198;
+    --paper: #f9fafc; --ink: #243247; --muted: #57677e; --rule: #d8e0eb;
+    --panel: #253c61; --on-panel: #f8faff; --highlight: #e7edf8; --accent: #bfd5ff;
+    --dim: #c0cddf; --node-rule: #7892b8;
     --sans: Arimo, Helvetica, Arial, sans-serif;
     --mono: ui-monospace, "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", monospace;
   }
@@ -18,12 +20,12 @@
   /* The name, the line and the address sit in the centred 630 px column. */
   main { position: absolute; left: 285px; top: 0; width: 630px; height: 330px; }
   h1 { position: absolute; top: 34px; font-size: 92px; line-height: 1; font-weight: 700; letter-spacing: -0.035em; }
-  h1 span { background: linear-gradient(transparent 62%, var(--accent) 62% 94%); }
+  h1 span { background: linear-gradient(transparent 62%, var(--highlight) 62% 94%); }
   .job { position: absolute; top: 148px; font-size: 36px; line-height: 44px; font-weight: 400; }
   .url { position: absolute; top: 262px; font-size: 32px; line-height: 44px; color: var(--muted); }
   /* The chain of custody: one source, one revision, end to end. */
   ol { position: absolute; left: 0; right: 0; bottom: 0; height: 310px; margin: 0; padding: 30px 40px 34px; list-style: none;
-       background: var(--panel); color: #fff; display: grid; grid-template-columns: repeat(3, 1fr); gap: 64px; }
+       background: var(--panel); color: var(--on-panel); display: grid; grid-template-columns: repeat(3, 1fr); gap: 64px; }
   li { position: relative; display: flex; flex-direction: column; border-top: 2px solid var(--node-rule); padding-top: 16px; }
   li:not(:last-child)::after { content: ""; position: absolute; top: -9px; right: -52px; width: 40px; height: 16px;
        background: var(--accent); clip-path: polygon(0 40%, 62% 40%, 62% 0, 100% 50%, 62% 100%, 62% 60%, 0 60%); }
