@@ -113,6 +113,49 @@ for country in ("nl", "be"):
 `parameters` keeps what the request asked for, in the log and in every copy of the
 dataset's records. Never put a token or password in it.
 
+## Compare two versions by row key
+
+`align_rows` pairs rows present in both versions, using the key columns you name.
+It keeps their original values and provenance, including unchanged values and zeros.
+Rows added or removed between versions are outside this inner alignment.
+
+Both tables must fit in memory. The function validates every input key, including unmatched rows,
+and rejects duplicates. It returns shallow snapshots in the earlier table's order.
+Key cells must be nonblank strings or integers; `2020` and `"2020"` remain different keys.
+Other cells need not be numeric. The function neither changes them nor decides whether they differ.
+
+This example applies a project's own relative-change rule to two tables with `country`, `year` and `value` columns:
+
+```python
+import math
+from pathlib import Path
+
+from sourceledger import align_rows, read_output
+
+pairs = align_rows(read_output(Path("before.csv")), read_output(Path("after.csv")), keys=("country", "year"))
+changes = []
+for before, after in pairs.values():
+    old, new = float(before["value"]), float(after["value"])
+    if not math.isfinite(old) or not math.isfinite(new):
+        raise ValueError("comparison needs finite values")
+    if old != 0:
+        changes.append(abs((new - old) / abs(old)))
+n = len(changes)
+share = sum(change > 1e-9 for change in changes) / n if n else None
+print({"change_n": n, "change_share_changed": share})
+```
+
+Here `change_n` counts comparable nonzero bases, including unchanged values.
+The example chooses the threshold, rejects nonfinite values and excludes zero bases after validating keys.
+Checking units and deciding which versions to compare also belong in the project.
+
+If your project already uses pandas or Polars, use its join with explicit keys and one-to-one validation.
+For numeric tolerances and comparison reports, use
+[DataComPy](https://capitalone.github.io/datacompy/pandas_usage.html).
+For exact keyed CSV/JSON changes, including additions and removals, consider
+[csv-diff](https://github.com/simonw/csv-diff).
+See the [scope decision](decisions/0007-align-rows-without-comparison-policy.md) for the alternatives.
+
 ## Write a custom reader
 
 For a file you want to keep unchanged, set `format = "file"`; you do not need a reader.

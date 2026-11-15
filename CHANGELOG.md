@@ -8,6 +8,10 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+### Added
+
+- `align_rows(before, after, keys=...)` matches rows with unique keys in both tables, preserving their values and provenance. It rejects invalid or duplicate keys before matching; callers choose their own comparison rules.
+
 ### Fixed
 
 - Closed HTTP error responses after retries, conditional requests and failed archive requests.
