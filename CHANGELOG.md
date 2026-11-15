@@ -8,6 +8,8 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-15
+
 ### Added
 
 - `align_rows(before, after, keys=...)` matches rows with unique keys in both tables, preserving their values and provenance. It rejects invalid or duplicate keys before matching; callers choose their own comparison rules.
@@ -382,7 +384,8 @@ Upgrade steps:
   vintage or pin.
 - Manifest key `vintage`. The key `release` is still read, with a warning.
 
-[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/simonvanlierde/sourceledger/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.3.1...v0.4.0
