@@ -32,7 +32,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: just@1.59.0
           fallback: none
@@ -40,7 +40,7 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           save-cache: ${{ github.event_name != 'pull_request' }}
-          version: "0.13.6"
+          version: "0.13.7"
 
       - run: just docs
 
