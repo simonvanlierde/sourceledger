@@ -1,5 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/simonvanlierde/sourceledger/main/docs/report.schema.json",
   "title": "sourceledger --json report",
   "description": "The one JSON object a stage prints under --json. A failed run has a non-empty `errors` list and omits its result fields, except `fetch`, which lists the sources that worked.",
   "oneOf": [

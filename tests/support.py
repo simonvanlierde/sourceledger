@@ -10,6 +10,7 @@ from collections.abc import Callable
 from email.message import Message
 from pathlib import Path
 
+import jsonschema
 import pytest
 
 from sourceledger import manifest as manifest_mod
@@ -18,6 +19,18 @@ from sourceledger.cli import main
 builder_mod = importlib.import_module("sourceledger.builder")
 fetcher_mod = importlib.import_module("sourceledger.fetcher")
 report_mod = importlib.import_module("sourceledger.report")
+
+
+REPORT_SCHEMA = json.loads((Path(__file__).parent.parent / "docs" / "report.schema.json").read_text(encoding="utf-8"))
+
+
+def _report(capsys: pytest.CaptureFixture[str], argv: list[str], code: int) -> dict:
+    """Run `argv`, and return its --json report once it matches docs/report.schema.json."""
+    assert main(argv) == code, argv
+    report = json.loads(capsys.readouterr().out)
+    jsonschema.Draft202012Validator(REPORT_SCHEMA).validate(report)
+    assert report["stage"] == argv[0]
+    return report
 
 
 FIXTURE = "year,value\n2020,1.5\n2021,2.5\n"

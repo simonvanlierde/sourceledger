@@ -62,6 +62,8 @@ EXIT_PROBLEMS = 1
 EXIT_USAGE = 2
 EXIT_FAILED = 3
 EXIT_INTERRUPTED = 130
+# The stages that take --json; the others print Markdown, HTML or a file.
+_JSON_STAGES = frozenset({"fetch", "record", "build", "validate", "status", "revisions", "verify", "release"})
 # Bumped when a field of the --json reports changes meaning or goes away.
 JSON_SCHEMA_VERSION = 1
 
@@ -111,12 +113,19 @@ class _UsageError(Exception):
     """An argument the parser could not check, such as an id sources.toml does not have."""
 
 
+class _ParseError(Exception):
+    """A usage error the parser found; `main` prints it as text, or as the failure envelope under --json."""
+
+    def __init__(self, message: str, usage: str, prog: str) -> None:
+        super().__init__(message)
+        self.usage = usage
+        self.prog = prog
+
+
 class _ArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> NoReturn:
-        """Usage errors in the same shape as every other error, with exit code 2."""
-        self.print_usage(sys.stderr)
-        _error(message, f"run `{self.prog} --help` for its options")
-        sys.exit(EXIT_USAGE)
+        """Hand the usage error to `main`, which exits with code 2."""
+        raise _ParseError(message, self.format_usage(), self.prog)
 
 
 def _error(message: str, help_: str | None) -> None:
@@ -320,14 +329,29 @@ def main(  # the entry point: parse, run one stage, report it
     with code 2, as argparse does.
     """
     argv = sys.argv[1:] if argv is None else argv
-    args, extra = _parser(prog, manifest).parse_known_args(argv)
-    if extra:  # reported by the stage's parser, so the usage and help name the stage
-        args.parser.error(f"unrecognized arguments: {' '.join(extra)}")
-    if check_args := getattr(args, "check_args", None):
-        check_args(args)
+    try:
+        args, extra = _parser(prog, manifest).parse_known_args(argv)
+        if extra:  # reported by the stage's parser, so the usage and help name the stage
+            args.parser.error(f"unrecognized arguments: {' '.join(extra)}")
+        if check_args := getattr(args, "check_args", None):
+            check_args(args)
+    except _ParseError as error:
+        _usage_error(error, argv)
     # Retries and recovered fetch logs are reported as warnings, on stderr.
     logging.basicConfig(format=f"{prog}: %(message)s", level=logging.WARNING)
     return _main(_Run(args, argv, parse, prog, user_agent))
+
+
+def _usage_error(error: _ParseError, argv: list[str]) -> NoReturn:
+    """Exit with code 2: the failure envelope on stdout for a --json stage, else usage and error on stderr."""
+    help_ = f"run `{error.prog} --help` for its options"
+    if argv and argv[0] in _JSON_STAGES and "--json" in argv:  # noqa: PLR2004
+        errors = [{"message": str(error), "help": help_}]
+        print(json.dumps({"schema_version": JSON_SCHEMA_VERSION, "stage": argv[0], "errors": errors}))
+    else:
+        print(error.usage, end="", file=sys.stderr)
+        _error(str(error), help_)
+    sys.exit(EXIT_USAGE)
 
 
 def _main(run: _Run) -> int:

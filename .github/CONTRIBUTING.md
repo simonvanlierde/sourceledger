@@ -134,7 +134,7 @@ If `just check` fails on a security fix newer than that week, add the package to
 
 The maintainer first sets `version` and `date-released` in `CITATION.cff`, runs
 `uv version X.Y.Z` for `pyproject.toml` and `uv.lock`, `just citation` for `codemeta.json`, and
-puts the new tag in the `#:schema` line of `docs/reference.md`.
+puts the new tag in the `#:schema` line and the `report.schema.json` link of `docs/reference.md`.
 Then `just release X.Y.Z` cuts the changelog, and a second run tags the merged release commit. [Publishing](https://github.com/simonvanlierde/project-templates/blob/main/docs/setup.md#publishing) has the steps and the one-time setup.
 
 ## Sign off your commits
