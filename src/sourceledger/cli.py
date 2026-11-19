@@ -64,6 +64,7 @@ EXIT_FAILED = 3
 EXIT_INTERRUPTED = 130
 # Bumped when a field of the --json reports changes meaning or goes away.
 JSON_SCHEMA_VERSION = 1
+_JSON_FLAG = "--json"
 
 _STAGES = {
     "init": "write a starter sources.toml",
@@ -111,12 +112,18 @@ class _UsageError(Exception):
     """An argument the parser could not check, such as an id sources.toml does not have."""
 
 
+class _ParseError(Exception):
+    """A usage error the parser found; `main` prints it as text, or as the failure envelope under --json."""
+
+    def __init__(self, message: str, parser: argparse.ArgumentParser) -> None:
+        super().__init__(message)
+        self.parser = parser
+
+
 class _ArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> NoReturn:
-        """Usage errors in the same shape as every other error, with exit code 2."""
-        self.print_usage(sys.stderr)
-        _error(message, f"run `{self.prog} --help` for its options")
-        sys.exit(EXIT_USAGE)
+        """Hand the usage error to `main`, which exits with code 2."""
+        raise _ParseError(message, self)
 
 
 def _error(message: str, help_: str | None) -> None:
@@ -168,7 +175,8 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
         "--manifest", type=Path, default=manifest, metavar="PATH", help="the manifest to read (default: %(default)s)"
     )
     json_option = _ArgumentParser(add_help=False)
-    json_option.add_argument("--json", action="store_true", help="print one JSON object instead of text")
+    json_option.add_argument(_JSON_FLAG, action="store_true", help="print one JSON object instead of text")
+    json_option.set_defaults(takes_json=True)  # copied into each parser that has the option
     only_option = _ArgumentParser(add_help=False)
     only_option.add_argument("--only", action="append", metavar="ID", help="only this source (repeatable)")
     dry_run_option = _ArgumentParser(add_help=False)
@@ -230,7 +238,7 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
     )
     sub["release"].set_defaults(check_args=_check_release_args)
     for name, stage_parser in sub.items():
-        stage_parser.set_defaults(parser=stage_parser, run=_HANDLERS[name])
+        stage_parser.set_defaults(parser=stage_parser, run=_HANDLERS[name], stage_name=name)
     return parser
 
 
@@ -320,14 +328,34 @@ def main(  # the entry point: parse, run one stage, report it
     with code 2, as argparse does.
     """
     argv = sys.argv[1:] if argv is None else argv
-    args, extra = _parser(prog, manifest).parse_known_args(argv)
-    if extra:  # reported by the stage's parser, so the usage and help name the stage
-        args.parser.error(f"unrecognized arguments: {' '.join(extra)}")
-    if check_args := getattr(args, "check_args", None):
-        check_args(args)
+    try:
+        args, extra = _parser(prog, manifest).parse_known_args(argv)
+        if extra:  # reported by the stage's parser, so the usage and help name the stage
+            args.parser.error(f"unrecognized arguments: {' '.join(extra)}")
+        if check_args := getattr(args, "check_args", None):
+            check_args(args)
+    except _ParseError as error:
+        _usage_error(error, argv)
     # Retries and recovered fetch logs are reported as warnings, on stderr.
     logging.basicConfig(format=f"{prog}: %(message)s", level=logging.WARNING)
     return _main(_Run(args, argv, parse, prog, user_agent))
+
+
+def _usage_error(error: _ParseError, argv: list[str]) -> NoReturn:
+    """Exit with code 2: the failure envelope on stdout under --json, else usage and error on stderr."""
+    parser = error.parser
+    help_ = f"run `{parser.prog} --help` for its options"
+    if parser.get_default("takes_json") and _JSON_FLAG in argv:
+        errors = [{"message": str(error), "help": help_}]
+        print(
+            json.dumps(
+                {"schema_version": JSON_SCHEMA_VERSION, "stage": parser.get_default("stage_name"), "errors": errors}
+            )
+        )
+    else:
+        print(parser.format_usage(), end="", file=sys.stderr)
+        _error(str(error), help_)
+    sys.exit(EXIT_USAGE)
 
 
 def _main(run: _Run) -> int:

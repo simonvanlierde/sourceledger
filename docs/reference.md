@@ -208,7 +208,7 @@ goes away), `stage` (the command name) and `errors`. Each error is an object wit
 `message` and `help`, the same two lines the text output prints; `help` is `null` when
 there is no known next step. A successful run has an empty `errors` list. Warnings can
 still appear on stderr. `init`, `attribution` and `report` do not accept `--json`: they write a starter file, Markdown or HTML.
-[`report.schema.json`](https://github.com/simonvanlierde/sourceledger/blob/main/docs/report.schema.json) is the JSON Schema of every report, failures included; a test validates real output against it.
+[`report.schema.json`](https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.6.0/docs/report.schema.json) is the JSON Schema of every report, failures included. Validate against the schema of the version you run: a later version may add fields.
 
 | Command | Result field | Meaning |
 | --- | --- | --- |
@@ -261,8 +261,11 @@ result field, except `fetch`, which lists the sources that worked. For example:
 ```
 
 An `--only` id that is not in `sources.toml` is also reported in `errors`, with exit
-code 2. Other usage errors, such as a missing `revisions` path, are found before the
-stage runs: they print the text error on stderr and exit 2. The
+code 2. Other usage errors, such as a missing `revisions` path or a `--parameter` that is not
+`NAME=VALUE`, are found before the stage runs. With `--json` they print the same
+failure object on stdout and nothing on stderr; without it they print the usage and the
+text error on stderr. Either way the exit code is 2. A usage error before the stage is
+known, such as an unknown stage, is always text. The
 [exit code table](#options-output-and-exit-codes) holds the rest.
 
 These JSON structures are part of the CLI contract. Read fields by name; JSON object key

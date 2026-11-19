@@ -159,6 +159,8 @@ including non-CSV files, must belong to a source or be the package descriptor.
   reports put errors in the document on stdout.
 - `src/sourceledger/sources.schema.json`: the JSON Schema for `sources.toml`, for editors.
   A test checks that it accepts exactly what `load_manifest` accepts.
+- `docs/report.schema.json`: the JSON Schema of the `--json` reports, failures included.
+  A test validates real output of each stage against it.
 - `src/sourceledger/__init__.py`: the public API, listed in `__all__`.
 
 HTTP is the standard library's `urllib`, so the core has no runtime dependencies. sourceledger

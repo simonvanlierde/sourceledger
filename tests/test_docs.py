@@ -269,3 +269,10 @@ def test_project_stage_recipe_parses_before_loading(
     assert capsys.readouterr().out.endswith("co2\n")
     namespace["main"](["status", "--json"])
     assert calls[-1] == ["status", "--json"]
+
+
+def test_the_report_schema_link_names_the_current_tag() -> None:
+    """The reference links the report schema at this version's tag, and the schema's $id is the same file on main."""
+    report = json.loads((ROOT / "docs" / "report.schema.json").read_text(encoding="utf-8"))
+    link = f"({report['$id'].replace('/main/', f'/v{version("sourceledger")}/')})"
+    assert link in (ROOT / "docs" / "reference.md").read_text(encoding="utf-8")

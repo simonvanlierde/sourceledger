@@ -11,8 +11,12 @@ a breaking change comes only in a minor version (see Stability in the README).
 ### Added
 
 - `build --json` prints `outputs` (each file's `path` and `rows`, `null` for a copied file) and `package`; with `--dry-run`, `would_write`.
-- `docs/report.schema.json`, the JSON Schema of every stage's `--json` report and of the failure envelope. A test validates the real output of each stage against it.
+- `docs/report.schema.json`, the JSON Schema of every stage's `--json` report and of the failure envelope.
 - Each stage's `--help` ends with an example command.
+
+### Changed
+
+- A usage error under `--json`, such as `record --parameter nope --json`, prints the failure object on stdout with exit code 2 and nothing on stderr, instead of text on stderr.
 
 ## [0.6.0] - 2026-11-15
 
