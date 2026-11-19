@@ -166,7 +166,7 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 | `--manifest PATH` | all but `revisions` and `verify` | Read this manifest instead of `./sources.toml`. The data folder stays `data/` in the current directory. |
 | `--only ID` | `fetch`, `build`, `validate` | Work on just this source; repeat it for more. `build --only` keeps the other sources' entries in `datapackage.json` as the last build wrote them, and `validate --only` skips the checks that cover the whole output. |
 | `--dry-run` | `fetch`, `record`, `build`, `release` | Say what would happen and write nothing: no download, no log line, no output. `build --dry-run` still checks each raw file against its fetch record, `record --dry-run` still checks and hashes the file, and `release --dry-run` still runs `validate`. |
-| `--json` | `fetch`, `record`, `validate`, `status`, `revisions`, `verify`, `release` | Print one JSON object on stdout instead of text; see [JSON reports](#json-reports). |
+| `--json` | `fetch`, `record`, `build`, `validate`, `status`, `revisions`, `verify`, `release` | Print one JSON object on stdout instead of text; see [JSON reports](#json-reports). |
 
 Results go to stdout: fetch lines, outputs written, and the problems `validate` and
 `verify` find, followed by their count. Errors and warnings go to stderr. An error is
@@ -199,6 +199,7 @@ sourceledger status --json
 sourceledger validate --json --only co2
 sourceledger revisions before.jsonl --json
 sourceledger fetch --json
+sourceledger build --json
 ```
 
 These commands print one JSON object on stdout. They do not print the usual text report.
@@ -206,13 +207,15 @@ Every object has `schema_version` (now `1`; it goes up when a field changes mean
 goes away), `stage` (the command name) and `errors`. Each error is an object with
 `message` and `help`, the same two lines the text output prints; `help` is `null` when
 there is no known next step. A successful run has an empty `errors` list. Warnings can
-still appear on stderr. `init`, `build`, `attribution` and `report` do not accept `--json`.
+still appear on stderr. `init`, `attribution` and `report` do not accept `--json`: they write a starter file, Markdown or HTML.
+[`report.schema.json`](https://github.com/simonvanlierde/sourceledger/blob/main/docs/report.schema.json) is the JSON Schema of every report, failures included; a test validates real output against it.
 
 | Command | Result field | Meaning |
 | --- | --- | --- |
 | `fetch` | `records` | One fetch record per source fetched, with the fields of a line in `data/fetches.jsonl` and `new`: `true` when its bytes differ from the last ones logged, and `relogged`: `true` when the same bytes were logged again because they came in another way (fetched after a record or under a new `url` or `vintage`, or recorded with other details), so the outputs need a `build`. A run where some sources failed lists the ones that worked. |
 | `record` | `records` | The one record, as for `fetch`. |
 | `status` | `sources` | One object per source, in manifest order. |
+| `build` | `outputs`, `package` | One `{path, rows}` object per file written, with `rows` `null` for a file copied unchanged, and the path of `datapackage.json`. |
 | `validate` | `problems` | The same list of problem messages the Python function returns. |
 | `verify` | `problems` | The same list of problem messages the Python function returns. |
 | `revisions` | `revisions` | One object per changed source, in current-log order. New sources are excluded, as in text output. |
@@ -220,7 +223,8 @@ still appear on stderr. `init`, `build`, `attribution` and `report` do not accep
 | `release --check` | `problems`, `validators` | The problems found, and each check that ran. |
 
 With `--dry-run`, the object also has `"dry_run": true`. `fetch --dry-run` lists
-`would_fetch`, one `{"source_id", "url"}` object per source, in place of `records`.
+`would_fetch`, one `{"source_id", "url"}` object per source, in place of `records`, and
+`build --dry-run` lists `would_write`, the paths, in place of `outputs` and `package`.
 `record --dry-run` gives the record it would write.
 
 ### Source status

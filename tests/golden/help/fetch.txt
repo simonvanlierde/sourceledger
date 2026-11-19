@@ -9,3 +9,6 @@ options:
   --only ID        only this source (repeatable)
   --dry-run        say what would happen, and write nothing
   --json           print one JSON object instead of text
+
+example:
+  sourceledger fetch --only co2 --json

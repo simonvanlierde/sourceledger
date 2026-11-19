@@ -14,6 +14,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+import jsonschema
 import pytest
 from support import (
     FIXTURE,
@@ -38,6 +39,16 @@ from sourceledger.cli import main
 
 TERMS = 'terms = "CC0-1.0"\nterms_url = "https://example.org/terms"\nlicense = "CC0-1.0"\nredistribute = true'
 LOG = Path("data/fetches.jsonl")
+REPORT_SCHEMA = json.loads((Path(__file__).parent.parent / "docs" / "report.schema.json").read_text(encoding="utf-8"))
+
+
+def _report(capsys: pytest.CaptureFixture[str], argv: list[str], code: int) -> dict:
+    """Run `argv`, and return its --json report once it matches docs/report.schema.json."""
+    assert main(argv) == code, argv
+    report = json.loads(capsys.readouterr().out)
+    jsonschema.Draft202012Validator(REPORT_SCHEMA).validate(report)
+    assert report["stage"] == argv[0]
+    return report
 
 
 @pytest.fixture(autouse=True)
@@ -870,7 +881,7 @@ def test_json_runtime_errors_are_one_document(
     }
 
 
-@pytest.mark.parametrize("stage", ["init", "build", "attribution", "report"])
+@pytest.mark.parametrize("stage", ["init", "attribution", "report"])
 def test_json_is_rejected_for_unsupported_stages(stage: str, capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit, match="2"):
         main([stage, "--json"])
@@ -1080,3 +1091,42 @@ def test_a_file_in_the_way_of_a_folder_has_no_help_line(capsys: pytest.CaptureFi
     # The OS error text differs on Windows (WinError 183); only its one line matters here.
     assert err.startswith("error: ")
     assert err.count("\n") == 1
+
+
+@pytest.mark.usefixtures("project")
+def test_every_stage_report_matches_the_published_schema(capsys: pytest.CaptureFixture[str]) -> None:
+    """Real output of each --json stage, dry runs and failures included, validates against docs/report.schema.json."""
+    assert _report(capsys, ["fetch", "--dry-run", "--json"], 0)["would_fetch"]
+    assert _report(capsys, ["fetch", "--json"], 0)["records"]
+    Path("before.jsonl").write_bytes(LOG.read_bytes())
+    assert _report(capsys, ["record", "example", "data/raw/example.csv", "--dry-run", "--json"], 0)["records"]
+    assert _report(capsys, ["record", "example", "data/raw/example.csv", "--json"], 0)["records"]
+    assert _report(capsys, ["build", "--dry-run", "--json"], 0)["would_write"][-1] == "data/processed/datapackage.json"
+    built = _report(capsys, ["build", "--json"], 0)
+    assert built["outputs"] == [{"path": "data/processed/example.csv", "rows": 1}]
+    assert built["package"] == "data/processed/datapackage.json"
+    assert _report(capsys, ["validate", "--json"], 0)["problems"] == []
+    assert _report(capsys, ["status", "--json"], 0)["sources"]
+    assert _report(capsys, ["revisions", "before.jsonl", "--json"], 0)["revisions"] == []
+    assert _report(capsys, ["verify", "data/processed", "--json"], 0)["problems"] == []
+    assert _report(capsys, ["release", "out", "--dry-run", "--json"], 0)["files"]
+    assert _report(capsys, ["release", "out", "--json"], 0)["validators"]
+    assert _report(capsys, ["release", "--check", "out", "--json"], 0)["problems"] == []
+    # Exit 1: problems are a result, not errors.
+    Path("data/processed/example.csv").write_text("x\n", encoding="utf-8")
+    assert _report(capsys, ["validate", "--json"], 1)["problems"]
+    assert _report(capsys, ["verify", "data/processed", "--json"], 1)["problems"]
+    # Exit 2 and 3: the failure envelope, with no result field except fetch's list.
+    assert _report(capsys, ["validate", "--only", "zz", "--json"], 2)["errors"]
+    Path("sources.toml").unlink()
+    for argv in (["status", "--json"], ["build", "--json"], ["build", "--dry-run", "--json"], ["fetch", "--json"]):
+        assert _report(capsys, argv, 3)["errors"]
+
+
+def test_the_schema_refuses_a_report_that_lacks_its_result() -> None:
+    validator = jsonschema.Draft202012Validator(REPORT_SCHEMA)
+    base = {"schema_version": 1, "stage": "build", "errors": []}
+    assert not validator.is_valid(base)
+    assert not validator.is_valid({**base, "outputs": [{"path": "x", "rows": "1"}], "package": "p"})
+    assert validator.is_valid({**base, "outputs": [], "package": "p"})
+    assert validator.is_valid({**base, "errors": [{"message": "m", "help": None}]})

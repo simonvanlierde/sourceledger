@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "sourceledger --json report",
+  "description": "The one JSON object a stage prints under --json. A failed run has a non-empty `errors` list and omits its result fields, except `fetch`, which lists the sources that worked.",
+  "oneOf": [
+    {"$ref": "#/$defs/fetch"},
+    {"$ref": "#/$defs/record"},
+    {"$ref": "#/$defs/build"},
+    {"$ref": "#/$defs/validate"},
+    {"$ref": "#/$defs/status"},
+    {"$ref": "#/$defs/revisions"},
+    {"$ref": "#/$defs/verify"},
+    {"$ref": "#/$defs/release"}
+  ],
+  "$defs": {
+    "error": {
+      "type": "object",
+      "properties": {
+        "message": {"type": "string"},
+        "help": {"type": ["string", "null"]}
+      },
+      "required": ["message", "help"],
+      "additionalProperties": false
+    },
+    "problems": {"type": "array", "items": {"type": "string"}},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "fetchRecord": {
+      "description": "A line of data/fetches.jsonl, with `new` and `relogged`. `recorded_at` and `parameters` appear only for a file `record` took in.",
+      "type": "object",
+      "properties": {
+        "source_id": {"type": "string"},
+        "url": {"type": "string"},
+        "retrieved_at": {"type": "string"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "vintage": {"type": "string"},
+        "last_modified": {"type": "string"},
+        "etag": {"type": "string"},
+        "final_url": {"type": "string"},
+        "env_headers": {"type": "array", "items": {"type": "string"}},
+        "archive_url": {"type": "string"},
+        "recorded_at": {"type": "string"},
+        "parameters": {"type": "object", "additionalProperties": {"type": "string"}},
+        "new": {"type": "boolean"},
+        "relogged": {"type": "boolean"}
+      },
+      "required": ["source_id", "url", "retrieved_at", "sha256", "bytes", "vintage", "last_modified", "etag", "final_url", "env_headers", "archive_url", "new", "relogged"],
+      "additionalProperties": false
+    },
+    "logRecord": {
+      "description": "A line of data/fetches.jsonl as logged, without `new` and `relogged`.",
+      "type": "object",
+      "properties": {
+        "source_id": {"type": "string"},
+        "url": {"type": "string"},
+        "retrieved_at": {"type": "string"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "vintage": {"type": "string"},
+        "last_modified": {"type": "string"},
+        "etag": {"type": "string"},
+        "final_url": {"type": "string"},
+        "env_headers": {"type": "array", "items": {"type": "string"}},
+        "archive_url": {"type": "string"},
+        "recorded_at": {"type": "string"},
+        "parameters": {"type": "object", "additionalProperties": {"type": "string"}}
+      },
+      "required": ["source_id", "url", "retrieved_at", "sha256", "bytes", "vintage"]
+    },
+    "validator": {
+      "type": "object",
+      "properties": {
+        "file": {"type": "string"},
+        "name": {"type": "string"},
+        "version": {"type": "string"}
+      },
+      "required": ["file", "name", "version"],
+      "additionalProperties": false
+    },
+    "fetch": {
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": 1},
+        "stage": {"const": "fetch"},
+        "errors": {"type": "array", "items": {"$ref": "#/$defs/error"}},
+        "dry_run": {"const": true},
+        "records": {"type": "array", "items": {"$ref": "#/$defs/fetchRecord"}},
+        "would_fetch": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {"source_id": {"type": "string"}, "url": {"type": "string"}},
+            "required": ["source_id", "url"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["schema_version", "stage", "errors"],
+      "additionalProperties": false,
+      "if": {"properties": {"errors": {"maxItems": 0}}},
+      "then": {"anyOf": [{"required": ["records"]}, {"required": ["dry_run", "would_fetch"]}]}
+    },
+    "record": {
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": 1},
+        "stage": {"const": "record"},
+        "errors": {"type": "array", "items": {"$ref": "#/$defs/error"}},
+        "dry_run": {"const": true},
+        "records": {"type": "array", "items": {"$ref": "#/$defs/fetchRecord"}}
+      },
+      "required": ["schema_version", "stage", "errors"],
+      "additionalProperties": false,
+      "if": {"properties": {"errors": {"maxItems": 0}}},
+      "then": {"required": ["records"]}
+    },
+    "build": {
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": 1},
+        "stage": {"const": "build"},
+        "errors": {"type": "array", "items": {"$ref": "#/$defs/error"}},
+        "dry_run": {"const": true},
+        "outputs": {
+          "description": "The files written, in source order. `rows` is null for a file copied unchanged.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}, "rows": {"type": ["integer", "null"], "minimum": 0}},
+            "required": ["path", "rows"],
+            "additionalProperties": false
+          }
+        },
+        "package": {"description": "The path of datapackage.json, written or to be written.", "type": "string"},
+        "would_write": {"description": "With dry_run: the paths a build would write.", "type": "array", "items": {"type": "string"}}
+      },
+      "required": ["schema_version", "stage", "errors"],
+      "additionalProperties": false,
+      "if": {"properties": {"errors": {"maxItems": 0}}},
+      "then": {"anyOf": [{"required": ["outputs", "package"]}, {"required": ["dry_run", "would_write"]}]}
+    },
+    "validate": {
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": 1},
+        "stage": {"const": "validate"},
+        "errors": {"type": "array", "items": {"$ref": "#/$defs/error"}},
+        "problems": {"$ref": "#/$defs/problems"}
+      },
+      "required": ["schema_version", "stage", "errors"],
+      "additionalProperties": false,
+      "if": {"properties": {"errors": {"maxItems": 0}}},
+      "then": {"required": ["problems"]}
+    },
+    "verify": {
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": 1},
+        "stage": {"const": "verify"},
+        "errors": {"type": "array", "items": {"$ref": "#/$defs/error"}},
+        "problems": {"$ref": "#/$defs/problems"}
+      },
+      "required": ["schema_version", "stage", "errors"],
+      "additionalProperties": false,
+      "if": {"properties": {"errors": {"maxItems": 0}}},
+      "then": {"required": ["problems"]}
+    },
+    "status": {
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": 1},
+        "stage": {"const": "status"},
+        "errors": {"type": "array", "items": {"$ref": "#/$defs/error"}},
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "source_id": {"type": "string"},
+              "status": {"type": ["string", "null"]},
+              "vintage": {"type": ["string", "null"]},
+              "retrieved_at": {"type": ["string", "null"]},
+              "recorded_at": {"type": ["string", "null"]},
+              "sha256": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+              "license": {"type": ["string", "null"]},
+              "redistribute": {"type": ["boolean", "null"]}
+            },
+            "required": ["source_id", "status", "vintage", "retrieved_at", "recorded_at", "sha256", "license", "redistribute"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["schema_version", "stage", "errors"],
+      "additionalProperties": false,
+      "if": {"properties": {"errors": {"maxItems": 0}}},
+      "then": {"required": ["sources"]}
+    },
+    "revisions": {
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": 1},
+        "stage": {"const": "revisions"},
+        "errors": {"type": "array", "items": {"$ref": "#/$defs/error"}},
+        "revisions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "source_id": {"type": "string"},
+              "before_sha256": {"$ref": "#/$defs/sha256"},
+              "after": {"$ref": "#/$defs/logRecord"}
+            },
+            "required": ["source_id", "before_sha256", "after"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["schema_version", "stage", "errors"],
+      "additionalProperties": false,
+      "if": {"properties": {"errors": {"maxItems": 0}}},
+      "then": {"required": ["revisions"]}
+    },
+    "release": {
+      "description": "A written (or dry-run) release has files, excluded, formats and validators. A refused release, and `--check`, have problems and validators.",
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": 1},
+        "stage": {"const": "release"},
+        "errors": {"type": "array", "items": {"$ref": "#/$defs/error"}},
+        "dry_run": {"const": true},
+        "files": {"type": "array", "items": {"type": "string"}},
+        "excluded": {"type": "array", "items": {"type": "string"}},
+        "formats": {"type": "object", "additionalProperties": {"enum": ["written", "skipped"]}},
+        "validators": {"type": "array", "items": {"$ref": "#/$defs/validator"}},
+        "problems": {"$ref": "#/$defs/problems"}
+      },
+      "required": ["schema_version", "stage", "errors"],
+      "additionalProperties": false,
+      "if": {"properties": {"errors": {"maxItems": 0}}},
+      "then": {"anyOf": [{"required": ["files", "excluded", "formats", "validators"]}, {"required": ["problems", "validators"]}]}
+    }
+  }
+}
