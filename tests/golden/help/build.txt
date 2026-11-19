@@ -1,4 +1,5 @@
 usage: sourceledger build [-h] [--manifest PATH] [--only ID] [--dry-run]
+                          [--json]
 
 Write data/processed/ and datapackage.json.
 
@@ -7,3 +8,7 @@ options:
   --manifest PATH  the manifest to read (default: sources.toml)
   --only ID        only this source (repeatable)
   --dry-run        say what would happen, and write nothing
+  --json           print one JSON object instead of text
+
+example:
+  sourceledger build --dry-run

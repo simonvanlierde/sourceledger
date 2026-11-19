@@ -24,3 +24,6 @@ options:
                         the Last-Modified the server sent
   --parameter NAME=VALUE
                         request metadata (repeatable)
+
+example:
+  sourceledger record co2 ~/Downloads/co2.csv --retrieved-at 2026-11-05T09:30:00Z

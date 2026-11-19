@@ -79,6 +79,20 @@ _STAGES = {
     "release": "write and check a release folder: data, metadata, SHA256SUMS",
 }
 
+_EXAMPLES = {
+    "init": "{prog} init",
+    "fetch": "{prog} fetch --only co2 --json",
+    "record": "{prog} record co2 ~/Downloads/co2.csv --retrieved-at 2026-11-05T09:30:00Z",
+    "build": "{prog} build --dry-run",
+    "validate": "{prog} validate --json",
+    "status": "{prog} status --json",
+    "attribution": "{prog} attribution > ATTRIBUTION.md",
+    "revisions": "{prog} revisions before.jsonl --json",
+    "verify": "{prog} verify published/",
+    "report": "{prog} report > provenance.html",
+    "release": "{prog} release out/ --dry-run",
+}
+
 _EPILOG = """\
 a first run:
   {prog} init        write a starter sources.toml
@@ -163,7 +177,7 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
         "init": [manifest_option],
         "fetch": [manifest_option, only_option, dry_run_option, json_option],
         "record": [manifest_option, dry_run_option, json_option],
-        "build": [manifest_option, only_option, dry_run_option],
+        "build": [manifest_option, only_option, dry_run_option, json_option],
         "validate": [manifest_option, only_option, json_option],
         "status": [manifest_option, json_option],
         "attribution": [manifest_option],
@@ -174,7 +188,13 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
     }
     sub = {
         name: stages.add_parser(
-            name, help=text, description=text[0].upper() + text[1:] + ".", parents=parents[name], allow_abbrev=False
+            name,
+            help=text,
+            description=text[0].upper() + text[1:] + ".",
+            epilog=f"example:\n  {_EXAMPLES[name].format(prog=prog)}",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            parents=parents[name],
+            allow_abbrev=False,
         )
         for name, text in _STAGES.items()
     }
@@ -524,19 +544,29 @@ def _record_stage(run: _Run) -> list[str]:
 def _build_stage(run: _Run) -> list[str]:
     sources = _sources(run)
     output_format = load_output_format(run.args.manifest)
+    package = (PROCESSED / DATAPACKAGE).as_posix()
     if run.args.dry_run:
+        would = []
         for source in implemented(select(sources, run.args.only)):
             current_record(source, RAW)  # the same refusal build gives for a missing or changed raw file
-            run.say(f"would write {(PROCESSED / output_name(source, output_format)).as_posix()}")
-        run.say(f"would write {(PROCESSED / DATAPACKAGE).as_posix()}")
+            would.append((PROCESSED / output_name(source, output_format)).as_posix())
+        would.append(package)
+        run.result["dry_run"] = True
+        run.result["would_write"] = would
+        for path in would:
+            run.say(f"would write {path}")
         return []
     name = load_package_name(run.args.manifest)
+    outputs = []
     for out, count in build_sources(
         sources, parse=run.parse, only=run.args.only, output_format=output_format, name=name
     ):
+        outputs.append({"path": out.as_posix(), "rows": count})
         size = f"{out.stat().st_size} bytes" if count is None else f"{count} row{'' if count == 1 else 's'}"
         run.say(f"{size} -> {out.as_posix()}")
-    run.say(f"package -> {(PROCESSED / DATAPACKAGE).as_posix()}")
+    run.result["outputs"] = outputs
+    run.result["package"] = package
+    run.say(f"package -> {package}")
     return []
 
 

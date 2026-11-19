@@ -15,3 +15,6 @@ options:
   --check DIR      check an existing release folder instead of writing one
   --codemeta PATH  read the dataset's name, licence and authors from this
                    CodeMeta file (default: ./codemeta.json)
+
+example:
+  sourceledger release out/ --dry-run
