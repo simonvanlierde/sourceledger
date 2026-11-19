@@ -10,6 +10,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Added
 
+- `record ID -` reads the file from stdin, such as `curl -s URL | sourceledger record co2 -`. Empty stdin is refused, and `-` on a terminal is a usage error.
 - `build --json` prints `outputs` (each file's `path` and `rows`, `null` for a copied file) and `package`; with `--dry-run`, `would_write`.
 - `docs/report.schema.json`, the JSON Schema of every stage's `--json` report and of the failure envelope.
 - Each stage's `--help` ends with an example command.

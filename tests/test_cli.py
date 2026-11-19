@@ -1136,3 +1136,74 @@ def test_the_schema_refuses_a_report_that_lacks_its_result_or_has_another_stages
     assert not validator.is_valid(base)
     assert not validator.is_valid({**base, "outputs": [{"path": "x", "rows": "1"}], "package": "p"})
     assert not validator.is_valid({**base, "outputs": [], "package": "p", "problems": []})
+
+
+def _record_from_stdin(data: bytes, *args: str) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(  # noqa: S603  # fixed arguments
+        [sys.executable, "-c", "from sourceledger.cli import entry; entry()", "record", "example", "-", *args],
+        input=data,
+        capture_output=True,
+        check=False,
+    )
+
+
+def _sidecar() -> dict[str, object]:
+    fields = json.loads(Path("data/raw/example.csv.fetch.json").read_text(encoding="utf-8"))
+    del fields["recorded_at"]
+    return fields
+
+
+def test_record_reads_stdin_and_logs_what_the_file_form_logs(project: Path) -> None:
+    when = ["--retrieved-at", "2026-11-05T09:30:00Z"]
+    assert main(["record", "example", str(project), *when]) == 0
+    by_file = (_sidecar(), Path("data/raw/example.csv").read_bytes())
+    shutil.rmtree("data")
+    result = _record_from_stdin(project.read_bytes(), *when)
+    assert result.returncode == 0, result.stderr
+    assert (_sidecar(), Path("data/raw/example.csv").read_bytes()) == by_file
+    assert not list(Path("data/raw").glob(".*.part"))
+
+
+def test_record_stdin_dry_run_hashes_and_writes_nothing(project: Path, tmp_path: Path) -> None:
+    before = _files(tmp_path)
+    result = _record_from_stdin(project.read_bytes(), "--dry-run", "--json")
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert (report["dry_run"], report["records"][0]["bytes"]) == (True, 20)
+    assert _files(tmp_path) == before
+
+
+@pytest.mark.usefixtures("project")
+def test_record_refuses_empty_stdin_and_leaves_no_temp_file() -> None:
+    result = _record_from_stdin(b"")
+    assert result.returncode == 3
+    assert result.stderr.decode().startswith("error: example: - is empty")
+    assert [p.name for p in Path("data/raw").glob("*")] == [".lock"]
+
+
+def test_record_stdin_keeps_the_size_cap(project: Path) -> None:
+    manifest = Path("sources.toml")
+    manifest.write_text(manifest.read_text(encoding="utf-8") + "max_bytes = 5\n", encoding="utf-8")
+    assert _record_from_stdin(project.read_bytes()).returncode == 3
+    assert [p.name for p in Path("data/raw").glob("*")] == [".lock"]
+
+
+class _Terminal(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+@pytest.mark.usefixtures("project")
+def test_record_dash_on_a_terminal_is_a_usage_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "stdin", _Terminal())
+    with pytest.raises(SystemExit) as exit_:
+        main(["record", "example", "-"])
+    assert exit_.value.code == 2
+    assert "PATH is -, but stdin is a terminal" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as exit_:
+        main(["record", "example", "-", "--json"])
+    assert exit_.value.code == 2
+    assert json.loads(capsys.readouterr().out)["errors"][0]["message"].startswith("PATH is -")
+    assert not Path("data").exists()

@@ -65,6 +65,7 @@ EXIT_INTERRUPTED = 130
 # Bumped when a field of the --json reports changes meaning or goes away.
 JSON_SCHEMA_VERSION = 1
 _JSON_FLAG = "--json"
+_STDIN = Path("-")
 
 _STAGES = {
     "init": "write a starter sources.toml",
@@ -83,7 +84,10 @@ _STAGES = {
 _EXAMPLES = {
     "init": "{prog} init",
     "fetch": "{prog} fetch --only co2 --json",
-    "record": "{prog} record co2 ~/Downloads/co2.csv --retrieved-at 2026-11-05T09:30:00Z",
+    "record": (
+        "{prog} record co2 ~/Downloads/co2.csv --retrieved-at 2026-11-05T09:30:00Z\n"
+        "  curl -s https://example.org/co2.csv | {prog} record co2 -"
+    ),
     "build": "{prog} build --dry-run",
     "validate": "{prog} validate --json",
     "status": "{prog} status --json",
@@ -207,7 +211,9 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
         for name, text in _STAGES.items()
     }
     sub["record"].add_argument("id", metavar="ID", help="the source in sources.toml")
-    sub["record"].add_argument("path", type=Path, metavar="PATH", help="the file another tool downloaded")
+    sub["record"].add_argument(
+        "path", type=Path, metavar="PATH", help="the file another tool downloaded, or - to read it from stdin"
+    )
     sub["record"].add_argument("--url", help="where the file came from (default: the source's url)")
     sub["record"].add_argument(
         "--retrieved-at",
@@ -268,7 +274,11 @@ def _check_release_args(args: argparse.Namespace) -> None:
 
 
 def _check_parameters(args: argparse.Namespace) -> None:
-    """Exit with a usage error for a --parameter that is not NAME=VALUE, or a name given twice."""
+    """Exit with a usage error for `-` on a terminal, or a --parameter not NAME=VALUE or given twice."""
+    if args.path == _STDIN and sys.stdin.isatty():
+        args.parser.error(
+            "PATH is -, but stdin is a terminal; pipe the file in: curl -s URL | sourceledger record ID -"
+        )
     if bad := [p for p in args.parameter if not (p.partition("=")[0] and p.partition("=")[1])]:
         args.parser.error(f"--parameter takes NAME=VALUE, not {bad[0]!r}")
     names = [p.partition("=")[0] for p in args.parameter]
@@ -549,6 +559,7 @@ def _record_stage(run: _Run) -> list[str]:
     result = record_file(
         source,
         args.path,
+        stream=sys.stdin.buffer if args.path == _STDIN else None,  # ty: ignore[invalid-argument-type]  # typeshed says BinaryIO; stdin is buffered
         retrieved_at=args.retrieved_at,
         url=args.url,
         etag=args.etag,
