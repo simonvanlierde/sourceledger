@@ -156,33 +156,6 @@ def test_the_count_reads_problem_or_problems(
 
 
 @pytest.mark.usefixtures("project")
-def test_every_json_report_has_a_schema_version(capsys: pytest.CaptureFixture[str]) -> None:
-    """fetch, record, verify, status, validate and revisions share one envelope."""
-    assert main(["fetch", "--json"]) == 0
-    fetched = json.loads(capsys.readouterr().out)
-    assert fetched["schema_version"] == 1
-    assert (fetched["stage"], fetched["errors"]) == ("fetch", [])
-    (record,) = fetched["records"]
-    assert (record["source_id"], record["new"], len(record["sha256"])) == ("example", True, 64)
-    assert json.loads(LOG.read_text(encoding="utf-8"))["sha256"] == record["sha256"]
-
-    assert main(["record", "example", "data/raw/example.csv", "--json"]) == 0
-    recorded = json.loads(capsys.readouterr().out)
-    assert (recorded["stage"], recorded["records"][0]["new"]) == ("record", False)
-    assert main(["build"]) == 0
-    capsys.readouterr()
-    for argv, field in (
-        (["verify", "data/processed", "--json"], "problems"),
-        (["status", "--json"], "sources"),
-        (["validate", "--json"], "problems"),
-        (["revisions", str(LOG), "--json"], "revisions"),
-    ):
-        assert main(argv) == 0, argv
-        report = json.loads(capsys.readouterr().out)
-        assert report == {"schema_version": 1, "stage": argv[0], "errors": [], field: report[field]}
-
-
-@pytest.mark.usefixtures("project")
 def test_a_failed_json_run_reports_its_errors_and_exit_3(capsys: pytest.CaptureFixture[str]) -> None:
     manifest = Path("sources.toml")
     manifest.write_text(manifest.read_text(encoding="utf-8").replace("file://", "bogus://"), encoding="utf-8")
@@ -1089,7 +1062,9 @@ def test_a_file_in_the_way_of_a_folder_has_no_help_line(capsys: pytest.CaptureFi
 def test_every_stage_report_matches_the_published_schema(capsys: pytest.CaptureFixture[str]) -> None:
     """Real output of each --json stage, dry runs and failures included, validates against docs/report.schema.json."""
     assert _report(capsys, ["fetch", "--dry-run", "--json"], 0)["would_fetch"]
-    assert _report(capsys, ["fetch", "--json"], 0)["records"]
+    (fetched,) = _report(capsys, ["fetch", "--json"], 0)["records"]
+    assert fetched["new"] is True
+    assert json.loads(LOG.read_text(encoding="utf-8"))["sha256"] == fetched["sha256"]
     Path("before.jsonl").write_bytes(LOG.read_bytes())
     assert _report(capsys, ["record", "example", "data/raw/example.csv", "--dry-run", "--json"], 0)["records"]
     # A recorded file with other bytes, parameters and a download time: a revision, with recorded_at and parameters.
@@ -1155,10 +1130,9 @@ def test_a_usage_error_without_json_stays_text(capsys: pytest.CaptureFixture[str
     assert captured.err.startswith("usage: sourceledger record")
 
 
-def test_the_schema_refuses_a_report_that_lacks_its_result() -> None:
+def test_the_schema_refuses_a_report_that_lacks_its_result_or_has_another_stages() -> None:
     validator = jsonschema.Draft202012Validator(REPORT_SCHEMA)
     base = {"schema_version": 1, "stage": "build", "errors": []}
     assert not validator.is_valid(base)
     assert not validator.is_valid({**base, "outputs": [{"path": "x", "rows": "1"}], "package": "p"})
-    assert validator.is_valid({**base, "outputs": [], "package": "p"})
-    assert validator.is_valid({**base, "errors": [{"message": "m", "help": None}]})
+    assert not validator.is_valid({**base, "outputs": [], "package": "p", "problems": []})

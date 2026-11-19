@@ -11,7 +11,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 ### Added
 
 - `build --json` prints `outputs` (each file's `path` and `rows`, `null` for a copied file) and `package`; with `--dry-run`, `would_write`.
-- `docs/report.schema.json`, the JSON Schema of every stage's `--json` report and of the failure envelope. A test validates the real output of each stage against it.
+- `docs/report.schema.json`, the JSON Schema of every stage's `--json` report and of the failure envelope.
 - Each stage's `--help` ends with an example command.
 
 ### Changed

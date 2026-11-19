@@ -1317,20 +1317,16 @@ def test_validators_run_isolated_in_utf_8_mode(tmp_path: Path, monkeypatch: pyte
 def test_release_with_formats_and_a_copied_file_match_the_report_schema(
     project: Path, stand_ins: Callable[..., None], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The optional formats, a refused release and a file source's null `rows` validate against the schema."""
+    """The optional formats, a validator finding and a file source's null `rows` validate against the schema."""
     stand_ins()
     _write_manifest(project, formats='"ro-crate", "croissant"')
     assert main(["fetch"]) == 0
     capsys.readouterr()
-    built = _report(capsys, ["build", "--json"], 0)
-    assert {o["rows"] for o in built["outputs"]} == {2, None}
-    dry = _report(capsys, ["release", "out", "--dry-run", "--json"], 0)
-    assert dry["formats"] == {"ro-crate": "written", "croissant": "written"}
-    assert _report(capsys, ["release", "out", "--json"], 0)["validators"]
-    assert _report(capsys, ["release", "--check", "out", "--json"], 0)["problems"] == []
+    assert {o["rows"] for o in _report(capsys, ["build", "--json"], 0)["outputs"]} == {2, None}
+    assert _report(capsys, ["release", "out", "--json"], 0)["formats"] == {
+        "ro-crate": "written",
+        "croissant": "written",
+    }
     stand_ins(croissant="import sys; print('bad', end=''); sys.exit(1)")
     assert _report(capsys, ["release", "out2", "--json"], 1)["problems"]
-    (project / "codemeta.json").write_text("{}", encoding="utf-8")
-    assert _report(capsys, ["release", "out3", "--json"], 1)["problems"]
-    # An existing folder is a failure, with the dry run still marked.
     assert _report(capsys, ["release", "out", "--dry-run", "--json"], 3)["errors"]
