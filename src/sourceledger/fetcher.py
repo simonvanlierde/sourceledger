@@ -398,11 +398,13 @@ def fetch_sources(
     before: dict[str, dict[str, Any]] | None = None,
     progress: Callable[[str], None] | None = None,
     done: list[FetchRecord] | None = None,
+    restored: set[str] | None = None,
 ) -> list[FetchRecord]:
     """Fetch and optionally retain the pre-fetch hashes from the same locked history read.
 
     `progress`, when given, is called before each source with its id and place, as `example (1 of 3)`.
     `done`, when given, collects the records as they come, so a caller still has them after Ctrl-C.
+    `restored`, when given, collects sources downloaded without a usable local copy.
     """
     sources = select(sources, only)
     raw.mkdir(parents=True, exist_ok=True)
@@ -418,7 +420,7 @@ def fetch_sources(
             if progress:
                 progress(f"{source['id']} ({number} of {len(todo)})")
             try:
-                records.append(_fetch_one(source, raw, log, logged, user_agent))
+                records.append(_fetch_one(source, raw, log, logged, user_agent, restored))
             except ValueError as error:  # messages already name the source
                 failures.append(str(error))
             except _TRANSIENT as error:
@@ -428,15 +430,26 @@ def fetch_sources(
     return records
 
 
-def _fetch_one(source: Source, raw: Path, log: Path, logged: dict[str, dict[str, Any]], user_agent: str) -> FetchRecord:
+def _fetch_one(
+    source: Source,
+    raw: Path,
+    log: Path,
+    logged: dict[str, dict[str, Any]],
+    user_agent: str,
+    restored: set[str] | None = None,
+) -> FetchRecord:
     """Fetch one source, write its raw file, log and record, and return the record."""
-    response = _get(source, _previous(source, raw), user_agent, raw)
+    previous = _previous(source, raw)
+    response = _get(source, previous, user_agent, raw)
     if isinstance(response, FetchRecord):
         # A version written to disk by a fetch that died before logging it gets logged now.
         _log_new_version(log, logged, response)
         return response
     try:
-        return _keep(source, response, raw, log, logged, user_agent)
+        record = _keep(source, response, raw, log, logged, user_agent)
+        if previous is None and restored is not None:
+            restored.add(source["id"])
+        return record
     finally:
         response.path.unlink(missing_ok=True)  # gone already once moved into place
 
