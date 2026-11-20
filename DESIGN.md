@@ -72,5 +72,13 @@ The home page and social card make no claims about users or adoption.
 `just docs` builds the whole site in strict mode and applies script hashes from
 `docs/script-hashes.json` to each page’s Content Security Policy. Changes to inline scripts
 require review of that allowlist. The policy is inserted before any scripts.
-The hash policy follows the shared template’s build-time policy; Zensical uses a Python postprocessor.
 `just docs` checks the rendered preview metadata; `just docs-serve` previews it locally.
+
+## Template source
+
+The full-project Copier baseline remains v0.15.0 in `.copier-answers.yml`.
+The shared docs tokens and Zensical token mappings come from
+[project-templates v0.16.1](https://github.com/simonvanlierde/project-templates/tree/v0.16.1).
+The hash policy adapts that release's Starlight build hook to Zensical.
+The `docs_engine: zensical` answer selects the engine for the next full Copier update.
+That update must still offer the release, hook and dependency-policy changes outside this docs slice.
