@@ -17,7 +17,12 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Changed
 
+- Use the shared documentation tokens and allowlisted script hashes in the docs Content Security Policy.
 - A usage error under `--json`, such as `record --parameter nope --json`, prints the failure object on stdout with exit code 2 and nothing on stderr, instead of text on stderr.
+
+### Fixed
+
+- Keep small API notes, code highlighting and footer text readable on the documentation palette.
 
 ## [0.6.0] - 2026-11-15
 

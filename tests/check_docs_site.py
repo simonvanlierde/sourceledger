@@ -3,6 +3,8 @@
 from html.parser import HTMLParser
 from pathlib import Path
 
+from docs_csp import script_hashes
+
 
 class _Page(HTMLParser):
     def __init__(self) -> None:
@@ -46,6 +48,12 @@ def check_page(path: Path, title: str):
     assert "may include unreleased features" in page.text, path
     assert "https://github.com/simonvanlierde/sourceledger/blob/main/CHANGELOG.md" in page.links, path
     assert all(text in page.meta["og:image:alt"] for text in ("419.31", "419.32", "SHA-256", "0 problems")), path
+    html = path.read_text(encoding="utf-8")
+    policy = page.meta["Content-Security-Policy"]
+    scripts = next(directive for directive in policy.split(";") if directive.strip().startswith("script-src "))
+    assert "'unsafe-inline'" not in scripts, path
+    assert set(scripts.split()[2:]) == set(script_hashes(html)), path
+    assert html.index('http-equiv="Content-Security-Policy"') < html.index("<script"), path
     assert "object-src 'none'" in page.meta["Content-Security-Policy"], path
     assert page.meta["og:image"].startswith("https://simonvanlierde.com/sourceledger/assets/og.png"), path
     assert (page.meta["og:image:width"], page.meta["og:image:height"]) == ("1200", "630"), path

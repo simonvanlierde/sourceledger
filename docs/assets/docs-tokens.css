@@ -1,0 +1,18 @@
+/* Shared docs tokens, mapped from DESIGN.md. Keep the approved palette in both system schemes. */
+:root {
+  --docs-paper: #f9fafc;
+  --docs-ink: #243247;
+  --docs-accent: #315ba8;
+  --docs-paper-dark: #f9fafc;
+  --docs-ink-dark: #243247;
+  --docs-accent-dark: #315ba8;
+  --docs-muted: #57677e;
+  --docs-selection: #e7edf8;
+  --docs-rule: #d8e0eb;
+  --docs-code: #eef1f7;
+  --docs-panel: #253c61;
+  --docs-on-panel: #f8faff;
+  --docs-signal: #bfd5ff;
+  --docs-font: Arimo, Helvetica, Arial, sans-serif;
+  --docs-mono: _, SFMono-Regular, Consolas, Menlo, monospace;
+}

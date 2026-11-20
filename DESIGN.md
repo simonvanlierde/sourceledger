@@ -31,6 +31,7 @@ The site serves the Markdown in `docs/` at the published `/sourceledger/` addres
 
 ## Colour and typography
 
+`docs/assets/docs-tokens.css` defines the shared colour and font tokens.
 `docs/assets/brand.css` applies the Chalk & cobalt palette: chalk paper, blue-black ink
 and cobalt links. Pale blue marks the selected navigation entry and text selection.
 The provenance flow uses a deep blue panel with light blue source identifiers.
@@ -68,4 +69,8 @@ The home page and social card make no claims about users or adoption.
 `docs/og-card.html` draws the social card in `docs/assets/og.png`.
 `docs-overrides/main.html` supplies the link-preview metadata on every page.
 `just og-card` regenerates the image and changes its URL hash so preview caches refresh.
-`just docs` builds the whole site in strict mode; `just docs-serve` previews it locally.
+`just docs` builds the whole site in strict mode and applies script hashes from
+`docs/script-hashes.json` to each page’s Content Security Policy. Changes to inline scripts
+require review of that allowlist. The policy is inserted before any scripts.
+The hash policy follows the shared template’s build-time policy; Zensical uses a Python postprocessor.
+`just docs` checks the rendered preview metadata; `just docs-serve` previews it locally.
