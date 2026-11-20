@@ -10,6 +10,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -291,6 +292,20 @@ def test_an_interrupted_record_prints_no_signed_url(
     out, err = capsys.readouterr()
     assert "SECRET" not in out + err
     assert "https://example.org/a.csv" in out
+
+
+@pytest.mark.usefixtures("project")
+def test_an_interrupted_record_from_stdin_asks_for_the_pipe_again(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def interrupted(*_: object, **__: object) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "record_file", interrupted)
+    with Path(os.devnull).open(encoding="utf-8") as devnull:
+        monkeypatch.setattr(sys, "stdin", devnull)
+        assert main(["record", "example", "-"]) == 130
+    assert capsys.readouterr().err.endswith("help: nothing was recorded; pipe the file in again\n")
 
 
 @pytest.mark.usefixtures("project")
@@ -1138,13 +1153,33 @@ def test_the_schema_refuses_a_report_that_lacks_its_result_or_has_another_stages
     assert not validator.is_valid({**base, "outputs": [], "package": "p", "problems": []})
 
 
-def _record_from_stdin(data: bytes, *args: str) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(  # noqa: S603  # fixed arguments
-        [sys.executable, "-c", "from sourceledger.cli import entry; entry()", "record", "example", "-", *args],
-        input=data,
-        capture_output=True,
-        check=False,
-    )
+_RECORD = [sys.executable, "-c", "from sourceledger.cli import entry; entry()", "record", "example"]
+
+
+def _spool_env() -> dict[str, str]:
+    """An environment that puts the stdin spool file in `./spool`, so a test sees it and its removal."""
+    Path("spool").mkdir(exist_ok=True)
+    return {**os.environ, "TMPDIR": str(Path("spool").absolute())}
+
+
+def _record_piped(data: bytes, *args: str) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run([*_RECORD, *args], input=data, capture_output=True, check=False, env=_spool_env())  # noqa: S603  # fixed arguments
+
+
+def _left_behind() -> list[str]:
+    return [p.name for p in [*Path("spool").iterdir(), *Path("data/raw").glob(".*.part")]]
+
+
+def _reading_stdin() -> bool:
+    """`record ID -` is in its read: the spool file is there, or (before spooling) the lock is."""
+    return any(Path("spool").iterdir()) or Path("data/raw/.lock").exists()
+
+
+def _wait_for(ready: Callable[[], bool]) -> None:
+    deadline = time.monotonic() + 10
+    while not ready():
+        assert time.monotonic() < deadline, "timed out"
+        threading.Event().wait(0.02)  # time.sleep is patched out here
 
 
 def _sidecar() -> dict[str, object]:
@@ -1154,38 +1189,84 @@ def _sidecar() -> dict[str, object]:
 
 
 def test_record_reads_stdin_and_logs_what_the_file_form_logs(project: Path) -> None:
+    data = project.read_bytes()
+    dry = _record_piped(data, "-", "--dry-run", "--json")
+    assert dry.returncode == 0, dry.stderr
+    (record,) = json.loads(dry.stdout)["records"]
+    assert (record["sha256"], record["bytes"]) == (hashlib.sha256(data).hexdigest(), len(data))
+    assert not Path("data").exists()
     when = ["--retrieved-at", "2026-11-05T09:30:00Z"]
     assert main(["record", "example", str(project), *when]) == 0
     by_file = (_sidecar(), Path("data/raw/example.csv").read_bytes())
     shutil.rmtree("data")
-    result = _record_from_stdin(project.read_bytes(), *when)
+    result = _record_piped(data, "-", *when)
     assert result.returncode == 0, result.stderr
     assert (_sidecar(), Path("data/raw/example.csv").read_bytes()) == by_file
-    assert not list(Path("data/raw").glob(".*.part"))
+    assert _left_behind() == []
 
 
-def test_record_stdin_dry_run_hashes_and_writes_nothing(project: Path, tmp_path: Path) -> None:
-    before = _files(tmp_path)
-    result = _record_from_stdin(project.read_bytes(), "--dry-run", "--json")
+def test_record_reads_a_file_named_dash_given_as_dot_slash(project: Path) -> None:
+    Path("-").write_bytes(project.read_bytes())
+    result = _record_piped(b"other,bytes\n", "./-")
     assert result.returncode == 0, result.stderr
-    report = json.loads(result.stdout)
-    assert (report["dry_run"], report["records"][0]["bytes"]) == (True, 20)
-    assert _files(tmp_path) == before
+    assert _sidecar()["sha256"] == hashlib.sha256(project.read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize("as_json", [False, True])
+@pytest.mark.parametrize(
+    ("data", "message"),
+    [(b"", "example: stdin is empty"), (b"x" * 200_000, "example: download exceeds 70000 bytes")],
+)
+@pytest.mark.usefixtures("project")
+def test_record_refuses_empty_or_oversized_stdin(data: bytes, message: str, *, as_json: bool) -> None:
+    manifest = Path("sources.toml")
+    manifest.write_text(manifest.read_text(encoding="utf-8") + "max_bytes = 70000\n", encoding="utf-8")
+    result = _record_piped(data, "-", *(["--json"] if as_json else []))
+    assert result.returncode == 3
+    if as_json:
+        assert result.stderr == b""
+        assert json.loads(result.stdout)["errors"][0]["message"].startswith(message)
+    else:
+        assert result.stderr.decode().startswith(f"error: {message}")
+    assert _left_behind() == []
 
 
 @pytest.mark.usefixtures("project")
-def test_record_refuses_empty_stdin_and_leaves_no_temp_file() -> None:
-    result = _record_from_stdin(b"")
-    assert result.returncode == 3
-    assert result.stderr.decode().startswith("error: example: - is empty")
-    assert [p.name for p in Path("data/raw").glob("*")] == [".lock"]
-
-
-def test_record_stdin_keeps_the_size_cap(project: Path) -> None:
+def test_record_stdin_keeps_the_sha256_pin() -> None:
     manifest = Path("sources.toml")
-    manifest.write_text(manifest.read_text(encoding="utf-8") + "max_bytes = 5\n", encoding="utf-8")
-    assert _record_from_stdin(project.read_bytes()).returncode == 3
-    assert [p.name for p in Path("data/raw").glob("*")] == [".lock"]
+    manifest.write_text(manifest.read_text(encoding="utf-8") + f'sha256 = "{"0" * 64}"\n', encoding="utf-8")
+    data = b"year,value\n"
+    result = _record_piped(data, "-")
+    assert result.returncode == 3
+    assert result.stderr.decode().startswith(f"error: example: stdin hashes to {hashlib.sha256(data).hexdigest()}")
+    assert _left_behind() == []
+
+
+def test_a_slow_pipe_into_record_keeps_no_fetch_waiting(project: Path) -> None:
+    """Stdin is read before the lock is taken, so a fetch can run while a download still streams in."""
+    with subprocess.Popen([*_RECORD, "-"], stdin=subprocess.PIPE, stderr=subprocess.PIPE, env=_spool_env()) as proc:  # noqa: S603  # fixed arguments
+        assert proc.stdin
+        proc.stdin.write(project.read_bytes())
+        proc.stdin.flush()
+        _wait_for(_reading_stdin)
+        assert main(["fetch"]) == 0
+        _, err = proc.communicate()
+    assert proc.returncode == 0, err
+    assert _left_behind() == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no death by signal")
+def test_ctrl_c_while_record_reads_stdin_leaves_nothing(project: Path) -> None:
+    with subprocess.Popen([*_RECORD, "-"], stdin=subprocess.PIPE, stderr=subprocess.PIPE, env=_spool_env()) as proc:  # noqa: S603  # fixed arguments
+        assert proc.stdin
+        proc.stdin.write(project.read_bytes())
+        proc.stdin.flush()
+        _wait_for(_reading_stdin)
+        proc.send_signal(signal.SIGINT)
+        _, err = proc.communicate()
+    assert proc.returncode == -signal.SIGINT
+    assert "nothing was recorded; pipe the file in again" in err.decode()
+    assert _left_behind() == []
 
 
 class _Terminal(io.StringIO):
@@ -1193,17 +1274,20 @@ class _Terminal(io.StringIO):
         return True
 
 
+@pytest.mark.parametrize(
+    ("stdin", "why"), [(_Terminal(), "stdin is a terminal; pipe the file in"), (None, "there is no stdin")]
+)
 @pytest.mark.usefixtures("project")
-def test_record_dash_on_a_terminal_is_a_usage_error(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_record_dash_without_a_pipe_is_a_usage_error(
+    stdin: io.StringIO | None, why: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(sys, "stdin", _Terminal())
+    monkeypatch.setattr(sys, "stdin", stdin)
     with pytest.raises(SystemExit) as exit_:
         main(["record", "example", "-"])
     assert exit_.value.code == 2
-    assert "PATH is -, but stdin is a terminal" in capsys.readouterr().err
+    assert f"PATH is -, but {why}" in capsys.readouterr().err
     with pytest.raises(SystemExit) as exit_:
         main(["record", "example", "-", "--json"])
     assert exit_.value.code == 2
-    assert json.loads(capsys.readouterr().out)["errors"][0]["message"].startswith("PATH is -")
+    assert json.loads(capsys.readouterr().out)["errors"][0]["message"] == f"PATH is -, but {why}"
     assert not Path("data").exists()

@@ -3,6 +3,7 @@
 import contextlib
 import errno
 import hashlib
+import io
 import json
 import logging
 import os
@@ -383,6 +384,34 @@ def test_record_takes_a_download_time_up_to_the_clock_skew_ahead(upstream: Path,
     assert ledger.record(_source(), upstream, retrieved_at=ahead).retrieved_at == f"{ahead:%Y-%m-%dT%H:%M:%SZ}"
     with pytest.raises(ValueError, match="in the future"):
         ledger.record(_source(), upstream, retrieved_at=ahead + timedelta(seconds=1))
+
+
+def test_record_file_takes_a_stream_in_and_removes_its_spool(
+    upstream: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In process, so mutmut sees it; the CLI tests pipe real stdin."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "spool"))
+    (tmp_path / "spool").mkdir()
+
+    def take_in(stream: io.BytesIO) -> ledger.FetchRecord:
+        return ledger.record_file(
+            _source(),
+            stream,
+            retrieved_at=None,
+            url=None,
+            etag="",
+            last_modified="",
+            parameters=None,
+            raw=RAW.parent,
+            log=LOG,
+        )
+
+    data = upstream.read_bytes()
+    assert take_in(io.BytesIO(data)).sha256 == hashlib.sha256(data).hexdigest()
+    assert RAW.read_bytes() == data
+    with pytest.raises(ValueError, match="stdin is empty"):
+        take_in(io.BytesIO())
+    assert not any((tmp_path / "spool").iterdir())
 
 
 def test_record_takes_a_timezone_aware_datetime(upstream: Path) -> None:
