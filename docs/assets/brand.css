@@ -5,16 +5,16 @@
   font-display: swap;
 }
 :root > * {
-  --sl-paper: #F9FAFC;
-  --sl-ink: #243247;
-  --sl-muted: #57677E;
-  --sl-link: #315BA8;
-  --sl-selection: #E7EDF8;
-  --sl-rule: #D8E0EB;
-  --sl-code: #EEF1F7;
-  --sl-panel: #253C61;
-  --sl-on-panel: #F8FAFF;
-  --sl-signal: #BFD5FF;
+  --sl-paper: var(--docs-paper);
+  --sl-ink: var(--docs-ink);
+  --sl-muted: var(--docs-muted);
+  --sl-link: var(--docs-accent);
+  --sl-selection: var(--docs-selection);
+  --sl-rule: var(--docs-rule);
+  --sl-code: var(--docs-code);
+  --sl-panel: var(--docs-panel);
+  --sl-on-panel: var(--docs-on-panel);
+  --sl-signal: var(--docs-signal);
 
   --color-background: 249 250 252;
   --color-background-subtle: 238 241 247;
@@ -35,9 +35,12 @@
   --md-code-fg-color: var(--sl-ink);
   --md-code-hl-comment-color: var(--sl-muted);
   --md-code-hl-keyword-color: var(--sl-link);
+  --md-code-hl-number-color: var(--sl-link);
+  --md-code-hl-special-color: var(--sl-link);
+  --md-code-hl-function-color: var(--sl-link);
   --md-typeset-table-color: var(--sl-rule);
   --md-typeset-table-color--light: var(--sl-code);
-  --md-text-font: Arimo, Helvetica, Arial, sans-serif;
+  --md-text-font: var(--docs-font);
 }
 body, .md-header { background: var(--sl-paper); color: var(--sl-ink); }
 .md-typeset h1, .md-typeset h2, .md-typeset h3 { color: var(--sl-ink); }
@@ -59,3 +62,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--sl-link); outli
   .md-typeset .provenance-flow ol { flex-direction: column; gap: 1rem; }
   .provenance-flow li + li::before { content: "↓"; }
 }
+
+/* Small API notes and the footer need full contrast on their tinted surfaces. */
+.md-typeset small { opacity: 1; }
+.md-copyright { color: var(--sl-ink); }

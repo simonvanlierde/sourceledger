@@ -18,7 +18,6 @@
 
 {#- A page's own description wins over the site's for link previews. #}
 {% block extrahead %}
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
   {%- if page is defined and page.canonical_url is defined and page.canonical_url and config.extra.og_image is defined %}
   {#- A hand-edited site_url may omit its trailing slash. URLs stay unescaped: the
       escape filter writes / as &#x2f;, which some link-preview scrapers do not decode. #}

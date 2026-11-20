@@ -8,6 +8,7 @@ copyright_year: '2026'
 customise: false
 decision_records: false
 dependency_bot: renovate
+docs_engine: zensical
 extras:
 - cold_install
 - docs_site
