@@ -8,7 +8,8 @@ Take in a file another tool downloaded, and log it as fetch would.
 
 positional arguments:
   ID                    the source in sources.toml
-  PATH                  the file another tool downloaded
+  PATH                  the file another tool downloaded, or - to read it from
+                        stdin
 
 options:
   -h, --help            show this help message and exit
@@ -27,3 +28,4 @@ options:
 
 example:
   sourceledger record co2 ~/Downloads/co2.csv --retrieved-at 2026-11-05T09:30:00Z
+  curl -s https://example.org/co2.csv | sourceledger record co2 -

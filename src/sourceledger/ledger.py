@@ -430,7 +430,7 @@ def record(
 
 def record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before and dry_run
     source: Source,
-    path: Path,
+    path: Path | _Reader,
     *,
     retrieved_at: datetime | str | None,
     url: str | None,
@@ -445,6 +445,8 @@ def record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before 
     """`record()`, filling `before` with the log lines logged before it, read under the lock as `fetch_sources` does.
 
     `dry_run` makes every check and returns the record without writing anything or taking the lock.
+    `path` can be an open stream, such as stdin: it is read into a temp file before the lock is taken,
+    and refused when empty.
     """
     sid = source["id"]
     if source.get("status") != IMPLEMENTED:
@@ -454,14 +456,19 @@ def record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before 
     request = _checked_parameters(sid, parameters or {})
     now = datetime.now(UTC)
     downloaded = "" if retrieved_at is None else _timestamp(_aware(sid, retrieved_at, now))
+    name = path.as_posix() if isinstance(path, Path) else "stdin"
     # Checked before opening: opening a named pipe waits for a writer, here with the lock held.
-    if not stat.S_ISREG(path.stat().st_mode):
-        msg = f"{sid}: {path.as_posix()} is not a regular file"
+    if isinstance(path, Path) and not stat.S_ISREG(path.stat().st_mode):
+        msg = f"{sid}: {name} is not a regular file"
         raise ValueError(msg)
     if not dry_run:
         raw.mkdir(parents=True, exist_ok=True)
         log.parent.mkdir(parents=True, exist_ok=True)
-    with contextlib.nullcontext() if dry_run else _lock(raw):
+    with contextlib.ExitStack() as held:
+        if not isinstance(path, Path):
+            path = held.enter_context(_spooled(source, path))
+        if not dry_run:
+            held.enter_context(_lock(raw))
         logged = _last_records(log)
         if before is not None:
             before.update(logged)
@@ -469,7 +476,7 @@ def record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before 
         try:
             digest, size, temp = _take_in(source, path, None if dry_run else raw)
             if source.get("sha256", digest) != digest:
-                msg = f"{sid}: {path.as_posix()} hashes to {digest}, not the sha256 in sources.toml"
+                msg = f"{sid}: {name} hashes to {digest}, not the sha256 in sources.toml"
                 raise ValueError(msg)
             # No request: only the snapshot a fetch already logged for these bytes is kept, as fetch keeps it.
             last = logged.get(sid, {})
@@ -531,6 +538,25 @@ def _take_in(source: Source, path: Path, raw: Path | None) -> tuple[str, int, Pa
         Path(name).unlink(missing_ok=True)
         raise
     return digest, size, Path(name)
+
+
+@contextlib.contextmanager
+def _spooled(source: Source, stream: _Reader) -> Generator[Path]:
+    """`stream` copied into a temp file within `max_bytes`, removed on exit; an empty stream is refused.
+
+    Read before the lock is taken, so a slow pipe keeps no other fetch waiting. In the system's
+    temp folder, not in `raw`, where a lock holder sweeps `.part` files.
+    """
+    fd, name = tempfile.mkstemp(prefix=f"sourceledger-{source['id']}.", suffix=".stdin")
+    try:
+        with os.fdopen(fd, "wb") as out:
+            _, size = _copy(stream, out, source, math.inf)
+        if not size:
+            msg = f"{source['id']}: stdin is empty; the download behind it probably failed"
+            raise ValueError(msg)
+        yield Path(name)
+    finally:
+        Path(name).unlink(missing_ok=True)
 
 
 # A name holding one of these, or with one of the words below as a part of it (`x-api-key`, `sig`).

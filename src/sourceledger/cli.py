@@ -65,6 +65,7 @@ EXIT_INTERRUPTED = 130
 # Bumped when a field of the --json reports changes meaning or goes away.
 JSON_SCHEMA_VERSION = 1
 _JSON_FLAG = "--json"
+_STDIN = "-"  # compared as typed: `./-` is a file named -
 
 _STAGES = {
     "init": "write a starter sources.toml",
@@ -83,7 +84,10 @@ _STAGES = {
 _EXAMPLES = {
     "init": "{prog} init",
     "fetch": "{prog} fetch --only co2 --json",
-    "record": "{prog} record co2 ~/Downloads/co2.csv --retrieved-at 2026-11-05T09:30:00Z",
+    "record": (
+        "{prog} record co2 ~/Downloads/co2.csv --retrieved-at 2026-11-05T09:30:00Z\n"
+        "  curl -s https://example.org/co2.csv | {prog} record co2 -"
+    ),
     "build": "{prog} build --dry-run",
     "validate": "{prog} validate --json",
     "status": "{prog} status --json",
@@ -207,7 +211,9 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
         for name, text in _STAGES.items()
     }
     sub["record"].add_argument("id", metavar="ID", help="the source in sources.toml")
-    sub["record"].add_argument("path", type=Path, metavar="PATH", help="the file another tool downloaded")
+    sub["record"].add_argument(
+        "path", metavar="PATH", help="the file another tool downloaded, or - to read it from stdin"
+    )
     sub["record"].add_argument("--url", help="where the file came from (default: the source's url)")
     sub["record"].add_argument(
         "--retrieved-at",
@@ -223,7 +229,7 @@ def _parser(prog: str, manifest: Path) -> argparse.ArgumentParser:
     sub["record"].add_argument(
         "--parameter", action="append", default=[], metavar="NAME=VALUE", help="request metadata (repeatable)"
     )
-    sub["record"].set_defaults(check_args=_check_parameters)
+    sub["record"].set_defaults(check_args=_check_record_args)
     sub["revisions"].add_argument("path", type=Path, metavar="OLD_LOG", help="an earlier copy of data/fetches.jsonl")
     sub["verify"].add_argument("path", type=Path, metavar="DIR", help="the folder of a published dataset")
     sub["release"].add_argument("path", type=Path, nargs="?", metavar="OUT_DIR", help="the new folder to write")
@@ -267,8 +273,12 @@ def _check_release_args(args: argparse.Namespace) -> None:
         args.parser.error("--check reads no codemeta.json; drop --codemeta")
 
 
-def _check_parameters(args: argparse.Namespace) -> None:
-    """Exit with a usage error for a --parameter that is not NAME=VALUE, or a name given twice."""
+def _check_record_args(args: argparse.Namespace) -> None:
+    """Exit with a usage error for `-` with no piped stdin, or a --parameter not NAME=VALUE or given twice."""
+    if args.path == _STDIN and sys.stdin is None:  # started with stdin closed, as by `<&-`
+        args.parser.error("PATH is -, but there is no stdin")
+    if args.path == _STDIN and sys.stdin.isatty():
+        args.parser.error("PATH is -, but stdin is a terminal; pipe the file in")
     if bad := [p for p in args.parameter if not (p.partition("=")[0] and p.partition("=")[1])]:
         args.parser.error(f"--parameter takes NAME=VALUE, not {bad[0]!r}")
     names = [p.partition("=")[0] for p in args.parameter]
@@ -385,7 +395,10 @@ def _main(run: _Run) -> int:
         # record logs the URL without its query and fragment, which can hold a signature; so does the rerun.
         argv = [a.replace(url, without_query(url)) for a in run.argv] if url else run.argv
         rerun = shlex.join([run.prog, *argv])
-        errors = [(f"{run.args.stage} was interrupted", f"what finished before is kept; run `{rerun}` to finish")]
+        help_ = f"what finished before is kept; run `{rerun}` to finish"
+        if getattr(run.args, "path", None) == _STDIN:  # record read stdin, and its bytes are gone
+            help_ = "nothing was recorded; pipe the file in again"
+        errors = [(f"{run.args.stage} was interrupted", help_)]
         code = EXIT_INTERRUPTED
     except Exception as error:  # noqa: BLE001  # such as a project's parser failing: one line, not a traceback
         errors = [(f"{type(error).__name__}: {error}", None)]
@@ -431,7 +444,7 @@ def _help(error: Exception, run: _Run) -> str | None:
     missing = Path(error.filename) if isinstance(error, FileNotFoundError) and error.filename else None
     # The stage's own path first: one named like the manifest is still the path the user passed.
     path = getattr(run.args, "check", None) or getattr(run.args, "path", None)
-    if missing and path and missing in (path, path / DATAPACKAGE):
+    if missing and path and missing in (Path(path), Path(path, DATAPACKAGE)):  # record keeps PATH as typed
         return _MISSING_PATH_HELP[run.args.stage]
     if missing == run.args.manifest:
         return f"run `{run.prog} init` to write one, or pass --manifest PATH"
@@ -546,9 +559,11 @@ def _record_stage(run: _Run) -> list[str]:
     args = run.args
     (source,) = select(_sources(run, [args.id]), [args.id])
     before: dict[str, dict[str, Any]] = {}
+    # Left open for the process (closefd=False); a BufferedReader has the read1 that copying uses.
+    src = os.fdopen(sys.stdin.fileno(), "rb", closefd=False) if args.path == _STDIN else Path(args.path)
     result = record_file(
         source,
-        args.path,
+        src,
         retrieved_at=args.retrieved_at,
         url=args.url,
         etag=args.etag,
@@ -563,7 +578,7 @@ def _record_stage(run: _Run) -> list[str]:
         run.result["dry_run"] = True
         run.result["records"] = [_json_record(result, before)]
         what = f"{_marker(result, before)}, {result.bytes:,} B, sha256 {result.sha256}"
-        run.say(f"would record {source['id']} from {args.path.as_posix()}: {what}")
+        run.say(f"would record {source['id']} from {Path(args.path).as_posix()}: {what}")
     else:
         _report_records(run, [result], before)
     return []

@@ -122,6 +122,11 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   `sha256` pin, and writes the same log line and record as `fetch`, with `recorded_at` set
   to now. The file must be a regular file within the source's `max_bytes`. The library
   function is `record()`.
+  - `-` as `PATH` reads the bytes from stdin (`./-` is a file named `-`), and stores them under
+    the name `fetch` gives the source. Stdin is read in full before the lock is taken, so a slow
+    pipe keeps no `fetch` waiting. Empty stdin is refused, as a failed download leaves it empty;
+    `-` on a terminal or with stdin closed is a usage error. `--dry-run` still reads stdin, to
+    report the hash and size.
   - `--retrieved-at TIME` is when the file was downloaded, in ISO 8601 with a time zone
     (`2026-11-05T09:30:00Z`). A value that is not ISO 8601 is a usage error. Without it,
     the record and the rows' `retrieved_at` stay empty rather than claim a download time.
