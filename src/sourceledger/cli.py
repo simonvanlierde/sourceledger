@@ -578,7 +578,7 @@ def _record_stage(run: _Run) -> list[str]:
         run.result["dry_run"] = True
         run.result["records"] = [_json_record(result, before)]
         what = f"{_marker(result, before)}, {result.bytes:,} B, sha256 {result.sha256}"
-        run.say(f"would record {source['id']} from {args.path}: {what}")
+        run.say(f"would record {source['id']} from {Path(args.path).as_posix()}: {what}")
     else:
         _report_records(run, [result], before)
     return []

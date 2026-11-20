@@ -294,16 +294,16 @@ def test_an_interrupted_record_prints_no_signed_url(
     assert "https://example.org/a.csv" in out
 
 
-@pytest.mark.usefixtures("project")
 def test_an_interrupted_record_from_stdin_asks_for_the_pipe_again(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    project: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     def interrupted(*_: object, **__: object) -> None:
         raise KeyboardInterrupt
 
     monkeypatch.setattr(cli, "record_file", interrupted)
-    with Path(os.devnull).open(encoding="utf-8") as devnull:
-        monkeypatch.setattr(sys, "stdin", devnull)
+    # A regular file, not the runner's stdin or os.devnull: Windows reports NUL as a terminal.
+    with project.open(encoding="utf-8") as piped:
+        monkeypatch.setattr(sys, "stdin", piped)
         assert main(["record", "example", "-"]) == 130
     assert capsys.readouterr().err.endswith("help: nothing was recorded; pipe the file in again\n")
 
