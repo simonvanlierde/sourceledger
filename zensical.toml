@@ -8,7 +8,7 @@ site_url = "https://simonvanlierde.com/sourceledger/"
 repo_url = "https://github.com/simonvanlierde/sourceledger"
 site_dir = "_docs"
 use_directory_urls = false
-extra_css = ["assets/docs.css", "assets/brand.css"]
+extra_css = ["assets/docs-tokens.css", "assets/docs.css", "assets/brand.css"]
 nav = [
   { "Start here" = "index.md" },
   { "Worked example" = [{ "Publisher revisions" = "getting-started.md" }, { "Recipes" = "recipes.md" }, { "Where it fits" = "where-it-fits.md" }] },

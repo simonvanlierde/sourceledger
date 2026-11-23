@@ -1,3 +1,20 @@
+/* Map the shared docs tokens onto the Zensical theme. */
+:root > * {
+  --md-default-bg-color: var(--docs-paper, #ffffff);
+  --md-default-fg-color: var(--docs-ink, #1f2328);
+  --md-accent-fg-color: var(--docs-accent, #4051b5);
+  --md-accent-fg-color--transparent: color-mix(in srgb, var(--docs-accent, #4051b5) 10%, transparent);
+  --md-text-font-family: var(--docs-font, system-ui, sans-serif);
+  --md-code-font-family: var(--docs-mono, ui-monospace, monospace);
+}
+
+:root > [data-md-color-scheme="slate"] {
+  --md-default-bg-color: var(--docs-paper-dark, #2e303e);
+  --md-default-fg-color: var(--docs-ink-dark, #e4e5ea);
+  --md-accent-fg-color: var(--docs-accent-dark, #a5b4fc);
+  --md-accent-fg-color--transparent: color-mix(in srgb, var(--docs-accent-dark, #a5b4fc) 10%, transparent);
+}
+
 .md-header__button[data-docs-toggle] {
   background: transparent;
   border: 0;
