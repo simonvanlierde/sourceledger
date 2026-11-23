@@ -391,10 +391,10 @@ def test_a_redirect_from_a_public_host_is_marked_public_only() -> None:
     public = urllib.request.Request("http://93.184.215.14/data.csv")
     new = handler.redirect_request(public, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://10.0.0.1/a")
     assert new is not None
-    assert new.public_only  # ty: ignore[unresolved-attribute]
+    assert new.public_only  # ty: ignore[missing-attribute]
     again = handler.redirect_request(new, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://10.0.0.2/b")
     assert again is not None
-    assert again.public_only  # ty: ignore[unresolved-attribute]
+    assert again.public_only  # ty: ignore[missing-attribute]
     internal = urllib.request.Request("http://127.0.0.1/data.csv")
     moved = handler.redirect_request(
         internal, io.BytesIO(), 302, "Found", http.client.HTTPMessage(), "http://127.0.0.1/moved"
@@ -474,7 +474,7 @@ def test_a_refused_redirect_names_no_query_or_fragment() -> None:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         request = urllib.request.Request(f"http://127.0.0.1:{server.server_address[1]}/a.csv?sig=s3cr3t")
-        request.public_only = True  # ty: ignore[unresolved-attribute]
+        request.public_only = True  # ty: ignore[missing-attribute]
         connection = fetcher_mod._PeerCheck("127.0.0.1", port=server.server_address[1], req=request)  # noqa: SLF001
         with pytest.raises(ValueError, match=r"/a\.csv, which is at") as inward:
             connection.connect()
@@ -492,7 +492,7 @@ def test_the_peer_check_is_skipped_through_a_proxy() -> None:
     try:
         for url, refused in ((f"http://127.0.0.1:{port}/a.csv", True), ("http://example.org/a.csv", False)):
             request = urllib.request.Request(url)  # noqa: S310  # http only
-            request.public_only = True  # ty: ignore[unresolved-attribute]
+            request.public_only = True  # ty: ignore[missing-attribute]
             connection = fetcher_mod._PeerCheck("127.0.0.1", port=port, req=request)  # noqa: SLF001
             if refused:
                 with pytest.raises(
@@ -573,7 +573,7 @@ def test_the_peer_check_refuses_a_loopback_peer_over_tls(tmp_path: Path) -> None
         assert _TLSEcho.seen == ["/a.csv"]
         _TLSEcho.seen.clear()
         marked = urllib.request.Request(url)  # https only
-        marked.public_only = True  # ty: ignore[unresolved-attribute]
+        marked.public_only = True  # ty: ignore[missing-attribute]
         with pytest.raises(
             ValueError, match=rf"^refused a redirect from a public host to {url}, which is at 127\.0\.0\.1$"
         ):

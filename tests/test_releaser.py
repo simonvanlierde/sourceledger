@@ -1072,7 +1072,7 @@ def test_check_runs_only_the_validators_of_the_files_there(
 def test_check_finds_each_kind_of_damage(
     released: Path, capsys: pytest.CaptureFixture[str], tamper: object, problem: str
 ) -> None:
-    tamper(released)  # ty: ignore[call-non-callable]
+    tamper(released)  # ty: ignore[not-callable]
     capsys.readouterr()
     assert _release("--check", str(released), "--json") == 1
     assert problem in _json(capsys)["problems"]
