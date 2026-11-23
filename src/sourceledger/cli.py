@@ -377,12 +377,10 @@ def _main(run: _Run) -> int:
         errors = [(str(error), f"run `{run.prog} status` to list the source ids")]
         code = EXIT_USAGE
     except FetchError as error:
-        errors = [(failure, None) for failure in error.failures]
+        errors = [_fetch_failure(failure, run.prog, kept=bool(error.records)) for failure in error.failures]
         if error.records:  # say what was kept, after the last failure
-            errors[-1] = (
-                error.failures[-1],
-                f"the other sources were fetched and logged; run `{run.prog} fetch` again to retry",
-            )
+            message, help_ = errors[-1]
+            errors[-1] = (message, "the other sources were fetched and logged" + (f"; {help_}" if help_ else ""))
         code = EXIT_FAILED
     # OSError: a missing file, a failed download or a held lock. ValueError: a bad manifest,
     # a download that fails its checks, or a stale fetch. csv.Error: a source that is not CSV.
@@ -408,9 +406,24 @@ def _main(run: _Run) -> int:
         document["errors"] = [{"message": message, "help": help_} for message, help_ in errors]
         print(json.dumps(document))
     else:
+        sys.stdout.flush()  # keep completed results ahead of errors when both streams share a file
         for message, help_ in errors:
             _error(message, help_)
     return code
+
+
+_DOWNLOAD_FAILURE = ": fetching "
+_UNCHANGED = "unchanged"
+
+
+def _fetch_failure(failure: str, prog: str, *, kept: bool) -> tuple[str, str | None]:
+    """Explain a pin failure separately from a download that can be retried."""
+    if pin := re.fullmatch(r"(.*): downloaded bytes hash to ([0-9a-f]{64}), not the sha256 in sources.toml", failure):
+        return (
+            f"{pin[1]}: downloaded bytes changed: hash to {pin[2]}, not the sha256 in sources.toml",
+            f'review the changed bytes before updating sources.toml:\nsha256 = "{pin[2]}"',
+        )
+    return failure, f"run `{prog} fetch` again to retry" if kept and _DOWNLOAD_FAILURE in failure else None
 
 
 # What to do about the file or folder a stage will not overwrite.
@@ -489,21 +502,25 @@ def _json_record(record: FetchRecord, before: dict[str, dict[str, Any]]) -> dict
 
 def _marker(record: FetchRecord, before: dict[str, dict[str, Any]]) -> str:
     """`new` bytes, the same bytes `relogged` another way, or `unchanged`."""
-    return "new" if _new(record, before) else "relogged" if _relogged(record, before) else "unchanged"
+    return "new" if _new(record, before) else "relogged" if _relogged(record, before) else _UNCHANGED
 
 
-def _fetch_line(record: FetchRecord, before: dict[str, dict[str, Any]]) -> str:
+def _fetch_line(record: FetchRecord, before: dict[str, dict[str, Any]], restored: set[str]) -> str:
     """One line per source, with its `_marker`."""
     marker = _marker(record, before)
+    if marker == _UNCHANGED and record.source_id in restored:
+        marker = "fetched"
     return (
         f"{record.source_id}  {marker:<9}  {record.bytes:>9,} B  {record.sha256[:12]}  {record.vintage}  {record.url}"
     )
 
 
-def _report_records(run: _Run, records: list[FetchRecord], before: dict[str, dict[str, Any]]) -> None:
+def _report_records(
+    run: _Run, records: list[FetchRecord], before: dict[str, dict[str, Any]], restored: set[str] | None = None
+) -> None:
     run.result["records"] = [_json_record(r, before) for r in records]
     for record in records:
-        run.say(_fetch_line(record, before))
+        run.say(_fetch_line(record, before, restored or set()))
     if relogged := [r.source_id for r in records if _relogged(r, before)]:
         run.say(f"run build: the outputs of {', '.join(relogged)} name the earlier log line")
 
@@ -546,12 +563,19 @@ def _fetch_stage(run: _Run) -> list[str]:
         return []
     before: dict[str, dict[str, Any]] = {}
     done: list[FetchRecord] = []
+    restored: set[str] = set()
     try:
         fetch_sources(
-            sources, user_agent=run.user_agent, only=run.args.only, before=before, progress=_progress(run), done=done
+            sources,
+            user_agent=run.user_agent,
+            only=run.args.only,
+            before=before,
+            progress=_progress(run),
+            done=done,
+            restored=restored,
         )
     finally:  # on a failure or Ctrl-C too: the sources that did fetch
-        _report_records(run, done, before)
+        _report_records(run, done, before, restored)
     return []
 
 

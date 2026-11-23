@@ -19,6 +19,12 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 - A usage error under `--json`, such as `record --parameter nope --json`, prints the failure object on stdout with exit code 2 and nothing on stderr, instead of text on stderr.
 
+### Fixed
+
+- A fetch pin mismatch explains that the bytes changed and prints a `sha256 = "..."` line to review, without suggesting a retry.
+- A fetch that restores a missing local file says `fetched` when its bytes are already in the fetch log.
+- Fetch success rows appear before the final error when stdout and stderr go to the same file or pipe.
+
 ## [0.6.0] - 2026-11-15
 
 ### Added

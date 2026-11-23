@@ -1291,3 +1291,99 @@ def test_record_dash_without_a_pipe_is_a_usage_error(
     assert exit_.value.code == 2
     assert json.loads(capsys.readouterr().out)["errors"][0]["message"] == f"PATH is -, but {why}"
     assert not Path("data").exists()
+
+
+def test_fresh_http_download_with_committed_history_says_fetched(
+    publisher: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _manifest(tmp_path, f"{publisher}/data.csv")
+    assert main(["fetch"]) == 0
+    original_log = LOG.read_bytes()
+    capsys.readouterr()
+    assert main(["fetch"]) == 0
+    assert capsys.readouterr().out.startswith("example  unchanged")
+    shutil.rmtree(RAW.parent)
+    assert main(["fetch"]) == 0
+    assert capsys.readouterr().out.startswith("example  fetched")
+    assert RAW.read_bytes() == FIXTURE.encode()
+    assert LOG.read_bytes() == original_log
+    shutil.rmtree(RAW.parent)
+    assert main(["fetch", "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["errors"] == []
+    assert (report["records"][0]["new"], report["records"][0]["relogged"]) == (False, False)
+    assert LOG.read_bytes() == original_log
+
+
+@pytest.mark.parametrize("as_json", [False, True])
+def test_pin_failure_explains_changed_bytes_without_retry(
+    project: Path, capsys: pytest.CaptureFixture[str], *, as_json: bool
+) -> None:
+    _two_sources(Path.cwd(), project.as_uri(), project.as_uri())
+    with Path("sources.toml").open("a", encoding="utf-8") as manifest:
+        manifest.write(f'sha256 = "{"0" * 64}"\n')
+    assert main(["fetch", *(["--json"] if as_json else [])]) == 3
+    captured = capsys.readouterr()
+    text = captured.out if as_json else captured.err
+    if as_json:
+        report = json.loads(text)
+        assert len(report["records"]) == 1
+        assert report["errors"][0]["message"].startswith("b:")
+        text = json.dumps(report["errors"])
+    else:
+        assert text.startswith("error: b:")
+    assert "bytes changed" in text
+    assert "retry" not in text
+    digest = hashlib.sha256(project.read_bytes()).hexdigest()
+    if as_json:
+        assert f'sha256 = "{digest}"' in report["errors"][0]["help"]
+    else:
+        assert f'sha256 = "{digest}"' in text.splitlines()
+    assert not Path("data/raw/b.csv").exists()
+
+
+def test_partial_fetch_prints_success_before_final_error(project: Path) -> None:
+    _two_sources(Path.cwd(), project.as_uri(), project.with_name("missing.csv").as_uri())
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import time; time.sleep = lambda _: None; from sourceledger.cli import entry; entry()",
+            "fetch",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 3
+    assert result.stdout.index("a  new") < result.stdout.index("error: b:")
+    assert "retry" in result.stdout
+
+
+@pytest.mark.parametrize("as_json", [False, True])
+def test_partial_download_failure_keeps_the_named_retry_hint(
+    project: Path, capsys: pytest.CaptureFixture[str], *, as_json: bool
+) -> None:
+    _two_sources(Path.cwd(), project.as_uri(), project.with_name("missing.csv").as_uri())
+    assert main(["fetch", *(["--json"] if as_json else [])], prog="example-data") == 3
+    captured = capsys.readouterr()
+    if as_json:
+        report = json.loads(captured.out)
+        assert report["records"][0]["source_id"] == "a"
+        help_ = report["errors"][0]["help"]
+    else:
+        help_ = captured.err.split("help: ", 1)[1].rstrip("\n")
+    assert help_ == "the other sources were fetched and logged; run `example-data fetch` again to retry"
+
+
+def test_partial_fetch_validation_failure_does_not_suggest_retry(
+    project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _two_sources(Path.cwd(), project.as_uri(), project.as_uri())
+    with Path("sources.toml").open("a", encoding="utf-8") as manifest:
+        manifest.write("max_bytes = 1\n")
+    assert main(["fetch"]) == 3
+    err = capsys.readouterr().err
+    assert err.endswith("\nhelp: the other sources were fetched and logged\n")
+    assert "retry" not in err
