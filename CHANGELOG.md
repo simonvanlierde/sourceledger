@@ -23,6 +23,9 @@ a breaking change comes only in a minor version (see Stability in the README).
 ### Fixed
 
 - Keep small API notes, code highlighting and footer text readable on the documentation palette.
+- A fetch pin mismatch explains that the bytes changed and prints a `sha256 = "..."` line to review, without suggesting a retry.
+- A fetch that restores a missing local file says `fetched` when its bytes are already in the fetch log.
+- Fetch success rows appear before the final error when stdout and stderr go to the same file or pipe.
 
 ## [0.6.0] - 2026-11-15
 

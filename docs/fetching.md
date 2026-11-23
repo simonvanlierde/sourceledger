@@ -21,6 +21,8 @@ title: Download limits and retries
 - A second fetch in the same project, while one runs, exits at once (a lock on
   `data/raw/.lock`).
 - Each line it prints says `new` or `unchanged` against the last version in the log. It says
+  `fetched` when it restores a missing or unusable local copy of bytes already in the log.
+  This includes a first fetch after cloning a project that commits its fetch log. It says
   `relogged` for the same bytes that came in another way, such as fetched after a `record` or
   under a new `url` or `vintage`. After `new` or `relogged`, run `build`.
 - For a source with `archive = true`, the Internet Archive request times out after 120 s
