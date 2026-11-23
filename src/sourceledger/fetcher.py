@@ -138,7 +138,7 @@ class _NoRedirectInward(urllib.request.HTTPRedirectHandler):
                 fp.close()
                 msg = f"refused a redirect from a public host to {without_query(newurl)}, which is not HTTP or HTTPS"
                 raise _InwardRedirectError(msg)
-            new.public_only = True  # ty: ignore[unresolved-attribute]  # read back by _PeerCheck
+            new.public_only = True  # ty: ignore[missing-attribute]  # read back by _PeerCheck
         # urllib copies every header to the new request. A token meant for one host must not
         # reach another, nor go out in clear text after https -> http, so a redirect that
         # changes the scheme, host or port keeps only the harmless ones.

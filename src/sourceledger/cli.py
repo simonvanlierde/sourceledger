@@ -519,8 +519,9 @@ def _report_records(
     run: _Run, records: list[FetchRecord], before: dict[str, dict[str, Any]], restored: set[str] | None = None
 ) -> None:
     run.result["records"] = [_json_record(r, before) for r in records]
+    restored = restored or set()
     for record in records:
-        run.say(_fetch_line(record, before, restored or set()))
+        run.say(_fetch_line(record, before, restored))
     if relogged := [r.source_id for r in records if _relogged(r, before)]:
         run.say(f"run build: the outputs of {', '.join(relogged)} name the earlier log line")
 

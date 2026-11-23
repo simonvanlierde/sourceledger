@@ -54,16 +54,19 @@ def script_hashes(html: str) -> list[str]:
 def finish() -> None:
     """Reject unreviewed scripts, then put each page's policy before its scripts."""
     approved = set(json.loads(Path("docs/script-hashes.json").read_text(encoding="utf-8")))
-    pages = {path: path.read_text(encoding="utf-8") for path in Path("_docs").rglob("*.html")}
-    actual = {value for html in pages.values() for value in script_hashes(html)}
+    pages = []
+    for path in Path("_docs").rglob("*.html"):
+        html = path.read_text(encoding="utf-8")
+        pages.append((path, html, script_hashes(html)))
+    actual = {value for _, _, hashes in pages for value in hashes}
     if actual != approved:
         message = f"Inline docs scripts changed: added {actual - approved}, removed {approved - actual}"
         raise ValueError(message)
-    for path, html in pages.items():
+    for path, html, hashes in pages:
         policy = "; ".join(
             [
                 "default-src 'self'",
-                "script-src 'self' " + " ".join(script_hashes(html)),
+                "script-src 'self' " + " ".join(hashes),
                 "style-src 'self' 'unsafe-inline'",
                 "img-src 'self' data:",
                 "font-src 'self'",
