@@ -1676,7 +1676,7 @@ wheels = [
 
 [[package]]
 name = "roc-validator"
-version = "0.13.1"
+version = "0.14.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -1691,9 +1691,9 @@ dependencies = [
     { name = "rich-click" },
     { name = "toml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2b/dc/77d31c2030bdaeb5c8105a460e7b64ea8c07de07152cf76138f5c6622c38/roc_validator-0.13.1.tar.gz", hash = "sha256:1d3596c2bdc5f8073136a44cf9635062ae42e3b2a7f564ee099d170a11902cee", size = 248588, upload-time = "2026-10-29T09:16:00.425Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/08/54/1679ed2e70637ee6bfbaafcdaced7c586c6bb27b7ad5cf9f1d06036c5f9f/roc_validator-0.14.0.tar.gz", hash = "sha256:cb53084449ccd231b8f55f567a98c8ce2eb6f097b9ed755856e53b7679230cb7", size = 262653, upload-time = "2026-11-16T14:17:18.986Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/54/b5/83318a0c51e4ac62332c5478ecf43a6512bbecca840df757122cef130cdb/roc_validator-0.13.1-py3-none-any.whl", hash = "sha256:269e807b4d632066df8d9e3edade47b262f1c29b27b4d61b20c312ad139017b1", size = 456298, upload-time = "2026-10-29T09:15:58.9Z" },
+    { url = "https://files.pythonhosted.org/packages/68/67/f2d144fe2be01a5a4dd8b87e7cf12fefeaaf55dda2e435aa616dc6df7158/roc_validator-0.14.0-py3-none-any.whl", hash = "sha256:3880116faef861a4996e5c35c91b55dc34035f09e4f295c764645225ff1ef2d3", size = 520643, upload-time = "2026-11-16T14:17:17.023Z" },
 ]
 
 [[package]]
