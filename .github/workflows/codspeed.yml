@@ -43,7 +43,7 @@ jobs:
         with:
           enable-cache: true
           save-cache: ${{ github.event_name != 'pull_request' }}
-          version: "0.13.7"
+          version: "0.13.8"
 
       # The interpreter is the one .python-version names.
       - run: uv sync --locked
