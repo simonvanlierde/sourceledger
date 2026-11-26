@@ -22,7 +22,7 @@ decide whether to reuse or rebuild the dataset.
 - Make a dataset release independently verifiable from a downloaded archive.
 - Make source revisions and their effects on outputs diagnosable in a pipeline and explainable
   to a dataset recipient.
-- Earn adoption in independently maintained research pipelines by working with their existing tools.
+- Make the same workflow usable in independently maintained pipelines through existing tools and formats.
 
 The [roadmap](docs/roadmap.md) gives the pilots and the checks that would show progress.
 
@@ -31,6 +31,12 @@ The [roadmap](docs/roadmap.md) gives the pilots and the checks that would show p
 Sourceledger is a Python library and CLI configured with `sources.toml`. It records
 downloads, tracks output provenance, checks outputs and prepares a release folder. Projects
 can keep their own downloaders and hand files to SourceLedger through `record()`.
+
+Its focus is the link from a specific downloaded file to a built output. Start with the
+pipeline's existing tools for retrieval, metadata, attribution and publication. Use a
+documented handoff for gaps between tools. Take a general fix to the project that owns
+the behaviour. Expand SourceLedger when a pilot exposes a gap in recording, tracing or
+verifying the data itself.
 
 Each project owns its retrieval logic, numerical comparison rules and publication decisions.
 The publisher's terms govern redistribution. The release stage applies the project's recorded

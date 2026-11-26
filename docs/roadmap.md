@@ -10,9 +10,10 @@ which inputs and outputs changed. These are the proposed priorities for getting 
 
 ## Now · Verify a real release from a clean environment
 
-Use one research dataset to test the whole path from the maintainer's pipeline to the
-recipient's machine. Publish a versioned archive with a DOI, a manifest, recorded source
-checksums and a command the recipient can run after downloading it.
+Use a frozen research dataset from the [R9lab vocabulary pipeline](https://github.com/simonvanlierde/r9lab-vocabulary)
+for the first deposit pilot. Build on the [pinned Pooch workflow](recipes.md#pooch).
+Pooch retrieves the files and SourceLedger records the exact inputs and checks the outputs.
+Deposit the archive in Zenodo for a version-specific DOI.
 
 - Start with a frozen research dataset whose reuse terms can be checked before publication.
 - Have someone outside the producing pipeline verify the archive with
@@ -22,16 +23,26 @@ checksums and a command the recipient can run after downloading it.
 
 ## Next · Explain what changed between releases
 
-Run a weekly revision check in a pipeline that uses WDI. Aim to capture a real publisher
-change within three months.
+Use the existing weekly trial in a World Development Indicators (WDI) pipeline. The
+pipeline keeps its own retrieval and comparison rules. Aim to capture a real publisher
+change within three months of the first scheduled report.
 Document the changed source version, the affected output and the maintainer's decision to
 rebuild or keep the existing release. Then use two published releases to test what a dataset
 recipient can learn from their provenance records alone.
 
 The WDI pilot matched [360 adjacent comparisons across 121 archived vintages](https://github.com/simonvanlierde/sourceledger/issues/107)
-and WISE [adopted the released row-alignment API](https://github.com/simonvanlierde/wise-pipeline/pull/21).
+using SourceLedger's row-alignment API.
 The [two-release PUDL recipe](recipes.md#follow-a-publishers-revision-across-two-releases) provides a second
 case with stable source identifiers and domain-specific comparison rules.
+
+## Reuse what the pilots prove
+
+| Project | What to reuse and check |
+| --- | --- |
+| Existing workbook pipeline | Keep its workbook reader and supplement steps. Check that release and verification cover a pipeline with different inputs and reuse terms. |
+| [project-templates](https://github.com/simonvanlierde/project-templates) | Share a proven verification example through the existing data-pipeline template. Render a fresh project and run the example there before updating the template. |
+| [citesync](https://github.com/simonvanlierde/citesync) | Keep software citation files in sync with citesync. Pass dataset-specific CodeMeta to the existing [release command](reference.md#release-a-dataset) when the dataset has its own DOI or licence. |
+| [CRediT Matrix](https://github.com/simonvanlierde/credit-matrix/tree/main/integrations/ro-crate) | Test its attribution fragment against a dataset release once the census has a frozen input extract. Check profile compatibility and validate the combined RO-Crate before documenting the recipe. |
 
 ## By the end of 2027 · Verify adoption across projects
 
@@ -41,10 +52,11 @@ case with stable source identifiers and domain-specific comparison rules.
 | Three maintained pipeline integrations, including one independent team | The team runs SourceLedger in its own release or revision workflow and can share the evidence publicly. |
 | One worked case from a real publisher revision | A reader can follow the input change, identify an affected output and understand the decision about the next release. |
 
-Start the independent pilot with a team that already publishes versioned data. Share the PUDL
-example when asking for feedback and let the maintainers decide if it fits their workflow.
-Use the pilots to identify common gaps in release metadata and verification. Consider a software
-paper once there is independent use and evidence that others can reproduce.
+Start the independent pilot with a team that builds a dataset from published inputs. The PUDL
+recipe gives them a way to test provenance across two releases using
+[PUDL's existing versioned Parquet files and Data Package](https://docs.catalyst.coop/pudl/en/v2026.10.0/data_access.html).
+Ask whether the downstream workflow records anything they need for their next release.
+Consider a software paper once an independent team can reproduce the workflow.
 
 ## Scope
 
@@ -52,3 +64,9 @@ Sourceledger owns the provenance record, integrity checks and release packaging.
 scheduling, downloading at scale and data-specific judgments. Keep existing retrieval tools
 and [record the files they produce](recipes.md#record-a-file-another-tool-downloaded).
 Projects decide which files their source terms allow them to publish.
+
+Before adding a feature, try it with the tools in [Where SourceLedger fits](where-it-fits.md).
+Use their public APIs and the existing Data Package, RO-Crate or Croissant outputs where a
+pilot needs them. Test the artifact with the tool that will read it. Share general fixes
+and examples with the upstream project. Add to SourceLedger when the pilot identifies a
+provenance or integrity gap that belongs here.
