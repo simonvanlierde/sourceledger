@@ -25,8 +25,9 @@ address. The [reference](reference.md#other-commands) lists every `record` optio
 
 ### pooch
 
-[pooch](https://www.fatiando.org/pooch/) returns the path of its cached copy. It keeps no
-response headers or download time, so record only the URL:
+[Pooch](https://www.fatiando.org/pooch/) downloads the file once and checks its SHA-256
+before returning the cached path. Set `sha256` in the source's manifest entry so Pooch
+and SourceLedger check the same pin. Replace `annual` with your source ID:
 
 ```python
 from pathlib import Path
@@ -34,14 +35,15 @@ from pathlib import Path
 import pooch
 import sourceledger
 
-url = "https://example.org/annual.csv"
-path = pooch.retrieve(url, known_hash=None)
 source = next(s for s in sourceledger.load_manifest() if s["id"] == "annual")
-sourceledger.record(source, Path(path), url=url)
+path = pooch.retrieve(source["url"], known_hash=source["sha256"])
+sourceledger.record(source, Path(path))
 ```
 
-A file pooch already had in its cache was downloaded earlier, so passing the current
-time as `retrieved_at` would be wrong.
+A bad pin stops retrieval before `record` runs. Pooch returns a path without the
+download time or response headers. Leave `retrieved_at` unset so SourceLedger records
+when it took in the file and leaves the download time empty. Running the recipe again
+with the same bytes adds no new fetch-log entry.
 
 ### DVC
 
@@ -224,7 +226,42 @@ def main(argv=None):
 ```
 
 Point your console script at this `main` function as in the custom-reader example above.
-If your project already owns its parser, call the public stage functions directly instead.
+`my-dataset inventory --help` describes the project stage. `my-dataset --help` lists the
+stages handled by sourceledger, so list `inventory` in your project's usage docs too.
+
+### Call a stage from your own CLI
+
+If your project already owns its argument parser, call the public Python functions from
+its command handlers. This example checks built outputs using the name and format from
+the selected manifest. Wire `main` to your console script as above and run it from the
+project root so `validate` can find `data/raw/` and `data/processed/`.
+
+```python
+import argparse
+from pathlib import Path
+
+import sourceledger
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Check the built dataset.", allow_abbrev=False)
+    parser.add_argument("--manifest", type=Path, default=Path("sources.toml"))
+    manifest = parser.parse_args().manifest
+    try:
+        problems = sourceledger.validate(
+            sourceledger.load_manifest(manifest),
+            output_format=sourceledger.load_output_format(manifest),
+            name=sourceledger.load_package_name(manifest),
+        )
+    except (OSError, ValueError) as error:
+        parser.exit(3, f"error: {error}\n")
+    for problem in problems:
+        print(problem)
+    return 1 if problems else 0
+```
+
+In this example, exit code 0 means validation passed, 1 means it found problems,
+and 3 means the check could not run. The argument parser handles usage errors with code 2.
 
 ## Publish a build only when it validates
 
