@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/simonvanlierde/sourceledger/main/docs/report.schema.json",
   "title": "sourceledger --json report",
-  "description": "The one JSON object a stage prints under --json. A failed run has a non-empty `errors` list and omits its result fields, except `fetch`, which lists the sources that worked. A successful run has the result fields of its stage; no other field is allowed.",
+  "description": "The JSON object a stage prints under --json. An empty errors list requires the result fields for the stage. A report with errors can contain stage fields, such as the sources that completed before a fetch failed.",
   "type": "object",
   "properties": {
     "schema_version": {"const": 1},
@@ -113,11 +113,21 @@
             "additionalProperties": false
           }
         },
-        "package": {"description": "The path of datapackage.json, written or to be written.", "type": "string"},
+        "package": {"description": "The path of the written datapackage.json.", "type": "string"},
         "would_write": {"description": "With dry_run: the paths a build would write.", "type": "array", "items": {"type": "string"}}
       },
       "if": {"properties": {"errors": {"maxItems": 0}}},
-      "then": {"anyOf": [{"required": ["outputs", "package"]}, {"required": ["dry_run", "would_write"]}]}
+      "then": {
+        "if": {"required": ["dry_run"]},
+        "then": {
+          "required": ["would_write"],
+          "not": {"anyOf": [{"required": ["outputs"]}, {"required": ["package"]}]}
+        },
+        "else": {
+          "required": ["outputs", "package"],
+          "not": {"required": ["would_write"]}
+        }
+      }
     },
     "problems": {
       "description": "validate and verify: the problems found are a result, with exit code 1.",

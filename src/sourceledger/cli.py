@@ -86,7 +86,7 @@ _EXAMPLES = {
     "fetch": "{prog} fetch --only co2 --json",
     "record": (
         "{prog} record co2 ~/Downloads/co2.csv --retrieved-at 2026-11-05T09:30:00Z\n"
-        "  curl -s https://example.org/co2.csv | {prog} record co2 -"
+        "  {prog} record co2 - < ~/Downloads/co2.csv"
     ),
     "build": "{prog} build --dry-run",
     "validate": "{prog} validate --json",

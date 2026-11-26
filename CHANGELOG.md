@@ -8,6 +8,13 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-26
+
+### Upgrade notes
+
+- Use `record ID ./-` for a file named `-`.
+- Scripts that request `--json` should read usage errors from stdout. Usage errors still exit with code 2.
+
 ### Added
 
 - `build`, `main` and `entry` accept an optional `build_revision` keyword. It records the
@@ -22,7 +29,6 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 - The Pooch recipe uses the manifest's SHA-256 pin for both retrieval and recording.
 - Use the shared documentation tokens and allowlisted script hashes in the docs Content Security Policy.
-- A usage error under `--json`, such as `record --parameter nope --json`, prints the failure object on stdout with exit code 2 and nothing on stderr, instead of text on stderr.
 
 ### Fixed
 
@@ -411,7 +417,8 @@ Upgrade steps:
   vintage or pin.
 - Manifest key `vintage`. The key `release` is still read, with a warning.
 
-[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/simonvanlierde/sourceledger/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.4.0...v0.5.0

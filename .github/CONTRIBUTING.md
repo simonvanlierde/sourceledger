@@ -75,10 +75,10 @@ The citesync hook also requires a name, version, author, licence and DOI in both
   Kill a new survivor with a test, or, when no test could see the change, list it there
   with the reason. `just py-mutation-diff` checks only the functions your branch changed.
   CI runs the full check weekly.
-- CodSpeed runs `tests/test_benchmarks.py` on every pull request and reports how each
-  benchmark changed against `main`. A change to parsing, `build`, `validate` or the fetch
-  log should not slow them down unexplained. Without `--codspeed` each benchmark runs once
-  as a plain test.
+- CodSpeed runs `tests/test_benchmarks.py` on pushes to `main` and on ready-for-review
+  pull requests that change source, tests, the Python environment or the benchmark
+  workflow. It compares pull requests with `main`. Without `--codspeed`, each benchmark
+  runs once as a plain test.
 
 The HTML report baseline allows changes to HTML formatting and fallback or diagnostic wording.
 It also allows equivalent ways to split a URL. Tests still check integrity, HTML escaping
