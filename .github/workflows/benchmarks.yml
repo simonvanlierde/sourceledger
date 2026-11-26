@@ -1,0 +1,61 @@
+name: benchmarks
+
+# CodSpeed measures the benchmarks on each pull request that touches benchmarked code and
+# compares them with main. Simulation mode counts CPU instructions, so a noisy runner does
+# not move the result. Pushes to main run with no path filter, so the newest main commit,
+# which CodSpeed compares a pull request with, has a result. No ruleset may require this check,
+# since a filtered pull request never reports it. The upload signs in with the job's OIDC
+# token, so there is no secret.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".python-version"
+      - ".github/workflows/benchmarks.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  python:
+    name: "codspeed: python"
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # OpenID Connect sign-in to CodSpeed
+    env:
+      # As in python.yml: uv checks every package against OSV's malware advisories before
+      # its code runs. The preview flag only silences the "experimental" warning.
+      UV_MALWARE_CHECK: "1"
+      UV_PREVIEW_FEATURES: malware-check
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          # A cache saved on a pull request is readable by that pull request alone.
+          save-cache: ${{ github.event_name != 'pull_request' }}
+          version: "0.13.8"
+
+      - run: uv sync --locked
+
+      - uses: CodSpeedHQ/action@af75f77f17a054769abefaa42fe8dc2975469b5f # v5.6.3
+        with:
+          mode: simulation
+          run: uv run pytest tests/test_benchmarks.py --codspeed
