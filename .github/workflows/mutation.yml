@@ -23,7 +23,8 @@ jobs:
   python:
     name: "mutation: python"
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # About 6,000 mutants take 46 minutes on 12 cores; a 4-core runner needs well over an hour.
+    timeout-minutes: 180
     env:
       # As in python.yml: uv checks every package against OSV's malware advisories before
       # its code runs. The preview flag only silences the "experimental" warning.
