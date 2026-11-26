@@ -604,6 +604,7 @@ def test_entry_runs_the_sourceledger_command_by_default(monkeypatch: pytest.Monk
         "prog": "sourceledger",
         "user_agent": sourceledger.USER_AGENT,
         "manifest": Path("sources.toml"),
+        "build_revision": None,
     }
 
 
@@ -612,7 +613,13 @@ def test_entry_passes_a_projects_arguments_to_main(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(cli, "main", lambda **kwargs: seen.update(kwargs) or 0)
     monkeypatch.setattr(signal, "signal", lambda *_: None)
     with pytest.raises(SystemExit) as exit_:
-        cli.entry(["status"], prog="my-dataset", user_agent="my-dataset/1", manifest=tmp_path / "s.toml")
+        cli.entry(
+            ["status"],
+            prog="my-dataset",
+            user_agent="my-dataset/1",
+            manifest=tmp_path / "s.toml",
+            build_revision="v1.0.0",
+        )
     assert exit_.value.code == 0
     assert seen == {
         "argv": ["status"],
@@ -620,6 +627,7 @@ def test_entry_passes_a_projects_arguments_to_main(monkeypatch: pytest.MonkeyPat
         "prog": "my-dataset",
         "user_agent": "my-dataset/1",
         "manifest": tmp_path / "s.toml",
+        "build_revision": "v1.0.0",
     }
 
 

@@ -335,6 +335,7 @@ def build(
     only: Collection[str] | None = None,
     output_format: str = "csv",
     name: str | None = None,
+    build_revision: str | None = None,
 ) -> list[Path]:
     """Write implemented sources to `processed`: unchanged files, or tables stamped with their fetch records.
 
@@ -345,17 +346,24 @@ def build(
     Then writes `processed/datapackage.json`, a Frictionless Data Package (v2) describing every
     output: its columns, size and SHA-256, its source URL and licence, and its fetch record.
     The package is called `name`; without one, the `[project]` name in ./pyproject.toml, or else
-    the current folder's name, either made lower case. The same records and name give the same
-    file, byte for byte.
+    the current folder's name, either made lower case. `build_revision`, if supplied, records
+    the code revision in each rebuilt resource. Identical inputs and revision give the same files.
 
     `only` restricts the build to those source ids. The package keeps each other source's
-    entry as the last build wrote it. Raises ValueError for an id the manifest does not have,
-    or a file output named `datapackage.json`, which is reserved for the descriptor.
+    entry as the last build wrote it. Raises ValueError for an unknown source id, an empty
+    build revision, or a file output named `datapackage.json`, which is reserved for the descriptor.
     """
     return [
         out
         for out, _count in build_sources(
-            sources, raw=raw, processed=processed, parse=parse, only=only, output_format=output_format, name=name
+            sources,
+            raw=raw,
+            processed=processed,
+            parse=parse,
+            only=only,
+            output_format=output_format,
+            name=name,
+            build_revision=build_revision,
         )
     ]
 
@@ -369,10 +377,14 @@ def build_sources(
     only: Collection[str] | None = None,
     output_format: str = "csv",
     name: str | None = None,
+    build_revision: str | None = None,
 ) -> list[tuple[Path, int | None]]:
     """Build outputs with row counts for tables, or None for unchanged file copies."""
     _check_output_format(output_format)
     _check_name(name)
+    if build_revision is not None and (not isinstance(build_revision, str) or not build_revision.strip()):
+        msg = "build_revision must be nonempty text"
+        raise ValueError(msg)
     # Before any output is written: a broken pyproject.toml must not cost a whole build.
     name = name or _package_name()
     selected = {s["id"] for s in select(sources, only)}
@@ -391,7 +403,7 @@ def build_sources(
             raise ValueError(msg)
         record, fields, count = _build_one(source, raw, out, parse)
         written.append((out, count))
-        resources.append(_resource(source, record, fields, out))
+        resources.append(_resource(source, record, fields, out, build_revision=build_revision))
     package = {"$schema": _DATAPACKAGE_PROFILE, "name": name, "resources": resources}
     _write_atomic(processed / DATAPACKAGE, json_bytes(package))
     return written
@@ -542,7 +554,9 @@ def _package_name() -> str:
     return re.sub(r"[^a-z0-9._-]+", "-", letters.lower()).strip("-") or "dataset"
 
 
-def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path) -> dict[str, Any]:
+def _resource(
+    source: Source, record: FetchRecord, fields: list[str], out: Path, *, build_revision: str | None = None
+) -> dict[str, Any]:
     """One output as a Data Package resource: a file, or a table whose columns hold text."""
     resource: dict[str, Any] = {
         "name": source["id"],
@@ -565,13 +579,13 @@ def _resource(source: Source, record: FetchRecord, fields: list[str], out: Path)
     if source.get("license"):
         licence = {"name": source["license"], "path": source.get("terms_url"), "title": source.get("terms")}
         resource["licenses"] = [{k: v for k, v in licence.items() if v}]
-    # Custom properties are allowed in Data Package v2; these name the bytes the rows came from.
-    resource["sourceledger"] = _provenance(source, record)
+    # Data Package v2 allows custom properties for the fetch and build provenance.
+    resource["sourceledger"] = _provenance(source, record, build_revision=build_revision)
     return resource
 
 
-def _provenance(source: Source, record: FetchRecord) -> dict[str, Any]:
-    """A resource's `sourceledger` block: the fetch or record its output was built from."""
+def _provenance(source: Source, record: FetchRecord, *, build_revision: str | None = None) -> dict[str, Any]:
+    """A resource's fetch provenance and optional build revision."""
     stamp = {
         "retrieved_at": record.retrieved_at,
         "vintage": record.vintage,
@@ -583,6 +597,8 @@ def _provenance(source: Source, record: FetchRecord) -> dict[str, Any]:
         stamp["recorded_at"] = record.recorded_at
     if record.parameters:
         stamp["parameters"] = record.parameters
+    if build_revision is not None:
+        stamp["build_revision"] = build_revision
     return stamp
 
 

@@ -146,6 +146,7 @@ class _Run:
     parse: Parser
     prog: str
     user_agent: str
+    build_revision: str | None
     result: dict[str, object] = dataclasses.field(default_factory=dict)
 
     def say(self, line: str) -> None:
@@ -293,12 +294,13 @@ def entry(
     prog: str = "sourceledger",
     user_agent: str = USER_AGENT,
     manifest: Path = MANIFEST,
+    build_revision: str | None = None,
 ) -> NoReturn:
     """The `sourceledger` command: run `main` with these arguments, and exit as the shell expects.
 
     A project's own command points its console script at a function that calls this with its
-    `parse`, `prog`, `user_agent` and `manifest`, as for `main`. `argv` is the arguments,
-    `sys.argv[1:]` when None, so a test can run the command and catch its SystemExit.
+    `parse`, `prog`, `user_agent`, `manifest` and optional `build_revision`, as for `main`.
+    `argv` is the arguments, `sys.argv[1:]` when None, so a test can run the command and catch its SystemExit.
     A shell loop stops on Ctrl-C only when the command was killed by the signal; an exit code of
     130 alone does not stop it, so after Ctrl-C this dies of SIGINT. `main` itself returns 130.
     A reader that closes the pipe early, such as `head`, ends the command quietly by SIGPIPE.
@@ -310,7 +312,9 @@ def entry(
     for stream, newline in ((sys.stdout, {"newline": "\n"}), (sys.stderr, {})):
         if reconfigure := getattr(stream, "reconfigure", None):
             reconfigure(encoding="utf-8", **newline)
-    code = main(argv=argv, parse=parse, prog=prog, user_agent=user_agent, manifest=manifest)
+    code = main(
+        argv=argv, parse=parse, prog=prog, user_agent=user_agent, manifest=manifest, build_revision=build_revision
+    )
     if code == EXIT_INTERRUPTED and sys.platform != "win32":  # noqa: PLR2004
         sys.stdout.flush()
         sys.stderr.flush()
@@ -326,6 +330,7 @@ def main(  # the entry point: parse, run one stage, report it
     prog: str = "sourceledger",
     user_agent: str = USER_AGENT,
     manifest: Path = MANIFEST,
+    build_revision: str | None = None,
 ) -> int:
     """Run one stage: init, fetch, record, build, validate, status, attribution, revisions, verify, report or release.
 
@@ -333,6 +338,7 @@ def main(  # the entry point: parse, run one stage, report it
     this with its `parse`, its name as `prog`, and that name as `user_agent`. `manifest` is the
     sources.toml to read, `./sources.toml` by default; a project that ships it inside its
     package passes that path, and `--manifest PATH` overrides both.
+    `build_revision` records the project's code revision on the resources that `build` writes.
 
     Returns the exit code the module docstring lists. A usage error exits through SystemExit
     with code 2, as argparse does.
@@ -348,7 +354,7 @@ def main(  # the entry point: parse, run one stage, report it
         _usage_error(error, argv)
     # Retries and recovered fetch logs are reported as warnings, on stderr.
     logging.basicConfig(format=f"{prog}: %(message)s", level=logging.WARNING)
-    return _main(_Run(args, argv, parse, prog, user_agent))
+    return _main(_Run(args, argv, parse, prog, user_agent, build_revision))
 
 
 def _usage_error(error: _ParseError, argv: list[str]) -> NoReturn:
@@ -627,7 +633,12 @@ def _build_stage(run: _Run) -> list[str]:
     name = load_package_name(run.args.manifest)
     outputs = []
     for out, count in build_sources(
-        sources, parse=run.parse, only=run.args.only, output_format=output_format, name=name
+        sources,
+        parse=run.parse,
+        only=run.args.only,
+        output_format=output_format,
+        name=name,
+        build_revision=run.build_revision,
     ):
         outputs.append({"path": out.as_posix(), "rows": count})
         size = f"{out.stat().st_size} bytes" if count is None else f"{count} row{'' if count == 1 else 's'}"

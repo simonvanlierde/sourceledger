@@ -119,10 +119,13 @@ def _built_from(stamp: dict[str, Any], fields: dict[str, Any]) -> bool:
 
 def _output_problems(source: Source, raw: Path, out: Path, resource: dict[str, Any] | None) -> list[str]:
     """Whether one built file and its metadata still match the current fetch."""
+    provenance = resource.get("sourceledger") if resource is not None else None
+    revision = provenance.get("build_revision") if isinstance(provenance, dict) else None
+    build_revision = revision if isinstance(revision, str) and revision.strip() else None
     try:
         record = current_record(source, raw)
         if source.get("format") == FILE_FORMAT:
-            expected = _resource(source, record, [], out)
+            expected = _resource(source, record, [], out, build_revision=build_revision)
             problems = []
             if expected["hash"] != f"sha256:{record.sha256}":
                 problems.append(f"{out.as_posix()}: differs from the fetched file; re-run build")
@@ -139,7 +142,7 @@ def _output_problems(source: Source, raw: Path, out: Path, resource: dict[str, A
     if stale:
         problems.append(f"{out.as_posix()}: rows come from an earlier fetch than {raw_name(source)}; re-run build")
     # The rows' stamp misses a record of the same bytes for another request; the package's block does not.
-    elif resource is not None and resource.get("sourceledger") != _provenance(source, record):
+    elif resource is not None and provenance != _provenance(source, record, build_revision=build_revision):
         problems.append(
             f"{(out.parent / DATAPACKAGE).as_posix()} describes an earlier fetch of {raw_name(source)}; re-run build"
         )
