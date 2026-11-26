@@ -10,6 +10,7 @@ decision_records: false
 dependency_bot: renovate
 docs_engine: zensical
 extras:
+- codspeed
 - cold_install
 - docs_site
 - property
