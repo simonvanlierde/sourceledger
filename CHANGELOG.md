@@ -10,6 +10,9 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Added
 
+- `build`, `main` and `entry` accept an optional `build_revision` keyword. It records the
+  code revision on each rebuilt resource in `datapackage.json` and keeps it in dataset releases.
+
 - `record ID -` reads the file from stdin; the [reference](docs/reference.md#other-commands) has the rules.
 - `build --json` prints `outputs` (each file's `path` and `rows`, `null` for a copied file) and `package`; with `--dry-run`, `would_write`.
 - `docs/report.schema.json`, the JSON Schema of every stage's `--json` report and of the failure envelope.

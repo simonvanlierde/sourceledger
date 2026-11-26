@@ -212,6 +212,32 @@ def test_the_released_package_is_written_as_build_writes_it(project: Path) -> No
     assert released == (json.dumps(json.loads(released), indent=2, ensure_ascii=False) + "\n").encode()
 
 
+def test_build_revision_survives_partial_build_and_release(project: Path) -> None:
+    """Old descriptors still validate; a partial build stamps only the outputs it rewrites."""
+    descriptor = Path("data/processed/datapackage.json")
+    old = json.loads(descriptor.read_text(encoding="utf-8"))
+    assert all("build_revision" not in resource["sourceledger"] for resource in old["resources"])
+    assert main(["validate"]) == 0
+    assert _release("release-old") == 0
+
+    _write_manifest(project, secret_shared=True)
+    sourceledger.build(sourceledger.load_manifest(), build_revision="v1.0.0")
+    with pytest.raises(SystemExit) as exit_:
+        sourceledger.entry(["build", "--only", "open"], build_revision="v1.0.0-1-g0123456-dirty")
+    assert exit_.value.code == 0
+
+    def stamps(path: Path) -> dict[str, str]:
+        resources = json.loads(path.read_text(encoding="utf-8"))["resources"]
+        return {resource["name"]: resource["sourceledger"]["build_revision"] for resource in resources}
+
+    expected = {"open": "v1.0.0-1-g0123456-dirty", "secret": "v1.0.0"}
+    assert stamps(descriptor) == expected
+    assert main(["validate"]) == 0
+    assert _release(str(OUT)) == 0
+    assert stamps(OUT / "datapackage.json") == expected
+    assert _release("--check", str(OUT)) == 0
+
+
 # What the default path writes, and how it reports.
 
 

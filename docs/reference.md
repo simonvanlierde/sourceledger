@@ -45,6 +45,11 @@ once per column chunk; the same table was smaller than its raw file. Use Parquet
 When switching formats, move old outputs out of `data/processed/` before rebuilding; `validate` reports them as unclaimed files.
 Library callers pass `output_format="parquet"` to both `build` and `validate`; `load_manifest` returns only source tables.
 
+To record the code that built a resource, pass `build_revision` to the Python
+`build`, `main` or `entry` function. The value appears in the resource's
+`sourceledger.build_revision` in `datapackage.json`. A build with `--only` keeps
+the other resources and their revisions. Dataset releases preserve this field.
+
 Set `release_formats` there too to have `release` write the optional metadata files:
 
 ```toml
