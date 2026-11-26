@@ -1,29 +1,43 @@
 # Product
 
-## Platform
+## Mission
 
-web
+Help research teams publish datasets that other people can verify. Record which source
+files went in, link outputs to those files, and make publisher revisions visible.
+
+## Vision
+
+A dataset citation should lead to a specific release that a reader can check without the
+producer's environment. A returning user should be able to see which inputs changed and
+decide whether to reuse or rebuild the dataset.
 
 ## Users
 
-Researchers who use Python or a CLI and are new to provenance tooling. Dataset recipients also need to inspect recorded sources and verify delivered files.
+- Researchers who combine published files and need to know when the source changes.
+- Research software developers who need provenance in an existing pipeline.
+- Dataset recipients who want to check delivered files and find their sources and reuse terms.
 
-## Product Purpose
+## Goals
 
-Help researchers build datasets from published sources, record downloads (their own or another tool's), trace outputs to their sources and detect publisher revisions.
+- Make a dataset release independently verifiable from a downloaded archive.
+- Make source revisions and their effects on outputs diagnosable in a pipeline and explainable
+  to a dataset recipient.
+- Earn adoption in independently maintained research pipelines by working with their existing tools.
 
-## Operating Context
+The [roadmap](docs/roadmap.md) gives the pilots and the checks that would show progress.
 
-A Python library and CLI configured with sources.toml. The website explains installation, a working revision example, commands and safe use.
+## Product boundaries
 
-## Capabilities and Constraints
+Sourceledger is a Python library and CLI configured with `sources.toml`. It records
+downloads, tracks output provenance, checks outputs and prepares a release folder. Projects
+can keep their own downloaders and hand files to SourceLedger through `record()`.
 
-The documentation is Markdown in `docs/`, built into a searchable Zensical site with a Python API reference on GitHub Pages. Preserve readable documentation, installation links, accessible navigation and a working revision demonstration. Offline verification and the standalone HTML provenance report ship with the library. Downloads by pooch, DVC, dlt or a project's own code enter through `record`, documented as recipes, not plugins.
+Each project owns its retrieval logic, numerical comparison rules and publication decisions.
+The publisher's terms govern redistribution. The release stage applies the project's recorded
+reuse settings.
 
-## Brand Commitments
+## Website
 
-Use plain, direct language. Keep the five-link reading layout, Chalk & cobalt palette and connected provenance flowchart, revision comparison and validation result. Consider JSON vet and CiteSync as references without copying their layouts.
-
-## Evidence on Hand
-
-The documentation and synthetic revision fixture show a fictional publisher changing the 2023 value from 419.31 to 419.32. Use this example honestly; do not invent users, testimonials or adoption statistics.
+The Zensical site helps readers install the tool, follow a worked revision, find a command or
+API, and check a release safely. The homepage uses a synthetic example. It follows a download
+through a change from 419.31 to 419.32 in the 2023 value.

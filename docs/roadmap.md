@@ -1,28 +1,54 @@
+---
+description: Plans to make research dataset releases independently verifiable and source revisions easier to evaluate.
+---
+
 # Roadmap
 
-Last reviewed: 2026-11-15
+A reader should be able to start from a dataset citation, check the files it refers to, and
+find the source versions behind them. When a new release appears, they should be able to see
+which inputs and outputs changed. These are the proposed priorities for getting there.
 
-The next work follows use in real data pipelines. sourceledger keeps its small provenance core:
-record downloads, connect outputs to their sources, validate files and package a redistributable release.
+## Now · Verify a real release from a clean environment
 
-## Compare rows across source revisions
+Use one research dataset to test the whole path from the maintainer's pipeline to the
+recipient's machine. Publish a versioned archive with a DOI, a manifest, recorded source
+checksums and a command the recipient can run after downloading it.
 
-[The WDI comparison pilot](https://github.com/simonvanlierde/sourceledger/issues/107) reproduces
-an existing pipeline's change counts using country and year keys for three indicators.
-All 360 original adjacent indicator/version pairs match the baseline across 121 archived vintages.
-`align_rows`, added in 0.6.0, pairs rows by validated keys while keeping numeric rules and reports in each project.
-Both the project recipe and the public API pass the complete grade.
-WISE will replace its local alignment helper after 0.6.0 is published.
+- Start with a frozen research dataset whose reuse terms can be checked before publication.
+- Have someone outside the producing pipeline verify the archive with
+  [`sourceledger verify DIR`](reference.md#other-commands) and trace one output to its source.
+- Repeat the check after modifying a delivered file and confirm that verification flags it.
+  Inspect the archive for raw files marked as excluded from redistribution.
 
-## Integrate adopting pipelines
+## Next · Explain what changed between releases
 
-[Adopter extensions](https://github.com/simonvanlierde/sourceledger/issues/108) were evaluated in
-both migration branches. Vintage selection, reader findings and project-defined stages stay in each project;
-the [integration recipe](recipes.md#add-a-project-specific-stage) shows how to extend a command.
-Both migrations have merged: cml-ia-factors and wise-pipeline use released sourceledger 0.5.1.
+Run a weekly revision check in a pipeline that uses WDI. Aim to capture a real publisher
+change within three months.
+Document the changed source version, the affected output and the maintainer's decision to
+rebuild or keep the existing release. Then use two published releases to test what a dataset
+recipient can learn from their provenance records alone.
 
-## Outside the scope
+The WDI pilot matched [360 adjacent comparisons across 121 archived vintages](https://github.com/simonvanlierde/sourceledger/issues/107)
+and WISE [adopted the released row-alignment API](https://github.com/simonvanlierde/wise-pipeline/pull/21).
+The [two-release PUDL recipe](recipes.md#follow-a-publishers-revision-across-two-releases) provides a second
+case with stable source identifiers and domain-specific comparison rules.
 
-sourceledger will not become a workflow scheduler or a plugin framework for download tools.
-Projects that already fetch with pooch, DVC, dlt or custom code can keep those tools and call `record()`.
-It does not publish a dataset automatically or decide whether a publisher's terms permit redistribution.
+## By the end of 2027 · Verify adoption across projects
+
+| Target | Evidence |
+| --- | --- |
+| Three DOI-versioned datasets | Each deposit links to its verification instructions, and someone outside the producing pipeline verifies its archive. |
+| Three maintained pipeline integrations, including one independent team | The team runs SourceLedger in its own release or revision workflow and can share the evidence publicly. |
+| One worked case from a real publisher revision | A reader can follow the input change, identify an affected output and understand the decision about the next release. |
+
+Start the independent pilot with a team that already publishes versioned data. Share the PUDL
+example when asking for feedback and let the maintainers decide if it fits their workflow.
+Use the pilots to identify common gaps in release metadata and verification. Consider a software
+paper once there is independent use and evidence that others can reproduce.
+
+## Scope
+
+Sourceledger owns the provenance record, integrity checks and release packaging. Pipelines own
+scheduling, downloading at scale and data-specific judgments. Keep existing retrieval tools
+and [record the files they produce](recipes.md#record-a-file-another-tool-downloaded).
+Projects decide which files their source terms allow them to publish.
