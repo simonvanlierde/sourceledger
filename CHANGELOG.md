@@ -16,9 +16,11 @@ a breaking change comes only in a minor version (see Stability in the README).
 - `build --json` prints `outputs` (each file's `path` and `rows`, `null` for a copied file) and `package`; with `--dry-run`, `would_write`.
 - `docs/report.schema.json`, the JSON Schema of every stage's `--json` report and of the failure envelope.
 - Each stage's `--help` ends with an example command.
+- The [CLI integration recipe](docs/recipes.md#call-a-stage-from-your-own-cli) shows how to call a stage from your project's argument parser.
 
 ### Changed
 
+- The Pooch recipe uses the manifest's SHA-256 pin for both retrieval and recording.
 - Use the shared documentation tokens and allowlisted script hashes in the docs Content Security Policy.
 - A usage error under `--json`, such as `record --parameter nope --json`, prints the failure object on stdout with exit code 2 and nothing on stderr, instead of text on stderr.
 
