@@ -369,6 +369,20 @@ def build(
     ]
 
 
+def check_build_revision(build_revision: str | None) -> None:
+    """Refuse revision text that the UTF-8 descriptor cannot store."""
+    if build_revision is None:
+        return
+    if not isinstance(build_revision, str) or not build_revision.strip():
+        msg = "build_revision must be nonempty text"
+        raise ValueError(msg)
+    try:
+        build_revision.encode()
+    except UnicodeEncodeError as error:
+        msg = "build_revision must be valid UTF-8 text"
+        raise ValueError(msg) from error
+
+
 def build_sources(
     sources: list[Source],
     *,
@@ -383,15 +397,7 @@ def build_sources(
     """Build outputs with row counts for tables, or None for unchanged file copies."""
     _check_output_format(output_format)
     _check_name(name)
-    if build_revision is not None:
-        if not isinstance(build_revision, str) or not build_revision.strip():
-            msg = "build_revision must be nonempty text"
-            raise ValueError(msg)
-        try:
-            build_revision.encode()
-        except UnicodeEncodeError as error:
-            msg = "build_revision must be valid UTF-8 text"
-            raise ValueError(msg) from error
+    check_build_revision(build_revision)
     # Before any output is written: a broken pyproject.toml must not cost a whole build.
     name = name or _package_name()
     selected = {s["id"] for s in select(sources, only)}

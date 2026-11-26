@@ -1178,6 +1178,16 @@ def test_the_schema_refuses_a_report_that_lacks_its_result_or_has_another_stages
     assert not validator.is_valid({**base, "outputs": [], "package": "p", "problems": []})
 
 
+@pytest.mark.usefixtures("project")
+def test_build_dry_run_refuses_an_invalid_revision(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["fetch"]) == 0
+    capsys.readouterr()
+    assert main(["build", "--dry-run", "--json"], build_revision=chr(0xD800)) == 3
+    result = json.loads(capsys.readouterr().out)
+    assert result["errors"][0]["message"] == "build_revision must be valid UTF-8 text"
+    assert "would_write" not in result
+
+
 _RECORD = [sys.executable, "-c", "from sourceledger.cli import entry; entry()", "record", "example"]
 
 

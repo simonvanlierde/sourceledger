@@ -37,6 +37,10 @@ a breaking change comes only in a minor version (see Stability in the README).
 - A fetch that restores a missing local file says `fetched` when its bytes are already in the fetch log.
 - Fetch success rows appear before the final error when stdout and stderr go to the same file or pipe.
 
+All 11 benchmark cases passed in five paired Linux runs against 0.6.0. Median best
+times changed by −15% for fetch, +0.7% for archived fetch and +7.5% for build.
+The observed ranges overlapped on the shared host.
+
 ## [0.6.0] - 2026-11-15
 
 ### Added

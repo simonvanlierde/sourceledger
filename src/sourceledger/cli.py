@@ -23,7 +23,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
-from sourceledger.builder import DATAPACKAGE, PROCESSED, Parser, build_sources, parse_source
+from sourceledger.builder import DATAPACKAGE, PROCESSED, Parser, build_sources, check_build_revision, parse_source
 from sourceledger.fetcher import USER_AGENT, fetch_sources
 from sourceledger.ledger import (
     FETCH_LOG,
@@ -626,6 +626,7 @@ def _build_stage(run: _Run) -> list[str]:
     output_format = load_output_format(run.args.manifest)
     package = (PROCESSED / DATAPACKAGE).as_posix()
     if run.args.dry_run:
+        check_build_revision(run.build_revision)
         would = []
         for source in implemented(select(sources, run.args.only)):
             current_record(source, RAW)  # the same refusal build gives for a missing or changed raw file
