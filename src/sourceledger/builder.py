@@ -350,8 +350,9 @@ def build(
     the code revision in each rebuilt resource. Identical inputs and revision give the same files.
 
     `only` restricts the build to those source ids. The package keeps each other source's
-    entry as the last build wrote it. Raises ValueError for an unknown source id, an empty
-    build revision, or a file output named `datapackage.json`, which is reserved for the descriptor.
+    entry as the last build wrote it. Raises ValueError for an unknown source id, a build revision
+    that is empty or cannot be encoded as UTF-8, or a file output named `datapackage.json`, which
+    is reserved for the descriptor.
     """
     return [
         out
@@ -382,9 +383,15 @@ def build_sources(
     """Build outputs with row counts for tables, or None for unchanged file copies."""
     _check_output_format(output_format)
     _check_name(name)
-    if build_revision is not None and (not isinstance(build_revision, str) or not build_revision.strip()):
-        msg = "build_revision must be nonempty text"
-        raise ValueError(msg)
+    if build_revision is not None:
+        if not isinstance(build_revision, str) or not build_revision.strip():
+            msg = "build_revision must be nonempty text"
+            raise ValueError(msg)
+        try:
+            build_revision.encode()
+        except UnicodeEncodeError as error:
+            msg = "build_revision must be valid UTF-8 text"
+            raise ValueError(msg) from error
     # Before any output is written: a broken pyproject.toml must not cost a whole build.
     name = name or _package_name()
     selected = {s["id"] for s in select(sources, only)}

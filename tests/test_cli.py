@@ -297,15 +297,22 @@ def test_an_interrupted_record_prints_no_signed_url(
 def test_an_interrupted_record_from_stdin_asks_for_the_pipe_again(
     project: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def interrupted(*_: object, **__: object) -> None:
+    write_atomic = ledger._write_atomic  # noqa: SLF001
+
+    def interrupted(path: Path, data: bytes) -> None:
+        write_atomic(path, data)
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(cli, "record_file", interrupted)
+    monkeypatch.setattr(ledger, "_write_atomic", interrupted)
     # A regular file, not the runner's stdin or os.devnull: Windows reports NUL as a terminal.
     with project.open(encoding="utf-8") as piped:
         monkeypatch.setattr(sys, "stdin", piped)
         assert main(["record", "example", "-"]) == 130
-    assert capsys.readouterr().err.endswith("help: nothing was recorded; pipe the file in again\n")
+    assert RAW.read_bytes() == project.read_bytes()
+    assert LOG.is_file()
+    assert capsys.readouterr().err.endswith(
+        "help: check the recorded file and fetch log, then pipe the file in again if needed\n"
+    )
 
 
 @pytest.mark.usefixtures("project")
@@ -1145,9 +1152,19 @@ def test_a_usage_error_under_json_is_the_failure_envelope(argv: list[str], capsy
     assert report["errors"][0]["help"].startswith(f"run `sourceledger {argv[0]} --help`")
 
 
-def test_a_usage_error_without_json_stays_text(capsys: pytest.CaptureFixture[str]) -> None:
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["record", "example", "x.csv", "--parameter", "nope"],
+        ["record", "example", "--parameter", "nope", "--", "--json"],
+        ["record", "example", "--retrieved-at", "yesterday", "--", "--json"],
+        ["--json", "record", "example", "x.csv"],
+        ["--json", "record", "example", "x.csv", "--retrieved-at", "yesterday"],
+    ],
+)
+def test_a_usage_error_without_json_stays_text(argv: list[str], capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit):
-        main(["record", "example", "x.csv", "--parameter", "nope"])
+        main(argv)
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err.startswith("usage: sourceledger record")
@@ -1273,7 +1290,7 @@ def test_ctrl_c_while_record_reads_stdin_leaves_nothing(project: Path) -> None:
         proc.send_signal(signal.SIGINT)
         _, err = proc.communicate()
     assert proc.returncode == -signal.SIGINT
-    assert "nothing was recorded; pipe the file in again" in err.decode()
+    assert "pipe the file in again if needed" in err.decode()
     assert _left_behind() == []
 
 
