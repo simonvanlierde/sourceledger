@@ -98,12 +98,18 @@ def test_an_error_names_what_failed_and_what_to_do(
 
 
 def test_a_usage_error_has_the_same_shape_and_exit_2(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as help_exit:
+        main(["fetch", "--help"])
+    assert help_exit.value.code == 0
+    usage, _, _ = capsys.readouterr().out.partition("\n\n")
+
     with pytest.raises(SystemExit) as exit_:
         main(["fetch", "extra"])
     assert exit_.value.code == 2
     err = capsys.readouterr().err
-    assert err.startswith("usage: sourceledger fetch ")
-    assert err.endswith("error: unrecognized arguments: extra\nhelp: run `sourceledger fetch --help` for its options\n")
+    assert err == (
+        f"{usage}\nerror: unrecognized arguments: extra\nhelp: run `sourceledger fetch --help` for its options\n"
+    )
 
 
 @pytest.mark.parametrize(
