@@ -109,14 +109,14 @@ sourceledger.ledger.x__last_line_start__mutmut_13  reads more at once; finds the
 sourceledger.ledger.x__last_line_start__mutmut_3  differs only for a one-byte first line, which is not JSON
 sourceledger.ledger.x__last_records__mutmut_19  the line is the batch's last, so both end the loop
 sourceledger.ledger.x__log_new_version__mutmut_31  `logged[id]` is read only before that id's own log line, and ids are unique, so the stored value is never read
-sourceledger.ledger.x__record__mutmut_5  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x__record__mutmut_8  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.ledger.x__record__mutmut_13  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.ledger.x__record__mutmut_15  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.ledger.x__recorded_url__mutmut_17  for the source's own URL `_served_from` returns "" anyway, the same as the else branch
 sourceledger.ledger.x_log_version__mutmut_28  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
 sourceledger.ledger.x_log_version__mutmut_29  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
 sourceledger.ledger.x_log_version__mutmut_30  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
 sourceledger.ledger.x_log_version__mutmut_31  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
-sourceledger.ledger.x_record_file__mutmut_80  `temp` is only tested for truthiness and "" and None are both falsy
+sourceledger.ledger.x_record_file__mutmut_81  before _take_in assigns it, temp is only tested for truthiness in cleanup
 sourceledger.ledger.x_without_query__mutmut_4  geturl leaves out a query that is None, as it does an empty one
 sourceledger.ledger.x_without_query__mutmut_5  geturl leaves out a fragment that is None, as it does an empty one
 sourceledger.manifest.x__check_text__mutmut_3  the separator only keeps strings apart; letters added to it are not control characters, so the search finds the same

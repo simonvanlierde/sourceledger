@@ -298,8 +298,9 @@ new or empty. The folder holds:
   comes from `sources.toml`, not from the files in `data/processed/`, so a source with
   `redistribute = false` is left out, whether it is a copied file or a table, and listed as
   excluded.
-- `datapackage.json`: the one `build` wrote, without the excluded sources, each path under
-  `data/`. `verify` checks the folder against it.
+- `datapackage.json`: the one `build` wrote, with shipped resources under `data/`.
+  When the Python API supplies excluded cache files, `excluded_inputs` lists their source IDs,
+  byte counts and SHA-256 checksums. `verify` checks the folder against the descriptor.
 - `ro-crate-metadata.json` ([RO-Crate 1.3](https://w3id.org/ro/crate/1.3)) and
   `croissant.json` ([Croissant 1.1](https://docs.mlcommons.org/croissant/)), only when
   `release_formats` asks for them; otherwise each is reported as skipped. The RO-Crate lists
@@ -363,6 +364,49 @@ In Python, `release()` returns the fields of the `--json` report. It raises `Rel
 reached the folder, and `ValidatorFailed` when a validator reported findings.
 `ValidatorMissing` and `ValidatorCouldNotRun` are `OSError`s. `check_release(DIR)` is
 `release --check DIR`: it returns the problems and the checks that ran.
+
+### Release outputs from excluded cache files
+
+The Python API can record a file in an existing cache. Mark its source as implemented with
+`format = "file"` and `redistribute = false`. Set `max_bytes` in the manifest if the file is
+larger than the default limit. Record the exact input used to produce the outputs and keep the
+cache stable until the release finishes. Record the other inputs as usual before building.
+
+```python
+from pathlib import Path
+
+import sourceledger
+
+sources = sourceledger.load_manifest()
+by_id = {source["id"]: source for source in sources}
+cache_files = {"bulk": Path("cache/bulk.bin")}
+for source_id, path in cache_files.items():
+    sourceledger.record(by_id[source_id], path, copy=False)
+
+processed = Path("data/release-build")
+built_ids = [s["id"] for s in sources if s["status"] == "implemented" and s["id"] not in cache_files]
+name = sourceledger.load_package_name()
+output_format = sourceledger.load_output_format()
+sourceledger.build(sources, only=built_ids, processed=processed, name=name, output_format=output_format)
+release_dir = Path("release-v1")
+sourceledger.release(
+    sources, release_dir, processed=processed, name=name, output_format=output_format, external_inputs=cache_files
+)
+problems = sourceledger.verify(release_dir, external_inputs=cache_files)
+if problems:
+    raise ValueError("\n".join(problems))
+```
+
+`record(copy=False)` writes the log and a checksum sidecar. The file stays in the cache.
+Use a fresh processed folder when switching an existing project to this mode. A partial build
+in a reused folder can keep old outputs and descriptor entries. The release checks the cache
+files against their records before publishing and refuses a shipped file with matching
+restricted bytes. The package's fingerprints contain no cache paths.
+
+`verify` checks only the shipped files by default, so a reader without the cache can use
+`sourceledger verify DIR` offline. Supply `external_inputs` to the library to also verify the
+cache files. Include a path for every listed ID. Paths come from the caller rather than the
+downloaded descriptor.
 
 ## HTML provenance report
 

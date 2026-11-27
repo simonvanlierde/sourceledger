@@ -15,12 +15,14 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote_plus
 
 from sourceledger.builder import DATAPACKAGE, PROCESSED, _by_name, json_bytes
-from sourceledger.ledger import RAW, _digest, current_record
-from sourceledger.manifest import RELEASE_FORMATS, Source, implemented, output_name, printable
-from sourceledger.report import leaves_folder, read_received, validate
+from sourceledger.ledger import RAW, _current_external_record, _digest, _record, _record_path, current_record
+from sourceledger.manifest import FILE_FORMAT, RELEASE_FORMATS, Source, implemented, output_name, printable, raw_name
+from sourceledger.report import _terms_problems, leaves_folder, read_received, validate
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Iterable
+    from collections.abc import Collection, Iterable, Mapping
+
+    from sourceledger.ledger import FetchRecord
 
 _logger = logging.getLogger("sourceledger")
 
@@ -146,6 +148,7 @@ def release(
     output_format: str = "csv",
     name: str | None = None,
     dry_run: bool = False,
+    external_inputs: Mapping[str, Path] | None = None,
 ) -> dict[str, Any]:
     """Write a release folder at `out_dir` from a validated build, check it, and return what it holds.
 
@@ -154,6 +157,9 @@ def release(
     when `formats` (any iterable of their names) asks for them, and `SHA256SUMS`, written last.
     The descriptive fields come from `codemeta`. The folder is written beside `out_dir` and moved
     into place only once every check passed, so a refused release leaves nothing at `out_dir`.
+    `external_inputs` maps restricted file source ids to cache files already recorded with
+    `record(copy=False)`. Their checksums and sizes are checked against those records. They
+    need no build output and the package contains their fingerprints, without local paths.
     `dry_run` checks the input and returns what would be written, without writing. `name` is
     passed to `validate`.
 
@@ -171,7 +177,9 @@ def release(
         msg = f"formats must be drawn from {list(RELEASE_FORMATS)}, not {formats!r}"
         raise ValueError(msg)
     formats = [fmt for fmt in RELEASE_FORMATS if fmt in wanted]
-    if problems := validate(sources, raw=raw, processed=processed, output_format=output_format, name=name):
+    external = dict(external_inputs or {})
+    built = _buildable_sources(sources, external, processed)
+    if problems := validate(built, raw=raw, processed=processed, output_format=output_format, name=name):
         raise ReleaseError(problems)
     if out_dir.exists() and (not out_dir.is_dir() or any(out_dir.iterdir())):
         msg = f"{out_dir.as_posix()} already exists; a release goes into a new folder"
@@ -180,6 +188,7 @@ def release(
     described = _described(codemeta, formats)
     for fmt in formats:
         _validator_version(_FILES[fmt])
+    records = _external_records(sources, raw, external, checked=dry_run)
     shipped, excluded = _split(sources)
     files = [f"{_DATA}/{output_name(s, output_format)}" for s in shipped]
     files += [DATAPACKAGE, *(_FILES[fmt] for fmt in formats), SUMS]
@@ -197,11 +206,13 @@ def release(
         return result
     folder = _part_folder(out_dir)
     try:
-        _write(folder, sources, described, formats, raw=raw, processed=processed, output_format=output_format)
-        _refuse_restricted(folder, out_dir, sources, raw, processed, output_format)
+        _write(folder, sources, described, formats, records, raw=raw, processed=processed, output_format=output_format)
+        _refuse_restricted(folder, out_dir, sources, raw, processed, output_format, external_records=records)
         problems, result["validators"] = check_release(folder)
         if problems:
             raise ValidatorFailed(problems, result["validators"])
+        if _external_records(sources, raw, external, checked=True) != records:
+            raise ReleaseError(["an external input was re-recorded during release; re-run release"])
         _place(folder, out_dir)
     finally:
         if folder.exists():
@@ -254,11 +265,31 @@ def _split(sources: list[Source]) -> tuple[list[Source], list[Source]]:
     return shipped, [s for s in implemented(sources) if s not in shipped]
 
 
+def _buildable_sources(sources: list[Source], external: Mapping[str, Path], processed: Path) -> list[Source]:
+    """Validate the terms of excluded cache files before checking the built sources as usual."""
+    if not external:
+        return sources
+    eligible = {
+        s["id"]: s for s in implemented(sources) if s.get("format") == FILE_FORMAT and s.get("redistribute") is False
+    }
+    if unknown := external.keys() - eligible.keys():
+        raise ReleaseError(
+            [f"{sid}: an external input must be an implemented restricted file source" for sid in sorted(unknown)]
+        )
+    if problems := [problem for sid in external for problem in _terms_problems(eligible[sid])]:
+        raise ReleaseError(problems)
+    package = processed / DATAPACKAGE
+    if not package.is_file():
+        raise ReleaseError([f"{package.as_posix()} is missing; re-run build"])
+    return [s for s in sources if s["id"] not in external]
+
+
 def _write(
     folder: Path,
     sources: list[Source],
     described: dict[str, Any],
     formats: Collection[str],
+    inputs: Mapping[str, FetchRecord],
     *,
     raw: Path,
     processed: Path,
@@ -271,9 +302,14 @@ def _write(
         name = output_name(source, output_format)
         shutil.copyfile(processed / name, folder / _DATA / name)
     package = _package(processed, shipped)
+    package.pop("excluded_inputs", None)
+    if inputs:
+        package["excluded_inputs"] = {
+            sid: {"sha256": record.sha256, "bytes": record.bytes} for sid, record in inputs.items()
+        }
     (folder / DATAPACKAGE).write_bytes(json_bytes(package))
     if _FORMAT_ROCRATE in formats:
-        records = {s["id"]: current_record(s, raw) for s in implemented(sources)}
+        records = {**inputs, **{s["id"]: current_record(s, raw) for s in implemented(sources) if s["id"] not in inputs}}
         (folder / _ROCRATE).write_bytes(json_bytes(_ro_crate(described, package, shipped, excluded, records)))
     if _FORMAT_CROISSANT in formats:
         (folder / _CROISSANT).write_bytes(json_bytes(_croissant(described, package)))
@@ -480,20 +516,52 @@ def _sums_problems(folder: Path) -> list[str]:
     return problems
 
 
+def _external_records(
+    sources: list[Source], raw: Path, external: Mapping[str, Path], *, checked: bool = False
+) -> dict[str, FetchRecord]:
+    """Read the hash-only records, optionally checking the cache files themselves."""
+    records = {}
+    for source in implemented(sources):
+        sid = source["id"]
+        if sid not in external:
+            continue
+        try:
+            records[sid] = (
+                _current_external_record(source, raw, external[sid]) if checked else _record(source, raw, external=True)
+            )
+        except (OSError, ValueError) as error:
+            raise ReleaseError([str(error)]) from error
+    return records
+
+
 def _refuse_restricted(
-    folder: Path, shown: Path, sources: list[Source], raw: Path, processed: Path, output_format: str
+    folder: Path,
+    shown: Path,
+    sources: list[Source],
+    raw: Path,
+    processed: Path,
+    output_format: str,
+    *,
+    external_records: Mapping[str, FetchRecord] | None = None,
 ) -> None:
     """RestrictedSourceError when any file in `folder` has the bytes of a restricted source's raw file or output.
 
     The restricted sources are read from `sources` here, not taken from `_split`, so a bug that
     ships one cannot also clear it. Each problem names the file as it would be under `shown`.
     """
-    banned = {}
+    external = external_records or {}
+    banned = {record.sha256: sid for sid, record in external.items()}
     for source in implemented(sources):
         if source.get("redistribute") is True:
             continue
-        record = current_record(source, raw)
-        banned[record.sha256] = source["id"]
+        sid = source["id"]
+        if sid not in external:
+            banned[current_record(source, raw).sha256] = sid
+        else:
+            if _record_path(source, raw, external=False).is_file():
+                banned[_record(source, raw, historical=True).sha256] = sid
+            if (old_raw := raw / raw_name(source)).is_file():
+                banned[_digest(old_raw)] = sid
         out = processed / output_name(source, output_format)
         if out.is_file():
             banned[_digest(out)] = source["id"]
