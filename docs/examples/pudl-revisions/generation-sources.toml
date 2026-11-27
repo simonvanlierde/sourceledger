@@ -1,0 +1,23 @@
+[[source]]
+id           = "generation-2026-09"
+name         = "PUDL yearly generators, September 2026 release"
+status       = "implemented"
+url          = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/v2026.9.0/out_eia__yearly_generators.parquet"
+vintage      = "PUDL v2026.9.0, DOI 10.5281/zenodo.22720286"
+sha256       = "048faf5314bafebcd8ec1a7e2e39514e62dea93e0cb7cb2d073ef0f7350fb726"
+terms        = "The PUDL data and documentation are published under the Creative Commons Attribution License v4.0 (CC-BY-4.0)."
+terms_url    = "https://github.com/catalyst-cooperative/pudl#licensing"
+license      = "CC-BY-4.0"
+redistribute = true
+
+[[source]]
+id           = "generation-2026-10"
+name         = "PUDL yearly generators, October 2026 release"
+status       = "implemented"
+url          = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/v2026.10.0/out_eia__yearly_generators.parquet"
+vintage      = "PUDL v2026.10.0, DOI 10.5281/zenodo.23375698"
+sha256       = "30160046dfa28bb2dfb357c4dee8261e30e4e5a63bb9114039bb611f9441aaf0"
+terms        = "The PUDL data and documentation are published under the Creative Commons Attribution License v4.0 (CC-BY-4.0)."
+terms_url    = "https://github.com/catalyst-cooperative/pudl#licensing"
+license      = "CC-BY-4.0"
+redistribute = true

@@ -10,6 +10,7 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Added
 
+- The [PUDL release example](docs/recipes.md#package-a-downstream-result-from-both-releases) builds a small derived dataset from two pinned versions and shows recipients how to check it offline.
 - `build`, `main` and `entry` accept an optional `build_revision` keyword. It records the
   code revision on each rebuilt resource in `datapackage.json` and keeps it in dataset releases.
 - `record ID -` reads the file from stdin; the [reference](docs/reference.md#other-commands) has the rules.
