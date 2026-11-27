@@ -48,6 +48,7 @@ sourceledger.cli.x__parser__mutmut_6  allow_abbrev=None is falsy, the same as Fa
 sourceledger.cli.x__parser__mutmut_77  add_help=None is falsy, the same as False
 sourceledger.cli.x__parser__mutmut_93  add_help=None is falsy, the same as False
 sourceledger.cli.x__record_stage__mutmut_17  closefd=None is falsy, the same as False
+sourceledger.cli.x_main__mutmut_28  the parser and the argv fallback recognize --json only after the stage and before --
 sourceledger.cli.x_main__mutmut_33  level=None leaves basicConfig's default, WARNING
 sourceledger.cli.x_main__mutmut_35  basicConfig with no level leaves the root logger at its default, WARNING
 sourceledger.fetcher.x__archive__mutmut_18  HTTP header names are case-insensitive
