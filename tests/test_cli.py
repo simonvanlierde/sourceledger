@@ -386,6 +386,13 @@ def test_a_toml_syntax_error_names_the_manifest_and_line(capsys: pytest.CaptureF
             ["verify", "."],
             "error: datapackage.json is missing\nhelp: pass the folder that holds the dataset's datapackage.json\n",
         ),
+        (
+            ["verify", "data"],
+            (
+                "error: data/datapackage.json is missing\n"
+                "help: pass the folder that holds the dataset's datapackage.json\n"
+            ),
+        ),
         (["revisions", "old.jsonl"], "error: old.jsonl is missing\nhelp: pass an earlier copy of data/fetches.jsonl\n"),
         (
             ["record", "example", "gone.csv"],
@@ -1150,7 +1157,10 @@ def test_a_usage_error_without_json_stays_text(capsys: pytest.CaptureFixture[str
         main(["record", "example", "x.csv", "--parameter", "nope"])
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err.startswith("usage: sourceledger record")
+    usage, _, error = captured.err.partition("error: ")
+    assert usage.startswith("usage: sourceledger record")
+    assert usage.endswith(" ID PATH\n")
+    assert error == "--parameter takes NAME=VALUE, not 'nope'\nhelp: run `sourceledger record --help` for its options\n"
 
 
 def test_the_schema_refuses_a_report_that_lacks_its_result_or_has_another_stages() -> None:
@@ -1211,6 +1221,14 @@ def test_record_reads_stdin_and_logs_what_the_file_form_logs(project: Path) -> N
     assert result.returncode == 0, result.stderr
     assert (_sidecar(), Path("data/raw/example.csv").read_bytes()) == by_file
     assert _left_behind() == []
+
+
+def test_record_reads_stdin_in_process(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutmut sees only this process; the tests above pipe into a child."""
+    with project.open("rb") as piped:
+        monkeypatch.setattr(sys, "stdin", piped)
+        assert main(["record", "example", "-"]) == 0
+    assert Path("data/raw/example.csv").read_bytes() == project.read_bytes()
 
 
 def test_record_reads_a_file_named_dash_given_as_dot_slash(project: Path) -> None:
