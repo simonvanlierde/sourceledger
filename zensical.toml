@@ -6,6 +6,7 @@ site_name = "sourceledger"
 site_description = "Fetch or record the public files a dataset is built from, with a provenance record for every file"
 site_url = "https://simonvanlierde.com/sourceledger/"
 repo_url = "https://github.com/simonvanlierde/sourceledger"
+edit_uri = "edit/main/docs/"
 site_dir = "_docs"
 use_directory_urls = false
 extra_css = ["assets/docs-tokens.css", "assets/docs.css", "assets/brand.css"]
@@ -21,6 +22,16 @@ extra_javascript = ["assets/docs.js"]
 [project.theme]
 font = false
 custom_dir = "docs-overrides"
+features = [
+  "content.action.edit",
+  "content.code.copy",
+  "navigation.footer",
+  "navigation.path",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+  "toc.follow",
+]
 
 # docs-overrides/main.html reads og_image for the link-preview tags. `just og-card` renders the
 # image and puts its hash in this URL, since link previews cache by URL.

@@ -50,6 +50,8 @@ The site does not fetch fonts from a third party.
 The five top-level navigation entries remain Start here, Worked example,
 Manifest and commands, How it works and Safe use. Related pages sit beneath these entries.
 The theme supplies the responsive drawer, search dialog and table of contents.
+Breadcrumbs and previous and next links help readers move between pages. Code blocks have
+copy buttons, and each Markdown page links to its GitHub editor.
 `docs/assets/docs.js` gives the drawer and search native buttons and makes overflowing tables
 reachable by keyboard. `docs/assets/docs.css` supplies the shared accessibility adjustments.
 
