@@ -146,6 +146,7 @@ def test_pudl_downstream_release_names_the_input_for_each_result(
     assert main(["build"], parse=parse) == 0
     assert main(["release", "release"]) == 0
     assert main(["verify", "release"]) == 0
+    assert main(["release", "--check", "release"]) == 0
     package = json.loads(Path("release/datapackage.json").read_text(encoding="utf-8"))
     for resource, value, vintage in zip(package["resources"], (30, 40), ("v2026.9.0", "v2026.10.0"), strict=True):
         provenance = resource["sourceledger"]

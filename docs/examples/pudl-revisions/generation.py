@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 
 def annual_generation(source: Source, payload: bytes) -> tuple[list[str], list[dict[str, int]]]:
-    """Sum reported net generation to the nearest MWh for three report years."""
+    """Sum net generation from PUDL's generator table to the nearest MWh for three years."""
     table = pq.read_table(BytesIO(payload), columns=["report_date", "net_generation_mwh"])
     years = pc.year(table["report_date"])
     rows = []
@@ -28,7 +28,7 @@ def annual_generation(source: Source, payload: bytes) -> tuple[list[str], list[d
         generation = table["net_generation_mwh"].filter(pc.equal(years, year))
         total = pc.sum(generation).as_py()
         if total is None:
-            msg = f"{source['id']}: no reported net generation for {year}"
+            msg = f"{source['id']}: no net generation values for {year}"
             raise ValueError(msg)
         rows.append({"year": year, "net_generation_mwh": round(total)})
     return ["year", "net_generation_mwh"], rows

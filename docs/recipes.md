@@ -417,8 +417,9 @@ uv run --script generation.py fetch &&
 ```
 
 The manifest pins the SHA-256 of each PUDL file. The example reader uses PyArrow to sum
-reported net generation for 2023–2025. It skips missing values and rounds each annual
-total to the nearest MWh. The 2025 sum goes from 4.369 to 4.412 billion MWh across the
+the [generator table's net generation values](https://docs.catalyst.coop/pudl/en/v2026.10.0/data_dictionaries/pudl_db.html#out-eia-yearly-generators)
+for 2023–2025, including values PUDL allocated to generators. It skips missing values
+and rounds each annual total to the nearest MWh. The 2025 sum goes from 4.369 to 4.412 billion MWh across the
 two releases. SourceLedger adds the source URL, release vintage, and raw checksum to
 every output row. The release folder contains the two derived CSV files,
 `datapackage.json`, and `SHA256SUMS`.
@@ -429,8 +430,12 @@ under CC-BY-4.0.
 From a directory with only the extracted release and SourceLedger installed, run:
 
 ```sh
-sourceledger verify release
+sourceledger verify release && sourceledger release --check release
 ```
+
+The first command checks the CSVs against the Data Package descriptor. The second
+checks the release inventory and checksums, including the checksum of the descriptor
+that holds the provenance fields.
 
 Open either CSV and compare its `vintage` and `raw_sha256` with the resource's
 `sourceledger` entry in `datapackage.json`. The vintage contains the PUDL version DOI.
