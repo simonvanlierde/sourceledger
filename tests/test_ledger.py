@@ -7,6 +7,7 @@ import io
 import json
 import logging
 import os
+import re
 import sys
 import tempfile
 import time
@@ -411,6 +412,18 @@ def test_record_file_takes_a_stream_in_and_removes_its_spool(
     assert RAW.read_bytes() == data
     with pytest.raises(ValueError, match="stdin is empty"):
         take_in(io.BytesIO())
+    with pytest.raises(ValueError, match=r": stdin hashes to [0-9a-f]{64}, not the sha256 in sources.toml$"):
+        ledger.record_file(
+            {**_source(), "sha256": "0" * 64},
+            io.BytesIO(data),
+            retrieved_at=None,
+            url=None,
+            etag="",
+            last_modified="",
+            parameters=None,
+            raw=RAW.parent,
+            log=LOG,
+        )
     assert not any((tmp_path / "spool").iterdir())
 
 
@@ -510,7 +523,7 @@ def test_record_refuses_what_is_not_a_regular_file(tmp_path: Path) -> None:
     fifo = tmp_path / "pipe"
     os.mkfifo(fifo)
     for path in (fifo, tmp_path):
-        with pytest.raises(ValueError, match="is not a regular file"):
+        with pytest.raises(ValueError, match=f"{re.escape(path.as_posix())} is not a regular file"):
             ledger.record(_source(), path)
     assert not RAW.parent.exists()
 

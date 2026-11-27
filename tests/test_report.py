@@ -580,6 +580,19 @@ def test_a_status_that_never_recovers_is_not_retried(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.usefixtures("upstream")
+@pytest.mark.parametrize("value", ["", " ", 1])
+def test_validate_flags_a_blank_or_odd_build_revision(value: object, capsys: pytest.CaptureFixture[str]) -> None:
+    _run("fetch", "build")
+    path = Path("data/processed/datapackage.json")
+    package = json.loads(path.read_text(encoding="utf-8"))
+    package["resources"][0]["sourceledger"]["build_revision"] = value
+    path.write_text(json.dumps(package), encoding="utf-8")
+    capsys.readouterr()
+    assert _run("validate") == [1]
+    assert "describes an earlier fetch" in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("upstream")
 def test_validate_catches_a_stale_data_package(capsys: pytest.CaptureFixture[str]) -> None:
     """An output edited after its build no longer matches the hash the package gives it."""
     _run("fetch", "build")

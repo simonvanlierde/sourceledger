@@ -404,6 +404,12 @@ def test_a_broken_pyproject_is_named_when_it_would_name_the_package(
         builder_mod._package_name()  # noqa: SLF001
 
 
+@pytest.mark.parametrize("revision", ["", "  "])
+def test_build_refuses_a_blank_build_revision(revision: str) -> None:
+    with pytest.raises(ValueError, match=r"^build_revision must be nonempty text$"):
+        builder_mod.build_sources([], build_revision=revision)
+
+
 @pytest.mark.usefixtures("upstream")
 def test_a_broken_pyproject_stops_build_before_any_output(capsys: pytest.CaptureFixture[str]) -> None:
     assert _run("fetch") == [0]

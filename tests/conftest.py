@@ -1,6 +1,7 @@
 """Fixtures shared across test modules: a local publisher, a fixed clock and golden files."""
 
 import http.server
+import signal
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -127,6 +128,15 @@ def upstream(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     _manifest(tmp_path, source.as_uri())
     monkeypatch.chdir(tmp_path)
     return source
+
+
+@pytest.fixture(autouse=True)
+def _sigpipe_restored() -> Iterator[None]:
+    """entry() sets SIGPIPE to its default, under which a write to a closed socket kills the test process."""
+    before = signal.getsignal(signal.SIGPIPE) if hasattr(signal, "SIGPIPE") else None
+    yield
+    if before is not None:
+        signal.signal(signal.SIGPIPE, before)
 
 
 @pytest.fixture(autouse=True)

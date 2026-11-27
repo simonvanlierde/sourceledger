@@ -27,6 +27,8 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ### Changed
 
+- The docs site adds breadcrumbs, previous and next links, code-copy buttons and links to edit pages on GitHub.
+- The [roadmap](docs/roadmap.md) sets goals for verifiable dataset deposits, real publisher revisions and independent adoption.
 - The Pooch recipe uses the manifest's SHA-256 pin for both retrieval and recording.
 - Use the shared documentation tokens and allowlisted script hashes in the docs Content Security Policy.
 
