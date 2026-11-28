@@ -58,6 +58,20 @@ def test_the_whole_pipeline_runs_from_a_local_file(upstream: Path) -> None:
     assert {(r["source_url"], r["raw_sha256"]) for r in rows} == {(record["url"], record["sha256"])}
 
 
+@pytest.mark.parametrize("revision", ["", "   ", "bad-\ud800-revision"])
+def test_invalid_build_revision_keeps_existing_outputs(upstream: Path, revision: str) -> None:
+    assert _run("fetch", "build") == [0, 0]
+    package = OUT.with_name("datapackage.json")
+    previous = (OUT.read_bytes(), package.read_bytes())
+    upstream.write_text(FIXTURE + "2022,3.5\n", encoding="utf-8", newline="")
+    assert _run("fetch") == [0]
+
+    with pytest.raises(ValueError, match="build_revision"):
+        sourceledger.build(sourceledger.load_manifest(), build_revision=revision)
+
+    assert (OUT.read_bytes(), package.read_bytes()) == previous
+
+
 @pytest.mark.usefixtures("upstream")
 def test_build_reads_a_fetch_record_from_before_the_http_headers(monkeypatch: pytest.MonkeyPatch) -> None:
     """A record without last_modified and etag, as older fetches wrote, still builds."""

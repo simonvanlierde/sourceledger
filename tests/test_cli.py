@@ -98,12 +98,18 @@ def test_an_error_names_what_failed_and_what_to_do(
 
 
 def test_a_usage_error_has_the_same_shape_and_exit_2(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as help_exit:
+        main(["fetch", "--help"])
+    assert help_exit.value.code == 0
+    usage, _, _ = capsys.readouterr().out.partition("\n\n")
+
     with pytest.raises(SystemExit) as exit_:
         main(["fetch", "extra"])
     assert exit_.value.code == 2
     err = capsys.readouterr().err
-    assert err.startswith("usage: sourceledger fetch ")
-    assert err.endswith("error: unrecognized arguments: extra\nhelp: run `sourceledger fetch --help` for its options\n")
+    assert err == (
+        f"{usage}\nerror: unrecognized arguments: extra\nhelp: run `sourceledger fetch --help` for its options\n"
+    )
 
 
 @pytest.mark.parametrize(
@@ -297,15 +303,22 @@ def test_an_interrupted_record_prints_no_signed_url(
 def test_an_interrupted_record_from_stdin_asks_for_the_pipe_again(
     project: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def interrupted(*_: object, **__: object) -> None:
+    write_atomic = ledger._write_atomic  # noqa: SLF001
+
+    def interrupted(path: Path, data: bytes) -> None:
+        write_atomic(path, data)
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(cli, "record_file", interrupted)
+    monkeypatch.setattr(ledger, "_write_atomic", interrupted)
     # A regular file, not the runner's stdin or os.devnull: Windows reports NUL as a terminal.
     with project.open(encoding="utf-8") as piped:
         monkeypatch.setattr(sys, "stdin", piped)
         assert main(["record", "example", "-"]) == 130
-    assert capsys.readouterr().err.endswith("help: nothing was recorded; pipe the file in again\n")
+    assert RAW.read_bytes() == project.read_bytes()
+    assert LOG.is_file()
+    assert capsys.readouterr().err.endswith(
+        "help: check the recorded file and fetch log, then pipe the file in again if needed\n"
+    )
 
 
 @pytest.mark.usefixtures("project")
@@ -1152,15 +1165,33 @@ def test_a_usage_error_under_json_is_the_failure_envelope(argv: list[str], capsy
     assert report["errors"][0]["help"].startswith(f"run `sourceledger {argv[0]} --help`")
 
 
-def test_a_usage_error_without_json_stays_text(capsys: pytest.CaptureFixture[str]) -> None:
+@pytest.mark.parametrize(
+    ("argv", "expected_error"),
+    [
+        (["record", "example", "x.csv", "--parameter", "nope"], "--parameter takes NAME=VALUE, not 'nope'"),
+        (["record", "example", "--parameter", "nope", "--", "--json"], "--parameter takes NAME=VALUE, not 'nope'"),
+        (
+            ["record", "example", "--retrieved-at", "yesterday", "--", "--json"],
+            "argument --retrieved-at: 'yesterday' is not an ISO 8601 time, such as 2026-11-05T09:30:00Z",
+        ),
+        (["--json", "record", "example", "x.csv"], "unrecognized arguments: --json"),
+        (
+            ["--json", "record", "example", "x.csv", "--retrieved-at", "yesterday"],
+            "argument --retrieved-at: 'yesterday' is not an ISO 8601 time, such as 2026-11-05T09:30:00Z",
+        ),
+    ],
+)
+def test_a_usage_error_without_json_stays_text(
+    argv: list[str], expected_error: str, capsys: pytest.CaptureFixture[str]
+) -> None:
     with pytest.raises(SystemExit):
-        main(["record", "example", "x.csv", "--parameter", "nope"])
+        main(argv)
     captured = capsys.readouterr()
     assert captured.out == ""
     usage, _, error = captured.err.partition("error: ")
     assert usage.startswith("usage: sourceledger record")
     assert usage.endswith(" ID PATH\n")
-    assert error == "--parameter takes NAME=VALUE, not 'nope'\nhelp: run `sourceledger record --help` for its options\n"
+    assert error == f"{expected_error}\nhelp: run `sourceledger record --help` for its options\n"
 
 
 def test_the_schema_refuses_a_report_that_lacks_its_result_or_has_another_stages() -> None:
@@ -1169,6 +1200,16 @@ def test_the_schema_refuses_a_report_that_lacks_its_result_or_has_another_stages
     assert not validator.is_valid(base)
     assert not validator.is_valid({**base, "outputs": [{"path": "x", "rows": "1"}], "package": "p"})
     assert not validator.is_valid({**base, "outputs": [], "package": "p", "problems": []})
+
+
+@pytest.mark.usefixtures("project")
+def test_build_dry_run_refuses_an_invalid_revision(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["fetch"]) == 0
+    capsys.readouterr()
+    assert main(["build", "--dry-run", "--json"], build_revision=chr(0xD800)) == 3
+    result = json.loads(capsys.readouterr().out)
+    assert result["errors"][0]["message"] == "build_revision must be valid UTF-8 text"
+    assert "would_write" not in result
 
 
 _RECORD = [sys.executable, "-c", "from sourceledger.cli import entry; entry()", "record", "example"]
@@ -1291,7 +1332,7 @@ def test_ctrl_c_while_record_reads_stdin_leaves_nothing(project: Path) -> None:
         proc.send_signal(signal.SIGINT)
         _, err = proc.communicate()
     assert proc.returncode == -signal.SIGINT
-    assert "nothing was recorded; pipe the file in again" in err.decode()
+    assert "pipe the file in again if needed" in err.decode()
     assert _left_behind() == []
 
 

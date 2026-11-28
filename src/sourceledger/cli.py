@@ -23,7 +23,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
-from sourceledger.builder import DATAPACKAGE, PROCESSED, Parser, build_sources, parse_source
+from sourceledger.builder import DATAPACKAGE, PROCESSED, Parser, build_sources, check_build_revision, parse_source
 from sourceledger.fetcher import USER_AGENT, fetch_sources
 from sourceledger.ledger import (
     FETCH_LOG,
@@ -86,7 +86,7 @@ _EXAMPLES = {
     "fetch": "{prog} fetch --only co2 --json",
     "record": (
         "{prog} record co2 ~/Downloads/co2.csv --retrieved-at 2026-11-05T09:30:00Z\n"
-        "  curl -s https://example.org/co2.csv | {prog} record co2 -"
+        "  {prog} record co2 - < ~/Downloads/co2.csv"
     ),
     "build": "{prog} build --dry-run",
     "validate": "{prog} validate --json",
@@ -344,6 +344,7 @@ def main(  # the entry point: parse, run one stage, report it
     with code 2, as argparse does.
     """
     argv = sys.argv[1:] if argv is None else argv
+    args = None
     try:
         args, extra = _parser(prog, manifest).parse_known_args(argv)
         if extra:  # reported by the stage's parser, so the usage and help name the stage
@@ -351,23 +352,28 @@ def main(  # the entry point: parse, run one stage, report it
         if check_args := getattr(args, "check_args", None):
             check_args(args)
     except _ParseError as error:
-        _usage_error(error, argv)
+        _usage_error(error, argv, args)
     # Retries and recovered fetch logs are reported as warnings, on stderr.
     logging.basicConfig(format=f"{prog}: %(message)s", level=logging.WARNING)
     return _main(_Run(args, argv, parse, prog, user_agent, build_revision))
 
 
-def _usage_error(error: _ParseError, argv: list[str]) -> NoReturn:
+def _usage_error(error: _ParseError, argv: list[str], args: argparse.Namespace | None) -> NoReturn:
     """Exit with code 2: the failure envelope on stdout under --json, else usage and error on stderr."""
     parser = error.parser
+    stage = parser.get_default("stage_name")
     help_ = f"run `{parser.prog} --help` for its options"
-    if parser.get_default("takes_json") and _JSON_FLAG in argv:
+    if args is None:
+        options = argv[argv.index(stage) + 1 :] if stage in argv else []
+        end_of_options = "--"
+        if end_of_options in options:
+            options = options[: options.index(end_of_options)]
+        as_json = _JSON_FLAG in options
+    else:
+        as_json = args.json
+    if parser.get_default("takes_json") and as_json:
         errors = [{"message": str(error), "help": help_}]
-        print(
-            json.dumps(
-                {"schema_version": JSON_SCHEMA_VERSION, "stage": parser.get_default("stage_name"), "errors": errors}
-            )
-        )
+        print(json.dumps({"schema_version": JSON_SCHEMA_VERSION, "stage": stage, "errors": errors}))
     else:
         print(parser.format_usage(), end="", file=sys.stderr)
         _error(str(error), help_)
@@ -401,7 +407,7 @@ def _main(run: _Run) -> int:
         rerun = shlex.join([run.prog, *argv])
         help_ = f"what finished before is kept; run `{rerun}` to finish"
         if getattr(run.args, "path", None) == _STDIN:  # record read stdin, and its bytes are gone
-            help_ = "nothing was recorded; pipe the file in again"
+            help_ = "check the recorded file and fetch log, then pipe the file in again if needed"
         errors = [(f"{run.args.stage} was interrupted", help_)]
         code = EXIT_INTERRUPTED
     except Exception as error:  # noqa: BLE001  # such as a project's parser failing: one line, not a traceback
@@ -620,6 +626,7 @@ def _build_stage(run: _Run) -> list[str]:
     output_format = load_output_format(run.args.manifest)
     package = (PROCESSED / DATAPACKAGE).as_posix()
     if run.args.dry_run:
+        check_build_revision(run.build_revision)
         would = []
         for source in implemented(select(sources, run.args.only)):
             current_record(source, RAW)  # the same refusal build gives for a missing or changed raw file

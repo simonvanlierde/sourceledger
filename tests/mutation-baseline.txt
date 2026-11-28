@@ -25,7 +25,7 @@ sourceledger.builder.x__write_cells__mutmut_56  newline=None translates "\n" to 
 sourceledger.builder.x__write_cells__mutmut_58  the default text encoding is UTF-8 on Linux and on 3.15 (PEP 686); the explicit one is for Windows on 3.12-3.14
 sourceledger.builder.x__write_cells__mutmut_59  newline=None translates "\n" to os.linesep, which is "\n" on Linux, where the job runs
 sourceledger.builder.x__write_cells__mutmut_61  codec names are case-insensitive: "UTF-8" is utf-8
-sourceledger.builder.x_build_sources__mutmut_24  earlier is read only when `only` is set
+sourceledger.builder.x_build_sources__mutmut_16  earlier is read only when `only` is set
 sourceledger.builder.x_json_bytes__mutmut_4  None is falsy, as False is
 sourceledger.builder.x_parse_csv__mutmut_18  StringIO's default newline translates nothing either
 sourceledger.builder.x_parse_csv__mutmut_23  _checked_rows already refuses every row whose length differs from the header, so zip never sees unequal lengths
@@ -48,8 +48,9 @@ sourceledger.cli.x__parser__mutmut_6  allow_abbrev=None is falsy, the same as Fa
 sourceledger.cli.x__parser__mutmut_77  add_help=None is falsy, the same as False
 sourceledger.cli.x__parser__mutmut_93  add_help=None is falsy, the same as False
 sourceledger.cli.x__record_stage__mutmut_17  closefd=None is falsy, the same as False
-sourceledger.cli.x_main__mutmut_30  level=None leaves basicConfig's default, WARNING
-sourceledger.cli.x_main__mutmut_32  basicConfig with no level leaves the root logger at its default, WARNING
+sourceledger.cli.x_main__mutmut_28  the parser and the argv fallback recognize --json only after the stage and before --
+sourceledger.cli.x_main__mutmut_33  level=None leaves basicConfig's default, WARNING
+sourceledger.cli.x_main__mutmut_35  basicConfig with no level leaves the root logger at its default, WARNING
 sourceledger.fetcher.x__archive__mutmut_18  HTTP header names are case-insensitive
 sourceledger.fetcher.x__archive__mutmut_19  HTTP header names are case-insensitive
 sourceledger.fetcher.x__archive__mutmut_30  HTTP header names are case-insensitive
@@ -108,14 +109,14 @@ sourceledger.ledger.x__last_line_start__mutmut_13  reads more at once; finds the
 sourceledger.ledger.x__last_line_start__mutmut_3  differs only for a one-byte first line, which is not JSON
 sourceledger.ledger.x__last_records__mutmut_19  the line is the batch's last, so both end the loop
 sourceledger.ledger.x__log_new_version__mutmut_31  `logged[id]` is read only before that id's own log line, and ids are unique, so the stored value is never read
-sourceledger.ledger.x__record__mutmut_5  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x__record__mutmut_8  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.ledger.x__record__mutmut_14  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.ledger.x__record__mutmut_16  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.ledger.x__recorded_url__mutmut_17  for the source's own URL `_served_from` returns "" anyway, the same as the else branch
 sourceledger.ledger.x_log_version__mutmut_28  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
 sourceledger.ledger.x_log_version__mutmut_29  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
 sourceledger.ledger.x_log_version__mutmut_30  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
 sourceledger.ledger.x_log_version__mutmut_31  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
-sourceledger.ledger.x_record_file__mutmut_80  `temp` is only tested for truthiness and "" and None are both falsy
+sourceledger.ledger.x_record_file__mutmut_81  before _take_in assigns it, temp is only tested for truthiness in cleanup
 sourceledger.ledger.x_without_query__mutmut_4  geturl leaves out a query that is None, as it does an empty one
 sourceledger.ledger.x_without_query__mutmut_5  geturl leaves out a fragment that is None, as it does an empty one
 sourceledger.manifest.x__check_text__mutmut_3  the separator only keeps strings apart; letters added to it are not control characters, so the search finds the same

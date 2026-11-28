@@ -113,7 +113,7 @@ top of `sources.toml`. `init` writes it with the version you have installed in p
 one shown:
 
 ```toml
-#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.6.0/src/sourceledger/sources.schema.json
+#:schema https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.7.0/src/sourceledger/sources.schema.json
 ```
 
 The schema accepts exactly what sourceledger accepts. A test keeps the two in step.
@@ -127,11 +127,11 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
   `sha256` pin, and writes the same log line and record as `fetch`, with `recorded_at` set
   to now. The file must be a regular file within the source's `max_bytes`. The library
   function is `record()`.
-  - `-` as `PATH` reads the bytes from stdin (`./-` is a file named `-`), and stores them under
-    the name `fetch` gives the source. Stdin is read in full before the lock is taken, so a slow
-    pipe keeps no `fetch` waiting. Empty stdin is refused, as a failed download leaves it empty;
-    `-` on a terminal or with stdin closed is a usage error. `--dry-run` still reads stdin, to
-    report the hash and size.
+  - `-` as `PATH` reads stdin and stores the bytes under the name `fetch` gives the source.
+    Use `./-` for a file named `-`. The read finishes before SourceLedger takes the lock, so
+    a slow pipe leaves `fetch` free to run. SourceLedger rejects empty input. Set the manifest's
+    `sha256` to the expected hash to catch incomplete input or an HTTP error body.
+    A terminal or closed stdin gives a usage error. `--dry-run` still reads stdin to report the hash and size.
   - `--retrieved-at TIME` is when the file was downloaded, in ISO 8601 with a time zone
     (`2026-11-05T09:30:00Z`). A value that is not ISO 8601 is a usage error. Without it,
     the record and the rows' `retrieved_at` stay empty rather than claim a download time.
@@ -178,8 +178,9 @@ The schema accepts exactly what sourceledger accepts. A test keeps the two in st
 | `--dry-run` | `fetch`, `record`, `build`, `release` | Say what would happen and write nothing: no download, no log line, no output. `build --dry-run` still checks each raw file against its fetch record, `record --dry-run` still checks and hashes the file, and `release --dry-run` still runs `validate`. |
 | `--json` | `fetch`, `record`, `build`, `validate`, `status`, `revisions`, `verify`, `release` | Print one JSON object on stdout instead of text; see [JSON reports](#json-reports). |
 
-Results go to stdout: fetch lines, outputs written, and the problems `validate` and
-`verify` find, followed by their count. Errors and warnings go to stderr. An error is
+In text mode, stdout lists fetches, written files, and the problems `validate` and
+`verify` find, followed by their count. Text errors and warnings go to stderr. With
+`--json`, errors appear in the report on stdout. A text error is
 one line in the form `error: <what went wrong>`, followed by `help: <what to do>` when
 there is a known next step:
 
@@ -198,7 +199,7 @@ every system, also when redirected to a file on Windows.
 | 1 | Problems found: `validate` or `verify` found at least one, or `release` refused its input or found a problem in the folder. |
 | 2 | Usage error: an unknown stage or option, a missing argument, or an `--only` or `record` id that is not in `sources.toml`, or a `--retrieved-at` that is not an ISO 8601 time. Nothing is written. |
 | 3 | Could not run: a missing or invalid file, a failed download, another fetch holding the lock, a validator `release` needs that is not installed or that stopped without a result, or an unexpected error such as a project's parser failing, printed as one `error:` line with its type. When some sources fail to fetch, the others are still written and logged. |
-| 130 | Interrupted with Ctrl-C. What finished before is kept, and the `help:` line repeats the command to finish. With `--json` the report still prints, and `fetch` lists the sources fetched before. The command then ends by SIGINT, as Ctrl-C does, so a shell loop around it stops too. On Windows it exits 130. `main()` returns 130, so a project's own command calls `sourceledger.entry()` instead, which ends by SIGINT ([custom readers](recipes.md#write-a-custom-reader)). |
+| 130 | Interrupted with Ctrl-C. The help message explains how to retry. For `record ID -`, check the recorded file and fetch log, then pipe in the input again if needed. With `--json` the report still prints, and `fetch` lists the sources fetched before. The command ends by SIGINT, so a shell loop around it stops too. On Windows it exits 130. `main()` returns 130, so a project's own command calls `sourceledger.entry()` to end by SIGINT ([custom readers](recipes.md#write-a-custom-reader)). |
 
 ## JSON reports
 
@@ -218,7 +219,7 @@ goes away), `stage` (the command name) and `errors`. Each error is an object wit
 `message` and `help`, the same two lines the text output prints; `help` is `null` when
 there is no known next step. A successful run has an empty `errors` list. Warnings can
 still appear on stderr. `init`, `attribution` and `report` do not accept `--json`: they write a starter file, Markdown or HTML.
-[`report.schema.json`](https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.6.0/docs/report.schema.json) is the JSON Schema of every report, failures included. Validate against the schema of the version you run: a later version may add fields.
+[`report.schema.json`](https://raw.githubusercontent.com/simonvanlierde/sourceledger/v0.7.0/docs/report.schema.json) is the JSON Schema of every report, failures included. Use the schema for the version you run. A later version may add fields.
 
 | Command | Result field | Meaning |
 | --- | --- | --- |
@@ -297,8 +298,9 @@ new or empty. The folder holds:
   comes from `sources.toml`, not from the files in `data/processed/`, so a source with
   `redistribute = false` is left out, whether it is a copied file or a table, and listed as
   excluded.
-- `datapackage.json`: the one `build` wrote, without the excluded sources, each path under
-  `data/`. `verify` checks the folder against it.
+- `datapackage.json`: the one `build` wrote, with shipped resources under `data/`.
+  When the Python API supplies excluded cache files, `excluded_inputs` lists their source IDs,
+  byte counts and SHA-256 checksums. `verify` checks the folder against the descriptor.
 - `ro-crate-metadata.json` ([RO-Crate 1.3](https://w3id.org/ro/crate/1.3)) and
   `croissant.json` ([Croissant 1.1](https://docs.mlcommons.org/croissant/)), only when
   `release_formats` asks for them; otherwise each is reported as skipped. The RO-Crate lists
@@ -362,6 +364,49 @@ In Python, `release()` returns the fields of the `--json` report. It raises `Rel
 reached the folder, and `ValidatorFailed` when a validator reported findings.
 `ValidatorMissing` and `ValidatorCouldNotRun` are `OSError`s. `check_release(DIR)` is
 `release --check DIR`: it returns the problems and the checks that ran.
+
+### Release outputs from excluded cache files
+
+The Python API can record a file in an existing cache. Mark its source as implemented with
+`format = "file"` and `redistribute = false`. Set `max_bytes` in the manifest if the file is
+larger than the default limit. Record the exact input used to produce the outputs and keep the
+cache stable until the release finishes. Record the other inputs as usual before building.
+
+```python
+from pathlib import Path
+
+import sourceledger
+
+sources = sourceledger.load_manifest()
+by_id = {source["id"]: source for source in sources}
+cache_files = {"bulk": Path("cache/bulk.bin")}
+for source_id, path in cache_files.items():
+    sourceledger.record(by_id[source_id], path, copy=False)
+
+processed = Path("data/release-build")
+built_ids = [s["id"] for s in sources if s["status"] == "implemented" and s["id"] not in cache_files]
+name = sourceledger.load_package_name()
+output_format = sourceledger.load_output_format()
+sourceledger.build(sources, only=built_ids, processed=processed, name=name, output_format=output_format)
+release_dir = Path("release-v1")
+sourceledger.release(
+    sources, release_dir, processed=processed, name=name, output_format=output_format, external_inputs=cache_files
+)
+problems = sourceledger.verify(release_dir, external_inputs=cache_files)
+if problems:
+    raise ValueError("\n".join(problems))
+```
+
+`record(copy=False)` writes the log and a checksum sidecar. The file stays in the cache.
+Use a fresh processed folder when switching an existing project to this mode. A partial build
+in a reused folder can keep old outputs and descriptor entries. The release checks the cache
+files against their records before publishing and refuses a shipped file with matching
+restricted bytes. The package's fingerprints contain no cache paths.
+
+`verify` checks only the shipped files by default, so a reader without the cache can use
+`sourceledger verify DIR` offline. Supply `external_inputs` to the library to also verify the
+cache files. Include a path for every listed ID. Paths come from the caller rather than the
+downloaded descriptor.
 
 ## HTML provenance report
 

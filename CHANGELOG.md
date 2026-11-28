@@ -8,12 +8,22 @@ a breaking change comes only in a minor version (see Stability in the README).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-26
+
+### Upgrade notes
+
+- Use `record ID ./-` for a file named `-`.
+- Scripts that request `--json` should read usage errors from stdout. Usage errors still exit with code 2.
+
 ### Added
 
 - The [PUDL release example](docs/recipes.md#package-a-downstream-result-from-both-releases) builds a small derived dataset from two pinned versions and shows recipients how to check it offline.
 - `build`, `main` and `entry` accept an optional `build_revision` keyword. It records the
   code revision on each rebuilt resource in `datapackage.json` and keeps it in dataset releases.
 - `record ID -` reads the file from stdin; the [reference](docs/reference.md#other-commands) has the rules.
+- The [release API](docs/reference.md#release-outputs-from-excluded-cache-files) can fingerprint
+  restricted files in an existing cache. Build and ship the other outputs, and verify the excluded
+  inputs later by supplying their local paths.
 - `build --json` prints `outputs` (each file's `path` and `rows`, `null` for a copied file) and `package`; with `--dry-run`, `would_write`.
 - `docs/report.schema.json`, the JSON Schema of every stage's `--json` report and of the failure envelope.
 - Each stage's `--help` ends with an example command.
@@ -25,7 +35,6 @@ a breaking change comes only in a minor version (see Stability in the README).
 - The [roadmap](docs/roadmap.md) sets goals for verifiable dataset deposits, real publisher revisions and independent adoption.
 - The Pooch recipe uses the manifest's SHA-256 pin for both retrieval and recording.
 - Use the shared documentation tokens and allowlisted script hashes in the docs Content Security Policy.
-- A usage error under `--json`, such as `record --parameter nope --json`, prints the failure object on stdout with exit code 2 and nothing on stderr, instead of text on stderr.
 
 ### Fixed
 
@@ -33,6 +42,10 @@ a breaking change comes only in a minor version (see Stability in the README).
 - A fetch pin mismatch explains that the bytes changed and prints a `sha256 = "..."` line to review, without suggesting a retry.
 - A fetch that restores a missing local file says `fetched` when its bytes are already in the fetch log.
 - Fetch success rows appear before the final error when stdout and stderr go to the same file or pipe.
+
+All 11 benchmark cases passed in five paired Linux runs against 0.6.0. Median best
+times changed by −15% for fetch, +0.7% for archived fetch and +7.5% for build.
+The observed ranges overlapped on the shared host.
 
 ## [0.6.0] - 2026-11-15
 
@@ -414,7 +427,8 @@ Upgrade steps:
   vintage or pin.
 - Manifest key `vintage`. The key `release` is still read, with a warning.
 
-[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/simonvanlierde/sourceledger/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/simonvanlierde/sourceledger/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/simonvanlierde/sourceledger/compare/v0.4.0...v0.5.0

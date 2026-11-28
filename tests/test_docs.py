@@ -12,6 +12,7 @@ from datetime import date
 from importlib.metadata import version
 from pathlib import Path
 
+import jsonschema
 import pytest
 from support import builder_mod, fetcher_mod, report_mod
 
@@ -302,8 +303,41 @@ def test_project_stage_recipe_parses_before_loading(
     assert calls[-1] == ["status", "--json"]
 
 
+@pytest.mark.usefixtures("project")
+def test_validate_recipe_uses_the_selected_manifests_name_and_format(monkeypatch: pytest.MonkeyPatch) -> None:
+    manifest = Path("alternate.toml")
+    source = Path("sources.toml")
+    manifest.write_text(
+        'name = "recipe-example"\noutput_format = "parquet"\n' + source.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    source.unlink()
+    for stage in ("fetch", "build"):
+        assert main([stage, "--manifest", str(manifest)]) == 0
+    namespace = {}
+    exec(_block(RECIPES, "### Call a stage from your own CLI", "python"), namespace)  # noqa: S102
+    monkeypatch.setattr(sys, "argv", ["validate", "--manifest", str(manifest)])
+    assert namespace["main"]() == 0
+    Path("data/processed/co2.parquet").unlink()
+    assert namespace["main"]() == 1
+
+
 def test_the_report_schema_link_names_the_current_tag() -> None:
     """The reference links the report schema at this version's tag, and the schema's $id is the same file on main."""
     report = json.loads((ROOT / "docs" / "report.schema.json").read_text(encoding="utf-8"))
     link = f"({report['$id'].replace('/main/', f'/v{version("sourceledger")}/')})"
     assert link in (ROOT / "docs" / "reference.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"dry_run": True, "outputs": [], "package": "datapackage.json"},
+        {"outputs": [], "package": "datapackage.json", "would_write": ["datapackage.json"]},
+        {"dry_run": True, "would_write": ["datapackage.json"], "outputs": [], "package": "datapackage.json"},
+    ],
+)
+def test_build_report_schema_separates_a_plan_from_written_outputs(result: dict[str, object]) -> None:
+    schema = json.loads((ROOT / "docs" / "report.schema.json").read_text(encoding="utf-8"))
+    report = {"schema_version": 1, "stage": "build", "errors": [], **result}
+    assert not jsonschema.Draft202012Validator(schema).is_valid(report)

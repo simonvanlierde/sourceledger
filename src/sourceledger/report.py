@@ -23,7 +23,7 @@ from sourceledger.builder import (
     _resource,
     _stamp,
 )
-from sourceledger.ledger import FETCH_LOG, RAW, _digest, _last_records, current_record
+from sourceledger.ledger import FETCH_LOG, RAW, _digest, _last_records, _open_regular, _sha256, current_record
 from sourceledger.manifest import (
     FILE_FORMAT,
     IMPLEMENTED,
@@ -38,7 +38,7 @@ from sourceledger.manifest import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Collection
+    from collections.abc import Collection, Mapping
 
 
 def _terms_problems(source: Source) -> list[str]:
@@ -318,13 +318,16 @@ def read_received(path: Path) -> bytes:
     return data
 
 
-def verify(folder: Path) -> list[str]:
+def verify(folder: Path, *, external_inputs: Mapping[str, Path] | None = None) -> list[str]:
     """Check a published dataset against its datapackage.json, offline, and return one string per problem.
 
     Each resource's file must be inside `folder` and match the `bytes` (when given) and the
     `hash` (`sha256:<hex>`) the package lists. Raises OSError when the package is missing,
     and ValueError when it is not JSON. The problems hold names from the folder as they are:
     pass each through `printable` before it goes to a terminal.
+
+    With `external_inputs`, map each excluded source id to a local file to check against
+    its published fingerprint. Without it, verify only the files shipped in the folder.
     """
     path = folder / DATAPACKAGE
     try:
@@ -335,7 +338,45 @@ def verify(folder: Path) -> list[str]:
     resources = package.get("resources") if isinstance(package, dict) else None
     if not isinstance(resources, list):
         return [f"{path.as_posix()} has no list of resources"]
-    return [problem for r in resources for problem in _file_problems(folder, r if isinstance(r, dict) else {})]
+    problems = [problem for r in resources for problem in _file_problems(folder, r if isinstance(r, dict) else {})]
+    if external_inputs is not None:
+        problems.extend(_excluded_input_problems(package.get("excluded_inputs", {}), external_inputs))
+    return problems
+
+
+def _excluded_input_problems(records: object, inputs: Mapping[str, Path]) -> list[str]:
+    """Check only paths supplied by the caller. A received package supplies fingerprints and ids."""
+    if not isinstance(records, dict):
+        return ["datapackage.json: excluded_inputs must be an object"]
+    problems = [f"{sid}: no excluded input in datapackage.json" for sid in sorted(inputs.keys() - records.keys())]
+    for sid, fields in records.items():
+        if not isinstance(fields, dict):
+            problems.append(f"{sid}: invalid excluded input fingerprint")
+            continue
+        digest, size = fields.get("sha256"), fields.get("bytes")
+        if (
+            not isinstance(digest, str)
+            or not re.fullmatch(r"[a-f0-9]{64}", digest)
+            or type(size) is not int
+            or size < 0
+        ):
+            problems.append(f"{sid}: invalid excluded input fingerprint")
+            continue
+        path = inputs.get(sid)
+        if path is None:
+            problems.append(f"{sid}: no path supplied for excluded input")
+            continue
+        try:
+            with _open_regular(path) as (stream, info):
+                if info.st_size != size:
+                    problems.append(f"{sid}: excluded input does not match its byte count")
+                elif _sha256(stream) != digest:
+                    problems.append(f"{sid}: excluded input does not match its SHA-256")
+        except ValueError:
+            problems.append(f"{sid}: excluded input must be a regular file")
+        except OSError:
+            problems.append(f"{sid}: could not read the excluded input")
+    return problems
 
 
 def leaves_folder(name: str) -> bool:

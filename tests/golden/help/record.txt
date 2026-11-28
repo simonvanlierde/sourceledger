@@ -28,4 +28,4 @@ options:
 
 example:
   sourceledger record co2 ~/Downloads/co2.csv --retrieved-at 2026-11-05T09:30:00Z
-  curl -s https://example.org/co2.csv | sourceledger record co2 -
+  sourceledger record co2 - < ~/Downloads/co2.csv

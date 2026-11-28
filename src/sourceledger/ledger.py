@@ -20,10 +20,11 @@ from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, Protocol
 from urllib.parse import urlsplit
 
-from sourceledger.manifest import _BUDGET_S, _MAX_BYTES, _SHA256, IMPLEMENTED, Source, _vintage, raw_name
+from sourceledger.manifest import _BUDGET_S, _MAX_BYTES, _SHA256, FILE_FORMAT, IMPLEMENTED, Source, _vintage, raw_name
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
+    from io import BufferedReader
 
 if sys.platform == "win32":  # noqa: PLR2004
     import msvcrt
@@ -359,18 +360,18 @@ def _served_from(source: Source, url: str) -> str:
 
 
 def _commit(
-    source: Source, temp: Path, record: FetchRecord, raw: Path, log: Path, logged: dict[str, dict[str, Any]]
+    source: Source, temp: Path | None, record: FetchRecord, raw: Path, log: Path, logged: dict[str, dict[str, Any]]
 ) -> dict[str, Any]:
-    """Move `temp`, whose bytes `record` describes, into place as the raw file, and log and record it.
+    """Log and record the bytes. Move `temp` into place when the raw copy is stored here.
 
     Returns the fields the sidecar now holds: an earlier log line's when it was the same version.
     """
-    name = raw_name(source)
-    temp.replace(raw / name)
+    if temp is not None:
+        temp.replace(raw / raw_name(source))
     # Logged before the record is written: until the record matches the raw file, the next
     # run fetches in full, so a crash in between loses nothing.
     fields = _log_new_version(log, logged, record)
-    _write_atomic(raw / f"{name}.fetch.json", (json.dumps(fields, indent=2) + "\n").encode())
+    _write_atomic(_record_path(source, raw, external=temp is None), (json.dumps(fields, indent=2) + "\n").encode())
     return fields
 
 
@@ -385,12 +386,15 @@ def record(
     parameters: dict[str, str | int] | None = None,
     raw: Path = RAW,
     log: Path = FETCH_LOG,
+    copy: bool = True,
 ) -> FetchRecord:
     """Take a file another tool downloaded for `source` into `raw`, and log and record it as `fetch` would.
 
     The file is copied, never moved, so the other tool keeps its cache. The same pin, lock,
     log and sidecar rules apply as for a fetch, and nothing goes over the network. The
-    record's `recorded_at` is the time of this call.
+    record's `recorded_at` is the time of this call. With `copy=False`, a source with
+    `format="file"` and `redistribute=False` keeps its bytes in the caller's cache and
+    stores a log entry and a separate sidecar in `raw`. Pass the cache path to `release`.
 
     `retrieved_at` is when the other tool downloaded the file: a timezone-aware datetime or
     an ISO 8601 string with a time zone, stored in UTC. Leave it out when that tool does not
@@ -415,6 +419,9 @@ def record(
     manifest's `sha256` pin. Raises FetchBusyError (an OSError) when another fetch holds
     the lock on `raw`.
     """
+    if not copy and (source.get("format") != FILE_FORMAT or source.get("redistribute") is not False):
+        msg = f"{source['id']}: copy=False requires format='file' and redistribute=false"
+        raise ValueError(msg)
     return record_file(
         source,
         path,
@@ -425,6 +432,7 @@ def record(
         parameters=parameters,
         raw=raw,
         log=log,
+        copy=copy,
     )
 
 
@@ -441,6 +449,7 @@ def record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before 
     log: Path,
     before: dict[str, dict[str, Any]] | None = None,
     dry_run: bool = False,
+    copy: bool = True,
 ) -> FetchRecord:
     """`record()`, filling `before` with the log lines logged before it, read under the lock as `fetch_sources` does.
 
@@ -474,7 +483,7 @@ def record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before 
             before.update(logged)
         temp = None
         try:
-            digest, size, temp = _take_in(source, path, None if dry_run else raw)
+            digest, size, temp = _take_in(source, path, raw if copy and not dry_run else None)
             if source.get("sha256", digest) != digest:
                 msg = f"{sid}: {name} hashes to {digest}, not the sha256 in sources.toml"
                 raise ValueError(msg)
@@ -495,7 +504,7 @@ def record_file(  # noqa: PLR0913  # record()'s arguments, and the CLI's before 
                 parameters=request,
                 archive_url=archived,
             )
-            if temp:
+            if not dry_run:
                 result = FetchRecord(**_commit(source, temp, result, raw, log, logged))
         finally:
             if temp:
@@ -528,7 +537,7 @@ def _recorded_url(source: Source, url: str, etag: str, last_modified: str) -> tu
 def _take_in(source: Source, path: Path, raw: Path | None) -> tuple[str, int, Path | None]:
     """The SHA-256 and size of `path`, and a copy of it in a temp file in `raw`; with no `raw`, only hashed."""
     if raw is None:
-        with path.open("rb") as src:
+        with _open_regular(path) as (src, _):
             return (*_copy(src, None, source, math.inf), None)
     fd, name = tempfile.mkstemp(dir=raw, prefix=f".{source['id']}.", suffix=".part")
     try:
@@ -538,6 +547,18 @@ def _take_in(source: Source, path: Path, raw: Path | None) -> tuple[str, int, Pa
         Path(name).unlink(missing_ok=True)
         raise
     return digest, size, Path(name)
+
+
+@contextlib.contextmanager
+def _open_regular(path: Path) -> Generator[tuple[BufferedReader, os.stat_result]]:
+    """Open a caller-supplied cache file without waiting on a FIFO swapped into its place."""
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
+    with open(fd, "rb") as stream:  # noqa: PTH123  # fd is an open descriptor
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            msg = "the input must be a regular file"
+            raise ValueError(msg)
+        yield stream, info
 
 
 @contextlib.contextmanager
@@ -673,6 +694,19 @@ def current_record(source: Source, raw: Path) -> FetchRecord:
     return record
 
 
+def _current_external_record(source: Source, raw: Path, path: Path) -> FetchRecord:
+    """Check the caller's cached file against the sidecar kept by record(copy=False)."""
+    record = _record(source, raw, external=True)
+    digest, size, _ = _take_in(source, path, None)
+    if digest != record.sha256:
+        msg = f"{source['id']}: the cache file changed since it was recorded; check it before re-recording"
+        raise ValueError(msg)
+    if size != record.bytes:
+        msg = f"{source['id']}: recorded byte count does not match the external input"
+        raise ValueError(msg)
+    return record
+
+
 def _digest(path: Path) -> str:
     """The file's SHA-256, read a block at a time."""
     with path.open("rb") as fh:
@@ -693,24 +727,35 @@ def _check_hash(source: Source, record: FetchRecord, digest: str) -> None:
         raise ValueError(msg)
 
 
-def _record(source: Source, raw: Path) -> FetchRecord:
-    """The fetch record for `source`, if it was made for the request the manifest now makes."""
+def _record_path(source: Source, raw: Path, *, external: bool = False) -> Path:
+    suffix = ".external.json" if external else ".fetch.json"
+    return raw / f"{raw_name(source)}{suffix}"
+
+
+def _record(source: Source, raw: Path, *, external: bool = False, historical: bool = False) -> FetchRecord:
+    """Read a sidecar, checking the current request unless only its historical fingerprint is needed."""
     name = raw_name(source)
-    fields = json.loads((raw / f"{name}.fetch.json").read_text(encoding="utf-8"))
-    msg = f"{name}.fetch.json is not a fetch record; re-run fetch"
+    sidecar = _record_path(source, raw, external=external)
+    fields = json.loads(sidecar.read_text(encoding="utf-8"))
+    retry = "re-run record(copy=False)" if external else "re-run fetch"
+    msg = f"{sidecar.name} is not a fetch record; {retry}"
     if not _is_record(fields):
         raise ValueError(msg)
     try:
         record = FetchRecord(**fields)
     except TypeError as error:  # a key FetchRecord does not have, or lacks
         raise ValueError(msg) from error
+    if historical:
+        if record.source_id != source["id"]:
+            raise ValueError(msg)
+        return record
     if (record.source_id, record.url) != (source["id"], source["url"]):
-        msg = f"{name} was fetched from {record.url}, but sources.toml now requests {source['url']}; re-run fetch"
+        msg = f"{name} was fetched from {record.url}, but sources.toml now requests {source['url']}; {retry}"
         raise ValueError(msg)
     if record.vintage != _vintage(source):
-        msg = f"{name} was fetched as vintage {record.vintage!r}, not {_vintage(source)!r}; re-run fetch"
+        msg = f"{name} was fetched as vintage {record.vintage!r}, not {_vintage(source)!r}; {retry}"
         raise ValueError(msg)
     if source.get("sha256", record.sha256) != record.sha256:  # load_manifest lowercases the pin
-        msg = f"{name} hashes to {record.sha256}, not the sha256 sources.toml now pins; re-run fetch"
+        msg = f"{name} hashes to {record.sha256}, not the sha256 sources.toml now pins; {retry}"
         raise ValueError(msg)
     return record
