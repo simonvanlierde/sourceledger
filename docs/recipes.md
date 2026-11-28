@@ -399,3 +399,46 @@ the [release notes](https://github.com/catalyst-cooperative/pudl/releases/tag/v2
 also name a fix to PUDL's generator fuel allocation, so the two releases differ in
 more than one way. Separating those causes takes the release notes and the
 upstream code, not this comparison.
+
+### Package a downstream result from both releases
+
+Use the same two releases to produce a small dataset that someone else can check offline.
+PUDL publishes the generator tables and their versioned DOIs. This example records which
+of those files produced each annual total.
+
+Save [generation.py](examples/pudl-revisions/generation.py) and
+[generation-sources.toml](examples/pudl-revisions/generation-sources.toml)
+in an empty folder. Then run:
+
+```sh
+uv run --script generation.py fetch &&
+  uv run --script generation.py build &&
+  uv run --script generation.py release release
+```
+
+The manifest pins the SHA-256 of each PUDL file. The example reader uses PyArrow to sum
+the [generator table's net generation values](https://docs.catalyst.coop/pudl/en/v2026.10.0/data_dictionaries/pudl_db.html#out-eia-yearly-generators)
+for 2023–2025, including values PUDL allocated to generators. It skips missing values
+and rounds each annual total to the nearest MWh. The 2025 sum goes from 4.369 to 4.412 billion MWh across the
+two releases. SourceLedger adds the source URL, release vintage, and raw checksum to
+every output row. The release folder contains the two derived CSV files,
+`datapackage.json`, and `SHA256SUMS`.
+
+The source tables are from Catalyst Cooperative's [PUDL data releases](https://docs.catalyst.coop/pudl/en/v2026.10.0/data_access.html)
+under CC-BY-4.0.
+
+From a directory with only the extracted release and SourceLedger installed, run:
+
+```sh
+sourceledger verify release && sourceledger release --check release
+```
+
+The first command checks the CSVs against the Data Package descriptor. The second
+checks the release inventory and checksums, including the checksum of the descriptor
+that holds the provenance fields.
+
+Open either CSV and compare its `vintage` and `raw_sha256` with the resource's
+`sourceledger` entry in `datapackage.json`. The vintage contains the PUDL version DOI.
+If your own workflow already downloads PUDL data, use
+[`record`](#record-a-file-another-tool-downloaded) to keep that downloader and replace
+the example reader with your calculation.

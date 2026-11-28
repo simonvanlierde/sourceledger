@@ -125,6 +125,37 @@ def test_the_pudl_comparison_runs_on_two_small_releases(
     assert out.endswith("\n2025           0           0  +4.12%\n")
 
 
+def test_pudl_downstream_release_names_the_input_for_each_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    example = ROOT / "docs" / "examples" / "pudl-revisions"
+    parse = runpy.run_path(str(example / "generation.py"))["annual_generation"]
+    manifest = (example / "generation-sources.toml").read_text(encoding="utf-8")
+    manifest = re.sub(r"^sha256 *=.+\n", "", manifest, flags=re.MULTILINE)
+    (tmp_path / "sources.toml").write_text(manifest, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    years = [date(year, 1, 1) for year in (2023, 2024, 2025)]
+    for identifier, values in (("generation-2026-09", [10, 20, 30]), ("generation-2026-10", [10, 20, 40])):
+        path = tmp_path / f"{identifier}.parquet"
+        pq.write_table(pa.table({"report_date": years, "net_generation_mwh": values}), path)
+        assert main(["record", identifier, str(path)]) == 0
+
+    assert main(["build"], parse=parse) == 0
+    assert main(["release", "release"]) == 0
+    assert main(["verify", "release"]) == 0
+    assert main(["release", "--check", "release"]) == 0
+    package = json.loads(Path("release/datapackage.json").read_text(encoding="utf-8"))
+    for resource, value, vintage in zip(package["resources"], (30, 40), ("v2026.9.0", "v2026.10.0"), strict=True):
+        provenance = resource["sourceledger"]
+        assert vintage in provenance["vintage"]
+        csv = (Path("release") / resource["path"]).read_text(encoding="utf-8")
+        assert provenance["raw_sha256"] in csv
+        assert csv.splitlines()[-1].endswith(f",2025,{value}")
+
+
 def test_the_website_revision_example_matches_the_pipeline(project: Path) -> None:
     """The browser's recorded example must agree with real fetch/build/validate results."""
     example = json.loads((ROOT / "docs" / "_data" / "revision.json").read_text())

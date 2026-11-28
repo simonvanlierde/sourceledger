@@ -55,7 +55,8 @@ case with stable source identifiers and domain-specific comparison rules.
 Start the independent pilot with a team that builds a dataset from published inputs. The PUDL
 recipe gives them a way to test provenance across two releases using
 [PUDL's existing versioned Parquet files and Data Package](https://docs.catalyst.coop/pudl/en/v2026.10.0/data_access.html).
-Ask whether the downstream workflow records anything they need for their next release.
+Give them the [downstream release example](recipes.md#package-a-downstream-result-from-both-releases)
+and ask whether its provenance answers a question they have about their next release.
 Consider a software paper once an independent team can reproduce the workflow.
 
 ## Scope
