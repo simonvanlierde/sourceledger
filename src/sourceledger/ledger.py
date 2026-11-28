@@ -727,7 +727,7 @@ def _check_hash(source: Source, record: FetchRecord, digest: str) -> None:
         raise ValueError(msg)
 
 
-def _record_path(source: Source, raw: Path, *, external: bool) -> Path:
+def _record_path(source: Source, raw: Path, *, external: bool = False) -> Path:
     suffix = ".external.json" if external else ".fetch.json"
     return raw / f"{raw_name(source)}{suffix}"
 

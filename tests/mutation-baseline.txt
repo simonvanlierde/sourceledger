@@ -109,8 +109,8 @@ sourceledger.ledger.x__last_line_start__mutmut_13  reads more at once; finds the
 sourceledger.ledger.x__last_line_start__mutmut_3  differs only for a one-byte first line, which is not JSON
 sourceledger.ledger.x__last_records__mutmut_19  the line is the batch's last, so both end the loop
 sourceledger.ledger.x__log_new_version__mutmut_31  `logged[id]` is read only before that id's own log line, and ids are unique, so the stored value is never read
-sourceledger.ledger.x__record__mutmut_13  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
-sourceledger.ledger.x__record__mutmut_15  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.ledger.x__record__mutmut_14  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
+sourceledger.ledger.x__record__mutmut_16  codec names are case-insensitive, and the default encoding is UTF-8 on every CI host (Linux, UTF-8 locale); a Windows job would see it
 sourceledger.ledger.x__recorded_url__mutmut_17  for the source's own URL `_served_from` returns "" anyway, the same as the else branch
 sourceledger.ledger.x_log_version__mutmut_28  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way
 sourceledger.ledger.x_log_version__mutmut_29  the flag is implied by `stated`, which is empty exactly when recorded_at is unset, so tuples differ either way

@@ -228,7 +228,7 @@ def external_project(tmp_path: Path) -> list[manifest_mod.Source]:
 
 
 def test_release_verifies_an_excluded_input_without_copying_it(
-    tmp_path: Path, external_project: list[manifest_mod.Source]
+    tmp_path: Path, external_project: list[manifest_mod.Source], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     raw, processed, released = (tmp_path / name for name in ("raw", "processed", "release"))
     cache = tmp_path / "private-cache.bin"
@@ -257,7 +257,16 @@ def test_release_verifies_an_excluded_input_without_copying_it(
         sourceledger.release(sources, released, raw=raw, processed=processed, name="example", external_inputs=inputs)
     assert not released.exists()
     cache.write_bytes(SECRET)
+    reads = []
+    current_record = releaser._current_external_record  # noqa: SLF001
+
+    def track_read(source: manifest_mod.Source, raw_dir: Path, path: Path) -> sourceledger.FetchRecord:
+        reads.append(path)
+        return current_record(source, raw_dir, path)
+
+    monkeypatch.setattr(releaser, "_current_external_record", track_read)
     sourceledger.release(sources, released, raw=raw, processed=processed, name="example", external_inputs=inputs)
+    assert reads == [cache]
 
     package = json.loads((released / "datapackage.json").read_text(encoding="utf-8"))
     assert package["excluded_inputs"] == {"secret": {"sha256": digest, "bytes": len(SECRET)}}
@@ -300,7 +309,9 @@ def test_release_refuses_an_external_input_rerecorded_during_staging(
         monkeypatch.setattr(releaser.shutil, "copyfile", refresh_during_copy)
     else:
         monkeypatch.setattr(releaser, "check_release", refresh_during_check)
-    with pytest.raises(sourceledger.ReleaseError, match="re-recorded during release"):
+    with pytest.raises(
+        sourceledger.ReleaseError, match=r"^an external input was re-recorded during release; re-run release$"
+    ):
         sourceledger.release(
             external_project, released, raw=raw, processed=processed, name="example", external_inputs={"secret": cache}
         )
@@ -328,11 +339,65 @@ def test_release_checks_the_recorded_size_of_an_external_input(
         )
 
 
-def test_copy_false_rejects_a_redistributable_source(tmp_path: Path) -> None:
+@pytest.mark.parametrize(("format_", "redistribute"), [("file", True), ("csv", False)])
+def test_copy_false_requires_an_excluded_file(tmp_path: Path, format_: str, *, redistribute: bool) -> None:
     _write_manifest(tmp_path, open_file="open.bin")
     source = manifest_mod.load_manifest(tmp_path / "sources.toml")[0]
+    source["format"] = format_
+    source["redistribute"] = redistribute
     with pytest.raises(ValueError, match=r"copy=False requires format='file' and redistribute=false"):
         sourceledger.record(source, tmp_path / "open.bin", copy=False, raw=tmp_path / "raw")
+
+
+def test_release_still_checks_external_input_terms(tmp_path: Path, external_project: list[manifest_mod.Source]) -> None:
+    del external_project[1]["terms"]
+    with pytest.raises(
+        sourceledger.ReleaseError, match=r"^secret: no terms or terms_url; record the publisher's reuse terms$"
+    ):
+        sourceledger.release(
+            external_project,
+            tmp_path / "release",
+            raw=tmp_path / "raw",
+            processed=tmp_path / "processed",
+            external_inputs={"secret": tmp_path / "private-cache.bin"},
+        )
+
+
+def test_external_release_explains_a_damaged_cache_record(
+    tmp_path: Path, external_project: list[manifest_mod.Source]
+) -> None:
+    raw = tmp_path / "raw"
+    sidecar = raw / "secret.bin.external.json"
+    sidecar.write_text("{}", encoding="utf-8")
+    with pytest.raises(
+        sourceledger.ReleaseError,
+        match=r"^secret\.bin\.external\.json is not a fetch record; re-run record\(copy=False\)$",
+    ):
+        sourceledger.release(
+            external_project,
+            tmp_path / "release",
+            raw=raw,
+            processed=tmp_path / "processed",
+            external_inputs={"secret": tmp_path / "private-cache.bin"},
+        )
+
+
+def test_external_release_checks_which_source_owns_a_historical_record(
+    tmp_path: Path, external_project: list[manifest_mod.Source]
+) -> None:
+    raw = tmp_path / "raw"
+    sidecar = raw / "secret.bin.external.json"
+    fields = json.loads(sidecar.read_text(encoding="utf-8"))
+    fields["source_id"] = "another-source"
+    (raw / "secret.bin.fetch.json").write_text(json.dumps(fields), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"^secret\.bin\.fetch\.json is not a fetch record; re-run fetch$"):
+        sourceledger.release(
+            external_project,
+            tmp_path / "release",
+            raw=raw,
+            processed=tmp_path / "processed",
+            external_inputs={"secret": tmp_path / "private-cache.bin"},
+        )
 
 
 @pytest.mark.parametrize("old_raw", ["none", "kept", "removed", "edited", "matches-edited"])
@@ -381,6 +446,10 @@ def test_external_verification_uses_only_the_callers_paths(tmp_path: Path) -> No
         "first: no path supplied for excluded input",
     ]
     second.write_bytes(b"short")
+    assert sourceledger.verify(released, external_inputs={"second": second}) == [
+        "first: no path supplied for excluded input",
+        "second: excluded input does not match its byte count",
+    ]
     assert sourceledger.verify(released, external_inputs={"first": second, "second": first}) == [
         "first: excluded input does not match its byte count",
     ]
@@ -419,6 +488,9 @@ def test_external_verification_reports_bad_fingerprints(tmp_path: Path, fields: 
     package["excluded_inputs"] = None
     descriptor.write_text(json.dumps(package), encoding="utf-8")
     assert sourceledger.verify(tmp_path, external_inputs={}) == ["datapackage.json: excluded_inputs must be an object"]
+    drop_fingerprints = {"resources": []}
+    descriptor.write_text(json.dumps(drop_fingerprints), encoding="utf-8")
+    assert sourceledger.verify(tmp_path, external_inputs={}) == []
 
 
 def test_build_revision_survives_partial_build_and_release(project: Path) -> None:
@@ -455,6 +527,9 @@ def test_the_default_release_writes_data_the_package_and_sums(
 ) -> None:
     """Without release_formats: no RO-Crate, no Croissant, each reported skipped, and no codemeta.json needed."""
     (project / "codemeta.json").unlink()
+    descriptor = Path("data/processed/datapackage.json")
+    built = json.loads(descriptor.read_text(encoding="utf-8"))
+    descriptor.write_text(json.dumps({**built, "excluded_inputs": {"unverified": {}}}), encoding="utf-8")
     assert _release(str(OUT)) == 0
     out = capsys.readouterr().out
     assert out.startswith("wrote release/data/open.csv\nwrote release/datapackage.json\nwrote release/SHA256SUMS\n")
@@ -470,7 +545,6 @@ def test_the_default_release_writes_data_the_package_and_sums(
     assert (OUT / "SHA256SUMS").read_bytes() == expected.encode()
     assert sourceledger.verify(OUT) == []
     package = json.loads((OUT / "datapackage.json").read_text(encoding="utf-8"))
-    built = json.loads(Path("data/processed/datapackage.json").read_text(encoding="utf-8"))
     assert package == {**built, "resources": [{**built["resources"][0], "path": "data/open.csv"}]}
 
 

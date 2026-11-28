@@ -517,7 +517,7 @@ def _sums_problems(folder: Path) -> list[str]:
 
 
 def _external_records(
-    sources: list[Source], raw: Path, external: Mapping[str, Path], *, checked: bool = False
+    sources: list[Source], raw: Path, external: Mapping[str, Path], *, checked: bool
 ) -> dict[str, FetchRecord]:
     """Read the hash-only records, optionally checking the cache files themselves."""
     records = {}
@@ -558,7 +558,7 @@ def _refuse_restricted(
         if sid not in external:
             banned[current_record(source, raw).sha256] = sid
         else:
-            if _record_path(source, raw, external=False).is_file():
+            if _record_path(source, raw).is_file():
                 banned[_record(source, raw, historical=True).sha256] = sid
             if (old_raw := raw / raw_name(source)).is_file():
                 banned[_digest(old_raw)] = sid
